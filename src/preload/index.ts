@@ -54,18 +54,24 @@ contextBridge.exposeInMainWorld('raven', {
   getTranscript: () => ipcRenderer.invoke('audio:get-transcript'),
   clearTranscript: () => ipcRenderer.invoke('audio:clear-transcript'),
   // Claude AI
-  claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string }) =>
+  claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) =>
     ipcRenderer.invoke('claude:get-response', params),
+  claudeGetHistory: () => ipcRenderer.invoke('claude:get-history'),
+  claudeClearHistory: () => ipcRenderer.invoke('claude:clear-history'),
   onClaudeResponse: (callback: (data: {
-    type: 'start' | 'delta' | 'done' | 'error'
-    action?: string
+    type: 'start' | 'delta' | 'done' | 'error' | 'cleared'
+    userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number }
+    assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number }
+    messageId?: string
     text?: string
     fullText?: string
     error?: string
   }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as {
-      type: 'start' | 'delta' | 'done' | 'error'
-      action?: string
+      type: 'start' | 'delta' | 'done' | 'error' | 'cleared'
+      userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number }
+      assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number }
+      messageId?: string
       text?: string
       fullText?: string
       error?: string

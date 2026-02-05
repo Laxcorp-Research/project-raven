@@ -1,30 +1,60 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { BrowserWindow, ipcMain } from 'electron';
 
-const SYSTEM_PROMPT = `You are an AI assistant helping during a live meeting, interview, or call.
-Your job is to provide helpful, concise suggestions based on what's being discussed.
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  action?: string;
+  timestamp: number;
+}
 
-Guidelines:
-- Keep responses concise (2-4 sentences unless more detail is needed)
-- Be direct and actionable
-- If a question is asked in the conversation, help formulate a good answer
-- For job interviews: help with behavioral answers, technical explanations
-- For sales calls: suggest talking points, handle objections
-- For meetings: summarize key points, suggest action items
-- Focus on what would be immediately useful right now
-- Format with markdown when helpful (bold key phrases, bullet points for lists)`;
+interface ConversationState {
+  messages: ChatMessage[];
+  lastProcessedTranscriptLength: number;
+}
 
-const PROMPT_TEMPLATES: Record<string, string> = {
-  assist: 'Based on this conversation, provide a helpful suggestion or insight that would be useful right now.',
-  'what-should-i-say': 'Based on this conversation, suggest exactly what the user should say next. Frame it as: "Say this next:" followed by the suggested response in quotes. Make it natural and conversational.',
-  'follow-up': 'Based on this conversation, suggest 2-3 smart follow-up questions the user could ask. Frame each as a direct question they can use verbatim.',
-  recap: 'Provide a concise recap of this conversation so far. Include: key points discussed, any decisions made, and any action items mentioned. Use bullet points for clarity.',
+const buildSystemPrompt = (modePrompt?: string): string => {
+  let prompt = `You are Raven, an AI assistant helping during a live meeting, interview, or call.
+
+CRITICAL CONTEXT RULES:
+1. You have access to the LIVE TRANSCRIPT of the conversation happening right now.
+2. You also have your PREVIOUS RESPONSES in this session — DO NOT repeat yourself.
+3. Focus on what's NEW or UNANSWERED since your last response.
+4. If the user asks you something and you've already answered it, say so briefly and ask if they want more detail.
+5. If there's a recent question in the transcript that hasn't been addressed, prioritize answering that.
+6. Be concise (2-4 sentences) unless the user explicitly asks for more detail.
+7. Be direct and actionable — the user is in a live conversation and needs quick help.
+
+RESPONSE GUIDELINES:
+- For interviews: Help with behavioral answers, technical explanations
+- For sales calls: Suggest talking points, handle objections
+- For meetings: Summarize key points, suggest action items
+- When suggesting what to say, use quotes: "Say this: ..."
+- Use markdown formatting when helpful (bold key phrases, bullet points for lists)`;
+
+  if (modePrompt) {
+    prompt += `\n\nADDITIONAL CONTEXT FROM USER'S ACTIVE MODE:\n${modePrompt}`;
+  }
+
+  return prompt;
+};
+
+const ACTION_PROMPTS: Record<string, string> = {
+  assist: 'Based on what\'s happening RIGHT NOW in this conversation, provide a helpful suggestion. Focus on anything new since your last response.',
+  'what-should-i-say': 'Based on the current conversation state, suggest exactly what I should say next. Format as: "Say this: [your suggestion]". Make it natural and directly usable.',
+  'follow-up': 'Suggest 2-3 smart follow-up questions I could ask RIGHT NOW based on what\'s been discussed. Format as direct questions I can use verbatim.',
+  recap: 'Provide a concise recap of this conversation so far. Include: key points discussed, any decisions made, action items, and anything that seems unresolved.',
 };
 
 export class ClaudeService {
   private client: Anthropic | null = null;
   private overlayWindow: BrowserWindow | null = null;
   private isProcessing = false;
+  private conversation: ConversationState = {
+    messages: [],
+    lastProcessedTranscriptLength: 0,
+  };
 
   constructor(overlayWindow: BrowserWindow | null) {
     this.overlayWindow = overlayWindow;
@@ -40,6 +70,7 @@ export class ClaudeService {
       transcript: string;
       action: string;
       customPrompt?: string;
+      modePrompt?: string;
     }) => {
       try {
         const Store = (await import('electron-store')).default;
@@ -47,48 +78,76 @@ export class ClaudeService {
         const apiKey = store.get('anthropicApiKey', '') as string;
 
         if (!apiKey) {
-          this.broadcast({ type: 'error', error: 'No Anthropic API key configured. Add it in Settings.' });
+          this.broadcastError('No Anthropic API key configured. Add it in Settings.');
           return;
         }
 
         if (this.isProcessing) {
-          this.broadcast({ type: 'error', error: 'Already processing a request...' });
+          this.broadcastError('Already processing a request...');
           return;
         }
 
         this.client = new Anthropic({ apiKey });
         this.isProcessing = true;
-        this.broadcast({ type: 'start', action: params.action });
 
-        let userMessage = '';
-        if (params.transcript.trim()) {
-          userMessage += `Here's the conversation transcript so far:\n\n${params.transcript}\n\n`;
-        } else {
-          userMessage += '(No transcript yet — the conversation just started)\n\n';
-        }
+        const userMessageContent = this.buildUserMessage(params);
+        const userMessage: ChatMessage = {
+          id: this.generateId(),
+          role: 'user',
+          content: params.action === 'custom' && params.customPrompt
+            ? params.customPrompt
+            : this.getActionLabel(params.action),
+          action: params.action,
+          timestamp: Date.now(),
+        };
 
-        if (params.action === 'custom' && params.customPrompt) {
-          userMessage += `User's question: ${params.customPrompt}`;
-        } else {
-          userMessage += PROMPT_TEMPLATES[params.action] || PROMPT_TEMPLATES.assist;
-        }
+        this.conversation.messages.push(userMessage);
+        this.conversation.lastProcessedTranscriptLength = params.transcript.length;
+
+        this.broadcast({
+          type: 'start',
+          userMessage,
+        });
+
+        const claudeMessages = this.buildClaudeMessages(params.transcript, userMessageContent);
 
         let fullResponse = '';
+        const assistantMessageId = this.generateId();
 
         const stream = this.client.messages.stream({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userMessage }],
+          system: buildSystemPrompt(params.modePrompt),
+          messages: claudeMessages,
         });
 
         stream.on('text', (text) => {
           fullResponse += text;
-          this.broadcast({ type: 'delta', text, fullText: fullResponse });
+          this.broadcast({
+            type: 'delta',
+            messageId: assistantMessageId,
+            text,
+            fullText: fullResponse,
+          });
         });
 
         await stream.finalMessage();
-        this.broadcast({ type: 'done', fullText: fullResponse });
+
+        const assistantMessage: ChatMessage = {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: fullResponse,
+          timestamp: Date.now(),
+        };
+        this.conversation.messages.push(assistantMessage);
+
+        this.broadcast({
+          type: 'done',
+          messageId: assistantMessageId,
+          fullText: fullResponse,
+          assistantMessage,
+        });
+
         this.isProcessing = false;
 
       } catch (error: any) {
@@ -99,14 +158,97 @@ export class ClaudeService {
         else if (error?.status === 529) errorMsg = 'Claude is overloaded. Try again shortly.';
         else if (error?.message) errorMsg = `AI error: ${error.message}`;
         console.error('[ClaudeService] Error:', error);
-        this.broadcast({ type: 'error', error: errorMsg });
+        this.broadcastError(errorMsg);
       }
+    });
+
+    ipcMain.handle('claude:get-history', async () => {
+      return this.conversation.messages;
+    });
+
+    ipcMain.handle('claude:clear-history', async () => {
+      this.conversation = {
+        messages: [],
+        lastProcessedTranscriptLength: 0,
+      };
+      this.broadcast({ type: 'cleared' });
+      return { success: true };
     });
   }
 
+  private buildUserMessage(params: {
+    transcript: string;
+    action: string;
+    customPrompt?: string;
+  }): string {
+    let message = '';
+
+    if (params.transcript.trim()) {
+      const newTranscript = params.transcript.slice(this.conversation.lastProcessedTranscriptLength);
+
+      if (this.conversation.messages.length === 0) {
+        message += `CURRENT TRANSCRIPT:\n${params.transcript}\n\n`;
+      } else if (newTranscript.trim()) {
+        message += `NEW IN TRANSCRIPT (since my last message):\n${newTranscript.trim()}\n\n`;
+        message += `FULL TRANSCRIPT FOR CONTEXT:\n${params.transcript}\n\n`;
+      } else {
+        message += `TRANSCRIPT (no new content since last time):\n${params.transcript}\n\n`;
+      }
+    } else {
+      message += '(No transcript yet — conversation just started)\n\n';
+    }
+
+    if (params.action === 'custom' && params.customPrompt) {
+      message += `MY QUESTION: ${params.customPrompt}`;
+    } else {
+      message += `REQUEST: ${ACTION_PROMPTS[params.action] || ACTION_PROMPTS.assist}`;
+    }
+
+    return message;
+  }
+
+  private buildClaudeMessages(transcript: string, currentUserMessage: string): Array<{role: 'user' | 'assistant', content: string}> {
+    const messages: Array<{role: 'user' | 'assistant', content: string}> = [];
+
+    const recentHistory = this.conversation.messages.slice(-20);
+
+    for (let i = 0; i < recentHistory.length - 1; i++) {
+      const msg = recentHistory[i];
+      messages.push({
+        role: msg.role,
+        content: msg.role === 'user'
+          ? `[Previous request: ${msg.content}]`
+          : msg.content,
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: currentUserMessage,
+    });
+
+    return messages;
+  }
+
+  private getActionLabel(action: string): string {
+    switch (action) {
+      case 'assist': return '✨ Assist';
+      case 'what-should-i-say': return '💬 What should I say?';
+      case 'follow-up': return '🔄 Follow-up';
+      case 'recap': return '📋 Recap';
+      default: return '✨ Assist';
+    }
+  }
+
+  private generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  }
+
   private broadcast(data: {
-    type: 'start' | 'delta' | 'done' | 'error';
-    action?: string;
+    type: 'start' | 'delta' | 'done' | 'error' | 'cleared';
+    userMessage?: ChatMessage;
+    assistantMessage?: ChatMessage;
+    messageId?: string;
     text?: string;
     fullText?: string;
     error?: string;
@@ -118,5 +260,9 @@ export class ClaudeService {
     } catch (err) {
       console.error('[ClaudeService] Broadcast error:', err);
     }
+  }
+
+  private broadcastError(error: string): void {
+    this.broadcast({ type: 'error', error });
   }
 }

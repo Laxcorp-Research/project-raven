@@ -33,10 +33,14 @@ declare global {
       onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
       getTranscript: () => Promise<string>;
       clearTranscript: () => Promise<{ success: boolean }>;
-      claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string }) => Promise<void>;
+      claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) => Promise<void>;
+      claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
+      claudeClearHistory: () => Promise<{ success: boolean }>;
       onClaudeResponse: (callback: (data: {
-        type: 'start' | 'delta' | 'done' | 'error';
-        action?: string;
+        type: 'start' | 'delta' | 'done' | 'error' | 'cleared';
+        userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number };
+        assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number };
+        messageId?: string;
         text?: string;
         fullText?: string;
         error?: string;
