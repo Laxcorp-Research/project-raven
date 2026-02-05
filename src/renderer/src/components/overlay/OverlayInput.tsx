@@ -8,17 +8,25 @@ interface OverlayInputProps {
 
 const QUICK_ACTIONS = [
   { label: '✨ Assist', action: 'assist' },
-  { label: '💬 What should I say?', action: 'what_to_say' },
-  { label: '🔄 Follow-up', action: 'follow_up' },
+  { label: '💬 What should I say?', action: 'what-should-i-say' },
+  { label: '🔄 Follow-up', action: 'follow-up' },
   { label: '📋 Recap', action: 'recap' }
 ]
 
 export function OverlayInput({ onSend, onQuickAction, isRecording }: OverlayInputProps) {
   const [message, setMessage] = useState('')
 
-  const handleSubmit = () => {
+  const handleQuickAction = async (action: string) => {
+    const transcript = await window.raven.getTranscript()
+    window.raven.claudeGetResponse({ transcript, action })
+    onQuickAction(action)
+  }
+
+  const handleSubmit = async () => {
     const trimmed = message.trim()
     if (!trimmed) return
+    const transcript = await window.raven.getTranscript()
+    window.raven.claudeGetResponse({ transcript, action: 'custom', customPrompt: trimmed })
     onSend(trimmed)
     setMessage('')
   }
@@ -37,7 +45,7 @@ export function OverlayInput({ onSend, onQuickAction, isRecording }: OverlayInpu
         {QUICK_ACTIONS.map((qa) => (
           <button
             key={qa.action}
-            onClick={() => onQuickAction(qa.action)}
+            onClick={() => handleQuickAction(qa.action)}
             className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 hover:text-white transition-colors border border-gray-600/30"
           >
             {qa.label}

@@ -9,6 +9,7 @@ import {
 } from './windowManager'
 import { getSetting } from './store'
 import { AudioManager } from './audioManager'
+import { ClaudeService } from './claudeService'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -65,6 +66,7 @@ function boot(): void {
   // Create both windows
   const dashboard = createDashboardWindow(preloadPath, rendererURL)
   const overlay = createOverlayWindow(preloadPath, rendererURL)
+  const claudeService = new ClaudeService(overlay)
 
   audioManager.setWindows(dashboard, overlay)
 

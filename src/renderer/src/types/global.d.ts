@@ -33,6 +33,14 @@ declare global {
       onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
       getTranscript: () => Promise<string>;
       clearTranscript: () => Promise<{ success: boolean }>;
+      claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string }) => Promise<void>;
+      onClaudeResponse: (callback: (data: {
+        type: 'start' | 'delta' | 'done' | 'error';
+        action?: string;
+        text?: string;
+        fullText?: string;
+        error?: string;
+      }) => void) => () => void;
       sendHotkeyToggleRecording: () => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;
       onHotkeyToggleRecording: (callback: () => void) => () => void;

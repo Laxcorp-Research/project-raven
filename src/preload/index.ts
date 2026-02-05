@@ -53,6 +53,26 @@ contextBridge.exposeInMainWorld('raven', {
   },
   getTranscript: () => ipcRenderer.invoke('audio:get-transcript'),
   clearTranscript: () => ipcRenderer.invoke('audio:clear-transcript'),
+  // Claude AI
+  claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string }) =>
+    ipcRenderer.invoke('claude:get-response', params),
+  onClaudeResponse: (callback: (data: {
+    type: 'start' | 'delta' | 'done' | 'error'
+    action?: string
+    text?: string
+    fullText?: string
+    error?: string
+  }) => void) => {
+    const handler = (_: unknown, data: unknown) => callback(data as {
+      type: 'start' | 'delta' | 'done' | 'error'
+      action?: string
+      text?: string
+      fullText?: string
+      error?: string
+    })
+    ipcRenderer.on('claude:response', handler)
+    return () => { ipcRenderer.removeListener('claude:response', handler) }
+  },
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
   onStealthChanged: (callback: (enabled: boolean) => void) => {
     const handler = (_event: unknown, enabled: boolean) => callback(enabled)
