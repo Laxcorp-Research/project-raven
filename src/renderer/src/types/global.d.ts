@@ -1,0 +1,45 @@
+declare global {
+  interface Window {
+    raven: {
+      storeGetAll: () => Promise<Record<string, unknown>>;
+      storeGet: (key: string) => Promise<unknown>;
+      storeSet: (key: string, value: unknown) => Promise<boolean>;
+      storeSaveMany: (settings: Record<string, unknown>) => Promise<boolean>;
+      apiKeysSave: (deepgramKey: string, anthropicKey: string) => Promise<boolean>;
+      apiKeysHas: () => Promise<boolean>;
+      apiKeysClear: () => Promise<boolean>;
+      planIsFree: () => Promise<boolean>;
+      planIsPro: () => Promise<boolean>;
+      resetAll: () => Promise<boolean>;
+      validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
+      openExternal: (url: string) => Promise<boolean>;
+      windowToggleOverlay: () => Promise<boolean>;
+      windowShowOverlay: () => Promise<boolean>;
+      windowHideOverlay: () => Promise<boolean>;
+      windowHide: () => Promise<boolean>;
+      windowSetStealth: (enabled: boolean) => Promise<boolean>;
+      windowGetType: () => Promise<'dashboard' | 'overlay' | 'unknown'>;
+      audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
+      audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
+      audioSendChunk: (buffer: ArrayBuffer) => void;
+      audioGetState: () => Promise<{ isRecording: boolean; duration: number }>;
+      onRecordingStateChanged: (callback: (state: { isRecording: boolean }) => void) => () => void;
+      onTranscriptUpdate: (callback: (data: {
+        text: string;
+        isFinal: boolean;
+        fullTranscript: string;
+        speaker?: number;
+      }) => void) => () => void;
+      onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
+      getTranscript: () => Promise<string>;
+      clearTranscript: () => Promise<{ success: boolean }>;
+      sendHotkeyToggleRecording: () => void;
+      onStealthChanged: (callback: (enabled: boolean) => void) => () => void;
+      onHotkeyToggleRecording: (callback: () => void) => () => void;
+      onHotkeyAiSuggestion: (callback: () => void) => () => void;
+      on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
+    };
+  }
+}
+
+export {};
