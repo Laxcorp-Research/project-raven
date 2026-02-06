@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { registerIpcHandlers } from './ipc'
@@ -15,6 +15,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
 
 const audioManager = new AudioManager()
+
+// Enable screen capture on macOS
+app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
+
+ipcMain.handle('desktop:get-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      fetchWindowIcons: false
+    })
+
+    return sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      displayId: source.display_id
+    }))
+  } catch (err) {
+    console.error('[Desktop] Failed to get sources:', err)
+    return []
+  }
+})
 
 function registerGlobalHotkeys(
   dashboardWindow: BrowserWindow | null,

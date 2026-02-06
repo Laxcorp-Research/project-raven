@@ -1,0 +1,660 @@
+Project Raven - Production-Grade Implementation Plan (v3)
+================================================================
+
+Core Principles:
+1. LOCAL-FIRST: Free tier is a complete standalone desktop app. No backend dependency.
+2. PRODUCTION-GRADE: No shortcuts, no deprecated APIs, no hacks. Built to last.
+3. NATIVE PERFORMANCE: Use native modules for audio capture, not browser workarounds.
+4. RELIABILITY: Must work flawlessly in real meetings. Zero tolerance for audio drops or lag.
+
+================================================================================
+PHASE A: Foundation (Local-First Architecture)
+================================================================================
+Goal: Electron app shell with proper architecture, persistence, and two-window system
+
+A1 - Project Scaffold
+  - Electron 28+ (latest stable)
+  - React 18 + TypeScript 5 (strict mode)
+  - Tailwind CSS with design system tokens
+  - electron-vite for fast HMR
+  - ESLint + Prettier (strict config)
+  - electron-store for encrypted local persistence
+
+A2 - Plan Mode System
+  - Global config: mode: 'free' | 'pro' stored locally
+  - Feature flags derived from mode
+  - All conditional logic branches cleanly from this flag
+  - Default: free (standalone, no backend)
+
+A3 - Secure API Key Management
+  - Onboarding flow collects Deepgram + Anthropic keys
+  - Keys encrypted via electron-store (AES-256-GCM)
+  - Keys validated on entry (actual API ping, not just format check)
+  - Secure memory handling (keys never logged, cleared from memory when not needed)
+  - Persisted across restarts, editable in settings
+
+A4 - Two-Window Architecture
+  - Main process as coordinator (no business logic in renderer)
+  - Dashboard window: normal, resizable, light theme
+  - Overlay window: frameless, always-on-top, transparent, stealth-capable
+  - Robust IPC bridge with typed channels
+  - Window state persistence (position, size)
+
+A5 - Dashboard Shell
+  - Header: "My Raven" branding, Mode dropdown, Stealth toggle, "Start Raven" button
+  - Session list placeholder (grouped by date)
+  - Settings gear icon
+  - Light theme with proper contrast ratios (WCAG AA)
+
+A6 - Overlay Shell
+  - Pill toolbar: logo, stealth badge, mic toggle, device selector, minimize, close
+  - Expandable response panel with tabs (Chat, Transcript)
+  - Input bar with quick action chips
+  - Dark/translucent theme with backdrop blur
+  - Drag handle for repositioning
+
+✓ CHECKPOINT A:
+  - App launches reliably on macOS 12+ and Windows 10+
+  - Two windows render with proper themes
+  - API keys persist encrypted across restarts
+  - Hotkeys work (Cmd/Ctrl+Shift+H toggle overlay, Cmd/Ctrl+Shift+R toggle recording)
+  - No console errors or warnings (except expected Electron dev warnings)
+
+================================================================================
+PHASE B: Audio Engine (Production-Grade Capture)
+================================================================================
+Goal: Bulletproof audio capture with proper speaker separation
+
+B1 - Native Audio Module Architecture
+  - Create native Node addon using node-addon-api (N-API)
+  - Separate implementations for macOS and Windows
+  - TypeScript bindings for type safety
+  - Graceful fallback if native module fails to load
+
+B2 - macOS Audio Capture (ScreenCaptureKit)
+  - Native Swift/Objective-C module using ScreenCaptureKit (macOS 12.3+)
+  - SCStreamConfiguration for audio-only capture
+  - Capture system audio WITHOUT showing picker dialog
+  - One-time Screen Recording permission (guided onboarding)
+  - 16kHz mono PCM output for Deepgram compatibility
+  - Proper cleanup on stop (no orphaned streams)
+
+B3 - Windows Audio Capture (WASAPI)
+  - Native C++ module using WASAPI loopback capture
+  - Capture system audio from default output device
+  - No special permissions required on Windows
+  - 16kHz mono PCM output
+  - Handle device changes gracefully
+
+B4 - Microphone Capture (AudioWorkletNode)
+  - Modern AudioWorkletNode (NOT deprecated ScriptProcessorNode)
+  - Worklet processor runs in separate thread (no main thread blocking)
+  - Echo cancellation, noise suppression enabled
+  - Device enumeration and selection
+  - Handle permission denial gracefully with user guidance
+
+B5 - Dual-Stream Architecture
+  - Microphone stream → "You" (outgoing messages)
+  - System audio stream → "Them" (incoming messages)
+  - Separate Deepgram WebSocket connections per stream
+  - Streams tagged at source, never mixed
+  - Graceful degradation: if system audio fails, mic-only mode with diarization fallback
+
+B6 - Audio Pipeline Manager (Main Process)
+  - Coordinates mic + system audio streams
+  - Routes audio chunks to appropriate Deepgram connection
+  - Broadcasts state to both windows
+  - Handles start/stop/error lifecycle
+  - Chunk buffering for network jitter
+
+✓ CHECKPOINT B1 (Audio):
+  - Click record → mic captures YOUR voice (no picker)
+  - System audio captures MEETING audio (no picker after initial permission)
+  - Audio flows continuously (verify with chunk count logs)
+  - Clean stop with no orphaned processes
+  - Works on both macOS and Windows
+
+================================================================================
+PHASE B (continued): Transcription & AI Engine
+================================================================================
+
+B7 - Deepgram Integration (Dual Connection)
+  - Two WebSocket connections: one for mic, one for system audio
+  - Model: nova-3 (latest, best accuracy)
+  - Language: 'multi' for auto-detection (supports code-switching)
+  - Features: smart_format, punctuate, interim_results
+  - Keep-alive pings every 8 seconds
+  - Automatic reconnection on disconnect (exponential backoff)
+  - Proper CloseStream on stop
+
+B8 - Transcript Data Model
+  - Each utterance stored as entry: { id, source: 'mic'|'system', speaker: 'you'|'them', text, timestamp, isFinal }
+  - Entries stored chronologically
+  - Interim results shown in italics, replaced when final
+  - Full transcript text derived from entries ("You: ... / Them: ...")
+
+B9 - Claude AI Integration (Intelligent Context)
+  - Conversation history maintained: array of { role: 'user'|'assistant', content, timestamp }
+  - Claude receives: system prompt + conversation history + current transcript + user request
+  - Claude tracks what it already answered (no repetition)
+  - Smart focus on NEW content since last response
+  - Streaming responses (SSE) for real-time display
+  - Rate limit handling (429 → backoff, retry)
+  - Error handling with user-friendly messages
+
+B10 - Quick Action System
+  - Action chips: Assist, "What should I say?", Follow-up, Recap
+  - Each chip = different prompt template (not system prompt — user message)
+  - Custom text input for freeform questions
+  - All actions include current transcript context
+  - Response tagged with triggering action for UI display
+
+B11 - Chat-Based UI (Overlay)
+  - Two tabs: Chat | Transcript
+  - Chat tab: scrollable message history (user requests + Raven responses)
+  - Transcript tab: live transcript with You/Them bubbles (incoming/outgoing style)
+  - Auto-scroll to latest message
+  - Proper loading states (typing indicator while Claude thinks)
+  - Error states (red toast, retry option)
+
+B12 - Stealth Mode
+  - macOS: setContentProtection(true) — hides from screen recording
+  - Windows: SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
+  - Visual indicator in overlay (badge: "Visible" / "Hidden")
+  - Toggle in both dashboard header and overlay toolbar
+  - State persisted in settings
+
+B13 - Global Hotkeys
+  - Cmd/Ctrl+Shift+H: Toggle overlay visibility
+  - Cmd/Ctrl+Shift+R: Toggle recording
+  - Cmd/Ctrl+Enter: Trigger AI suggestion (when overlay focused)
+  - Hotkeys work even when app not focused (globalShortcut)
+  - Conflict detection (warn if hotkey already registered)
+
+✓ CHECKPOINT B (Full Engine):
+  - Start recording → mic AND system audio captured
+  - Transcript shows You (right, cyan) vs Them (left, dark) correctly
+  - Click "Assist" → Claude response streams in Chat tab
+  - Click another action → Claude remembers previous response, focuses on new content
+  - Stealth mode hides overlay from screen sharing (test with Zoom)
+  - Hotkeys work globally
+  - Stop recording → clean shutdown, transcript persists
+
+================================================================================
+PHASE C: Sessions (Persistent History)
+================================================================================
+Goal: Session history with robust local persistence
+
+C1 - Session Data Model
+  - Local SQLite database via better-sqlite3 (synchronous, reliable)
+  - Schema: sessions (id, title, transcript_json, ai_responses_json, mode_id, duration_seconds, started_at, ended_at, created_at)
+  - Indexes on started_at for fast sorting
+  - Migration system for schema updates
+
+C2 - Session Lifecycle
+  - Start: Create session record with started_at
+  - During: Append transcript entries and AI responses in memory
+  - Stop: Write final data, calculate duration, set ended_at
+  - Auto-save: Periodic flush to disk during long sessions (every 60s)
+  - Crash recovery: Recover in-progress session on restart
+
+C3 - Auto-Naming
+  - After session ends, send transcript summary to Claude
+  - Generate concise title (max 50 chars)
+  - Update session record
+  - Fallback: "Session at {time}" if Claude fails
+
+C4 - Session History (Dashboard)
+  - List grouped by date (Today, Yesterday, This Week, Earlier)
+  - Each row: title, duration badge, timestamp, mode badge, three-dot menu
+  - Menu: Copy transcript, Regenerate title, Export, Delete
+  - Pagination for large history (virtual scrolling)
+  - Search/filter by keyword
+
+C5 - Session Detail View
+  - Full transcript with You/Them styling
+  - AI responses shown inline or in separate section
+  - Session metadata (duration, mode, timestamps)
+  - Edit title (click-to-edit)
+  - Back navigation
+
+C6 - Export
+  - Export as Markdown (formatted with headers, timestamps)
+  - Export as plain text
+  - Export as JSON (structured data)
+  - Copy to clipboard option
+
+✓ CHECKPOINT C:
+  - Sessions save automatically on stop
+  - Dashboard shows history grouped by date
+  - Click session → see full detail
+  - Export works in all formats
+  - Search finds sessions by keyword
+  - Delete removes session permanently
+
+================================================================================
+PHASE D: Modes System (Custom AI Profiles)
+================================================================================
+Goal: Configurable AI behavior profiles
+
+D1 - Mode Data Model
+  - SQLite table: modes (id, name, system_prompt, context_files_json, notes_template_json, is_active, created_at, updated_at)
+  - One mode active at a time (is_active flag)
+  - Built-in templates seeded on first run (not editable)
+
+D2 - Manage Modes Modal
+  - Two-column layout: mode list (left), mode editor (right)
+  - Mode list: custom modes + "Raven Templates" section
+  - New Mode button at top
+  - Active mode has checkmark indicator
+
+D3 - Mode Editor
+  - Name field (click-to-edit)
+  - System prompt textarea (with placeholder showing example)
+  - Context files section (attach PDFs, docs, etc.)
+  - Notes template builder (sections with titles)
+  - Delete button (with confirmation)
+
+D4 - Built-in Templates
+  - Sales: Objection handling, discovery questions, value propositions
+  - Recruiting: Interview questions, candidate assessment, culture fit
+  - Team Meet: Action items, decisions, follow-ups
+  - Looking for Work: Behavioral answers, STAR method, salary negotiation
+  - Lecture: Key concepts, questions for speaker, summary
+  - Templates are read-only, can be duplicated to customize
+
+D5 - Notes Template Builder
+  - Add section (title + empty content)
+  - Reorder sections (drag handles)
+  - Remove section
+  - Notes populated during session, saved with session
+
+D6 - Mode ↔ Session Integration
+  - Active mode's system_prompt sent to Claude
+  - Mode dropdown in dashboard header for quick switching
+  - Session records which mode was active
+  - Context files included in Claude requests
+
+D7 - Context File Handling
+  - Accept: PDF, DOCX, TXT, MD
+  - Files stored locally (not uploaded anywhere)
+  - Text extracted and included in Claude context
+  - File size limit: 10MB per file, 50MB total per mode
+  - Preview/remove uploaded files
+
+✓ CHECKPOINT D:
+  - Create custom mode with prompt and context files
+  - Switch modes via dashboard dropdown
+  - Start session → Claude uses active mode's prompt
+  - Session shows which mode was used
+  - Built-in templates available and duplicatable
+
+================================================================================
+PHASE E: Settings (Full Configuration)
+================================================================================
+Goal: Comprehensive settings matching Cluely quality
+
+E1 - Settings Window
+  - Modal or separate window (user preference)
+  - Sidebar navigation: General, Keybinds, Profile, Language, API Keys, About
+  - Clean two-column layout
+  - "Quit Raven" button at bottom
+
+E2 - General Tab
+  - Stealth mode toggle with explanation
+  - Launch on login toggle
+  - Theme: Light / Dark / System
+  - Mic source selection with test button (plays back 2 seconds)
+  - Advanced section (collapsible): debug logging, reset all data
+
+E3 - Keybinds Tab
+  - All shortcuts listed with current bindings
+  - Grouped: General, Window, Recording, AI
+  - Click to remap (capture next key combo)
+  - Reset to defaults button
+  - Conflict detection
+
+E4 - Profile Tab
+  - Display name (shown in UI)
+  - Avatar (local file, stored as base64)
+  - Data export (export all sessions, modes, settings as JSON)
+  - Data import (restore from backup)
+
+E5 - Language Tab
+  - Transcription language (dropdown: Auto-detect, English, Spanish, French, etc.)
+  - AI response language (dropdown: Same as transcription, or specific)
+  - Affects both Deepgram and Claude settings
+
+E6 - API Keys Tab (Free Mode Only)
+  - Deepgram API key input (masked by default, reveal toggle)
+  - Validate button → shows status (✓ Valid / ✗ Invalid / ⟳ Checking)
+  - Anthropic API key input (same pattern)
+  - Usage indicators if available from API
+  - "Keys are encrypted and stored locally" reassurance
+
+E7 - About Tab
+  - App version
+  - Check for updates button
+  - Links: Website, Documentation, GitHub, Discord
+  - Credits / acknowledgments
+  - Open source licenses
+
+E8 - Toast Notification System
+  - Slide-in from top-right
+  - Types: info (blue), success (green), warning (yellow), error (red)
+  - Auto-dismiss after 4 seconds (configurable)
+  - Queue multiple toasts
+  - Click to dismiss
+
+✓ CHECKPOINT E:
+  - All settings tabs functional
+  - Settings persist across restarts
+  - API key validation works
+  - Hotkey remapping works
+  - Theme changes apply immediately
+  - Toast notifications appear correctly
+
+================================================================================
+PHASE F: Overlay Polish (Premium UX)
+================================================================================
+Goal: Interaction quality matching or exceeding Cluely
+
+F1 - Collapsible States
+  - Collapsed: pill toolbar + input bar only (minimal footprint)
+  - Expanded: full response panel visible
+  - Smooth spring animation (60fps)
+  - Remember last state
+
+F2 - Response Formatting
+  - Action badge ("✨ Assist", "💬 What should I say?", etc.)
+  - "Say this:" quoted text with copy button
+  - Markdown rendering (bold, italic, lists, code)
+  - Syntax highlighting for code blocks
+
+F3 - Screenshot Feature
+  - Hotkey: Cmd/Ctrl+Shift+S
+  - Capture screen region (crosshair selector)
+  - Attach to current AI request as context
+  - Image shown as thumbnail in chat
+  - Claude receives image via vision API
+
+F4 - Keyboard-Driven Movement
+  - Cmd/Ctrl+Arrow keys: reposition overlay (snaps to edges)
+  - Cmd/Ctrl+Shift+Up/Down: scroll response content
+  - Escape: collapse overlay
+  - All movements smooth (not instant)
+
+F5 - Clear Conversation
+  - Cmd/Ctrl+K: clear chat history (start fresh)
+  - Confirmation if history exists
+  - Transcript continues unaffected
+
+F6 - System Tray
+  - Tray icon (menubar on macOS, system tray on Windows)
+  - Left-click: toggle overlay visibility
+  - Right-click: context menu
+  - Menu items: Show/Hide Overlay, Start/Stop Recording, Settings, Quit
+  - Recording indicator (icon changes when recording)
+
+F7 - Onboarding Flow
+  - First-run experience
+  - Step 1: Welcome, explain what Raven does
+  - Step 2: Enter API keys (Deepgram, Anthropic) with links to get them
+  - Step 3: Grant permissions (microphone, screen recording on macOS)
+  - Step 4: Quick tutorial (show hotkeys, explain stealth mode)
+  - Step 5: Ready to go
+
+F8 - Permission Handling
+  - Check permissions on startup
+  - Guide user through granting permissions (native dialogs)
+  - macOS: Microphone, Screen Recording (for system audio), Accessibility (optional)
+  - Windows: Microphone only
+  - Clear messaging if permissions denied
+
+✓ CHECKPOINT F:
+  - Overlay feels premium and responsive
+  - Animations are smooth 60fps
+  - Screenshot feature works
+  - Keyboard navigation works
+  - Tray icon functional
+  - Onboarding guides new users correctly
+  - Permissions handled gracefully
+
+================================================================================
+PHASE G: Backend + Paid Tier (Optional)
+================================================================================
+Goal: Cloud features for Pro users, free tier unaffected
+
+G1 - Backend Scaffold
+  - Node.js + Fastify (high performance)
+  - PostgreSQL + Prisma ORM
+  - Redis for caching and rate limiting
+  - Docker Compose for local dev
+  - Health check, readiness endpoints
+
+G2 - Authentication
+  - Email/password signup with email verification
+  - bcrypt for password hashing
+  - JWT access tokens (15min) + refresh tokens (7 days)
+  - Google OAuth 2.0
+  - Rate limiting on auth endpoints
+
+G3 - Plan Management
+  - User model has plan: 'free' | 'pro'
+  - Stripe integration for subscriptions
+  - Webhook handling for subscription events
+  - Grace period on failed payments
+
+G4 - API Proxy (Pro Users)
+  - Backend proxies Deepgram calls for Pro users
+  - Backend proxies Claude calls for Pro users
+  - Rate limiting per user
+  - Usage tracking for billing insights
+  - Free users NEVER hit our backend for AI calls
+
+G5 - Cloud Sync
+  - Sessions sync to cloud for Pro users
+  - Modes sync to cloud for Pro users
+  - Settings sync (optional, user choice)
+  - Conflict resolution: last-write-wins with timestamp
+  - Offline-first: local changes queue, sync when online
+
+G6 - Electron Auth Integration
+  - Login/signup screens in dashboard (Pro mode)
+  - Secure token storage (encrypted)
+  - Auto-refresh tokens
+  - Logout clears tokens
+
+G7 - Billing Tab (Pro Mode)
+  - Replaces API Keys tab when Pro
+  - Current plan display
+  - Usage statistics
+  - Upgrade/downgrade options
+  - Payment method management
+  - Cancel subscription
+
+G8 - Calendar Integration (Pro)
+  - Google Calendar OAuth
+  - Fetch upcoming meetings
+  - Show in dashboard sidebar
+  - One-click start recording for meeting
+  - Auto-title sessions with meeting name
+
+G9 - Team Features (Pro)
+  - Team workspace
+  - Shared modes (team templates)
+  - Invite members via email
+  - Role-based access (admin, member)
+  - Team billing
+
+✓ CHECKPOINT G:
+  - Pro users can sign up, login
+  - Stripe subscription works
+  - Sessions sync to cloud
+  - Free tier completely unaffected by backend
+
+================================================================================
+PHASE H: Distribution
+================================================================================
+Goal: Ship production-ready installers
+
+H1 - App Icons & Branding
+  - Icon: 512x512 PNG, ICNS (Mac), ICO (Windows)
+  - Tray icon: 16x16, 22x22 (template image for macOS)
+  - Installer graphics (DMG background, NSIS header)
+  - Consistent Raven branding throughout
+
+H2 - Build Configuration
+  - electron-builder configuration
+  - macOS: DMG (with drag-to-Applications), ZIP
+  - Windows: NSIS installer (custom pages), ZIP
+  - Linux: AppImage, deb (if supporting Linux)
+  - Separate builds for Intel and Apple Silicon Mac
+
+H3 - Code Signing
+  - macOS: Apple Developer certificate, notarization
+  - Windows: EV code signing certificate (avoid SmartScreen warnings)
+  - CI/CD pipeline for automated signing
+
+H4 - Auto-Updater
+  - electron-updater with GitHub Releases
+  - Check for updates on launch (non-blocking)
+  - User-initiated check in Settings
+  - Download in background, prompt to restart
+  - Differential updates if possible
+
+H5 - Backend Deployment (Pro Tier)
+  - Railway / Fly.io / AWS ECS
+  - PostgreSQL managed database
+  - Redis managed instance
+  - Environment-based configuration
+  - CI/CD pipeline
+
+H6 - Landing Page & Documentation
+  - Marketing landing page
+  - Download links for Mac/Windows
+  - Documentation site (setup, usage, troubleshooting)
+  - Changelog
+
+H7 - Analytics & Error Tracking (Optional)
+  - Opt-in anonymous analytics (Mixpanel/PostHog)
+  - Error tracking (Sentry) — opt-in, no PII
+  - Crash reports with user consent
+
+✓ CHECKPOINT H:
+  - Installers build successfully
+  - Code signing passes
+  - Auto-update works
+  - Landing page live
+  - Documentation complete
+
+================================================================================
+PHASE I: Quality Assurance
+================================================================================
+Goal: Production-grade reliability
+
+I1 - Automated Testing
+  - Unit tests for core logic (audio processing, transcript handling)
+  - Integration tests for IPC communication
+  - E2E tests with Playwright (dashboard flows)
+  - Test coverage target: 80%+
+
+I2 - Manual Testing Matrix
+  - macOS 12, 13, 14 (Intel + Apple Silicon)
+  - Windows 10, 11
+  - Test with: Zoom, Google Meet, Microsoft Teams, Discord
+  - Test stealth mode with each platform
+
+I3 - Performance Profiling
+  - Memory usage < 200MB during active session
+  - CPU usage < 10% during transcription
+  - Audio latency < 500ms (capture to transcript display)
+  - UI responsiveness (no frame drops)
+
+I4 - Security Audit
+  - API key handling review
+  - No sensitive data in logs
+  - Proper IPC security (contextIsolation, no nodeIntegration)
+  - CSP headers configured
+  - Dependencies audited (npm audit)
+
+I5 - Accessibility
+  - Keyboard navigation throughout
+  - Screen reader compatibility
+  - Sufficient color contrast
+  - Focus indicators visible
+
+I6 - Edge Cases
+  - Network disconnection during recording
+  - API rate limiting
+  - Very long sessions (1+ hours)
+  - Rapid start/stop cycles
+  - Low disk space
+  - Permission revoked mid-session
+
+✓ CHECKPOINT I:
+  - All tests pass
+  - Performance benchmarks met
+  - Security audit clean
+  - Edge cases handled gracefully
+
+================================================================================
+PHASE J: FE Polish (Final Visual Quality)
+================================================================================
+Goal: Premium visual experience
+
+J1 - Animation System
+  - Consistent easing curves (spring for interactive, ease-out for reveals)
+  - Micro-interactions on buttons, toggles, inputs
+  - Loading skeletons for async content
+  - Smooth transitions between views
+
+J2 - Visual Consistency
+  - Design tokens applied consistently (colors, spacing, typography)
+  - Dark/light theme both polished
+  - No layout shifts or flicker
+  - Proper empty states for all lists
+
+J3 - Responsive Behavior
+  - Overlay handles resize gracefully
+  - Dashboard responsive to window size
+  - Text truncation with tooltips where needed
+
+J4 - Final Review
+  - Design QA pass
+  - Pixel-perfect alignment
+  - Consistent iconography
+  - Professional feel throughout
+
+✓ CHECKPOINT J:
+  - App feels premium
+  - Animations smooth 60fps
+  - No visual bugs
+  - Designer approved
+
+================================================================================
+SUMMARY: 10 Phases, ~75 Tasks
+================================================================================
+
+Phase A: Foundation                    (6 tasks)   - Local-first architecture
+Phase B: Audio Engine                  (13 tasks)  - Native capture, transcription, AI
+Phase C: Sessions                      (6 tasks)   - Persistent history
+Phase D: Modes                         (7 tasks)   - Custom AI profiles
+Phase E: Settings                      (8 tasks)   - Full configuration
+Phase F: Overlay Polish                (8 tasks)   - Premium UX
+Phase G: Backend + Paid                (9 tasks)   - Cloud features (optional)
+Phase H: Distribution                  (7 tasks)   - Installers, signing, deployment
+Phase I: Quality Assurance             (6 tasks)   - Testing, security, performance
+Phase J: FE Polish                     (4 tasks)   - Visual excellence
+
+Key Differences from MVP Plan:
+1. Native audio modules (ScreenCaptureKit, WASAPI) instead of browser hacks
+2. AudioWorkletNode instead of deprecated ScriptProcessorNode
+3. Dual-stream architecture for proper speaker separation
+4. SQLite for robust session storage
+5. Comprehensive testing and QA phase
+6. Security audit as explicit requirement
+7. Performance benchmarks defined
+8. No "good enough" — everything is production-grade
+
+================================================================================

@@ -19,6 +19,7 @@ declare global {
       windowHide: () => Promise<boolean>;
       windowSetStealth: (enabled: boolean) => Promise<boolean>;
       windowGetType: () => Promise<'dashboard' | 'overlay' | 'unknown'>;
+      desktopGetSources: () => Promise<Array<{ id: string; name: string; displayId: string }>>;
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
       audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;

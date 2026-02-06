@@ -46,13 +46,20 @@ export class TranscriptionService {
 
   async start(): Promise<{ success: boolean; error?: string }> {
     if (!this.apiKey) {
+      console.error('[Transcription] No Deepgram API key!');
       return { success: false, error: 'No Deepgram API key configured' };
     }
+
+    console.log('[Transcription] Starting both connections...');
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
       this.startConnection('system'),
     ]);
+
+    console.log(
+      `[Transcription] Connection results — Mic: ${micResult.success}, System: ${systemResult.success}`
+    );
 
     if (!micResult.success && !systemResult.success) {
       return { success: false, error: 'Failed to start transcription' };
@@ -192,7 +199,12 @@ export class TranscriptionService {
   sendAudio(buffer: ArrayBuffer, source: AudioSource): void {
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
 
-    if (!state.ws || !state.isConnected) return;
+    if (!state.ws || !state.isConnected) {
+      if (Math.random() < 0.01) {
+        console.log(`[Transcription] ${source} not connected, dropping audio`);
+      }
+      return;
+    }
 
     try {
       state.ws.send(Buffer.from(buffer));

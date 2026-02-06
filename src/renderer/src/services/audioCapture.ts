@@ -1,7 +1,6 @@
 /**
- * DualAudioCapture — captures both microphone and system audio separately.
- * Microphone = You (outgoing)
- * System Audio = Them (incoming)
+ * DualAudioCapture — captures microphone (You) and system audio (Them) separately.
+ * Uses Electron's desktopCapturer for system audio — no picker required.
  */
 
 export type AudioSource = 'mic' | 'system'
@@ -24,15 +23,13 @@ export class DualAudioCapture {
   private systemState: StreamState = { stream: null, audioContext: null, sourceNode: null, processorNode: null }
   private onChunk: AudioChunkCallback | null = null
   private _isRecording = false
-  private _hasMicPermission = false
-  private _hasSystemPermission = false
 
   get isRecording(): boolean {
     return this._isRecording
   }
 
   /**
-   * List available audio input devices.
+   * List available audio input devices (microphones).
    */
   static async getDevices(): Promise<AudioDevice[]> {
     try {
@@ -58,7 +55,7 @@ export class DualAudioCapture {
   async start(onChunk: AudioChunkCallback, micDeviceId?: string): Promise<{ mic: boolean; system: boolean }> {
     if (this._isRecording) {
       console.warn('[DualAudioCapture] Already recording')
-      return { mic: this._hasMicPermission, system: this._hasSystemPermission }
+      return { mic: false, system: false }
     }
 
     this.onChunk = onChunk
@@ -69,14 +66,14 @@ export class DualAudioCapture {
       this.startSystemAudio()
     ])
 
-    this._hasMicPermission = micResult
-    this._hasSystemPermission = systemResult
-
     console.log(`[DualAudioCapture] Started — Mic: ${micResult}, System: ${systemResult}`)
 
     return { mic: micResult, system: systemResult }
   }
 
+  /**
+   * Start microphone capture (Your voice).
+   */
   private async startMicrophone(deviceId?: string): Promise<boolean> {
     try {
       const constraints: MediaStreamConstraints = {
@@ -90,19 +87,7 @@ export class DualAudioCapture {
       }
 
       this.micState.stream = await navigator.mediaDevices.getUserMedia(constraints)
-      this.micState.audioContext = new AudioContext({ sampleRate: 16000 })
-      this.micState.sourceNode = this.micState.audioContext.createMediaStreamSource(this.micState.stream)
-      this.micState.processorNode = this.micState.audioContext.createScriptProcessor(4096, 1, 1)
-
-      this.micState.processorNode.onaudioprocess = (event: AudioProcessingEvent) => {
-        if (!this._isRecording || !this.onChunk) return
-        const float32 = event.inputBuffer.getChannelData(0)
-        const int16 = this.float32ToInt16(float32)
-        this.onChunk(int16, 'mic')
-      }
-
-      this.micState.sourceNode.connect(this.micState.processorNode)
-      this.micState.processorNode.connect(this.micState.audioContext.destination)
+      await this.setupAudioProcessing(this.micState, 'mic')
 
       console.log('[DualAudioCapture] Microphone started')
       return true
@@ -112,56 +97,112 @@ export class DualAudioCapture {
     }
   }
 
+  /**
+   * Start system audio capture (Their voices) using desktopCapturer.
+   */
   private async startSystemAudio(): Promise<boolean> {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: 1,
-          height: 1,
-          frameRate: 1
-        },
+      const sources = await window.raven.desktopGetSources()
+
+      if (!sources || sources.length === 0) {
+        console.warn('[DualAudioCapture] No desktop sources available')
+        return false
+      }
+
+      const screenSource =
+        sources.find((s: { id: string; name: string }) => s.id.startsWith('screen:') && s.name.toLowerCase().includes('screen')) ||
+        sources.find((s: { id: string }) => s.id.startsWith('screen:')) ||
+        sources[0]
+
+      console.log('[DualAudioCapture] Using source:', screenSource.name, screenSource.id)
+
+      const stream = await (navigator.mediaDevices as {
+        getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>
+      }).getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          sampleRate: 16000,
-          channelCount: 1
+          mandatory: {
+            chromeMediaSource: 'desktop'
+          }
+        } as MediaTrackConstraints,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: screenSource.id,
+            minWidth: 1,
+            maxWidth: 1,
+            minHeight: 1,
+            maxHeight: 1,
+            maxFrameRate: 1
+          }
         } as MediaTrackConstraints
       })
 
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length === 0) {
-        console.warn('[DualAudioCapture] No system audio track — user may not have shared audio')
-        stream.getVideoTracks().forEach((t) => t.stop())
+        console.warn('[DualAudioCapture] No audio track in system capture')
+        stream.getTracks().forEach((t) => t.stop())
         return false
       }
 
       stream.getVideoTracks().forEach((t) => t.stop())
 
       this.systemState.stream = new MediaStream(audioTracks)
-      this.systemState.audioContext = new AudioContext({ sampleRate: 16000 })
-      this.systemState.sourceNode = this.systemState.audioContext.createMediaStreamSource(this.systemState.stream)
-      this.systemState.processorNode = this.systemState.audioContext.createScriptProcessor(4096, 1, 1)
-
-      this.systemState.processorNode.onaudioprocess = (event: AudioProcessingEvent) => {
-        if (!this._isRecording || !this.onChunk) return
-        const float32 = event.inputBuffer.getChannelData(0)
-        const int16 = this.float32ToInt16(float32)
-        this.onChunk(int16, 'system')
-      }
-
-      this.systemState.sourceNode.connect(this.systemState.processorNode)
-      this.systemState.processorNode.connect(this.systemState.audioContext.destination)
+      await this.setupAudioProcessing(this.systemState, 'system')
 
       console.log('[DualAudioCapture] System audio started')
       return true
     } catch (err: unknown) {
-      if ((err as { name?: string }).name === 'NotAllowedError') {
-        console.warn('[DualAudioCapture] System audio permission denied or cancelled')
+      const errObj = err as { name?: string; message?: string }
+      if (errObj.name === 'NotAllowedError' || errObj.message?.includes('Permission denied')) {
+        console.error(
+          '[DualAudioCapture] Screen Recording permission required. Grant in System Preferences > Privacy > Screen Recording'
+        )
+      } else if (errObj.message?.includes('Could not start audio source')) {
+        console.warn('[DualAudioCapture] No system audio available (nothing playing?)')
       } else {
         console.error('[DualAudioCapture] System audio failed:', err)
       }
       return false
     }
+  }
+
+  /**
+   * Set up Web Audio processing for a stream.
+   */
+  private async setupAudioProcessing(state: StreamState, source: AudioSource): Promise<void> {
+    if (!state.stream) return
+
+    state.audioContext = new AudioContext({ sampleRate: 16000 })
+
+    if (state.audioContext.state === 'suspended') {
+      console.log(`[DualAudioCapture] Resuming suspended AudioContext for ${source}`)
+      await state.audioContext.resume()
+    }
+
+    console.log(`[DualAudioCapture] AudioContext state for ${source}: ${state.audioContext.state}`)
+
+    state.sourceNode = state.audioContext.createMediaStreamSource(state.stream)
+    state.processorNode = state.audioContext.createScriptProcessor(4096, 1, 1)
+
+    let processCount = 0
+    state.processorNode.onaudioprocess = (event: AudioProcessingEvent) => {
+      processCount++
+
+      if (processCount <= 3 || processCount % 100 === 0) {
+        console.log(`[DualAudioCapture] ${source} chunk #${processCount}`)
+      }
+
+      if (!this._isRecording || !this.onChunk) return
+
+      const float32 = event.inputBuffer.getChannelData(0)
+      const int16 = this.float32ToInt16(float32)
+      this.onChunk(int16, source)
+    }
+
+    state.sourceNode.connect(state.processorNode)
+    state.processorNode.connect(state.audioContext.destination)
+
+    console.log(`[DualAudioCapture] Audio processing setup complete for ${source}`)
   }
 
   /**

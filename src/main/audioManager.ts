@@ -31,12 +31,15 @@ export class AudioManager {
   private registerIpcHandlers(): void {
     // Recording state management
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
+      console.log('[AudioManager] Starting recording...')
       const deepgramKey = getSetting('deepgramApiKey')
 
       if (deepgramKey) {
         this.transcriptionService.setApiKey(deepgramKey)
         this.transcriptionService.clearTranscript()
+        console.log('[AudioManager] Starting transcription service...')
         const result = await this.transcriptionService.start()
+        console.log('[AudioManager] Transcription service result:', result)
         if (!result.success) {
           console.error('[AudioManager] Transcription failed to start:', result.error)
         }
@@ -74,6 +77,12 @@ export class AudioManager {
     ipcMain.on('audio:chunk', (_event, buffer: ArrayBuffer, source: 'mic' | 'system') => {
       if (!this.isRecording) return
       this.chunkCount++
+
+      if (this.chunkCount % 50 === 0) {
+        console.log(
+          `[AudioManager] Received ${this.chunkCount} chunks (source: ${source}, size: ${buffer.byteLength})`
+        )
+      }
 
       this.transcriptionService.sendAudio(buffer, source)
     })

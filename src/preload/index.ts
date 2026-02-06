@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('raven', {
   windowHide: () => ipcRenderer.invoke('window:hide-overlay'),
   windowSetStealth: (enabled: boolean) => ipcRenderer.invoke('window:set-stealth', enabled),
   windowGetType: () => ipcRenderer.invoke('window:get-type'),
+  desktopGetSources: () => ipcRenderer.invoke('desktop:get-sources'),
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),

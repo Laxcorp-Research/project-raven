@@ -48,10 +48,27 @@ export function OverlayToolbar({
     } else {
       try {
         await window.raven.audioStartRecording(selectedDevice)
+
+        let chunkCount = 0
         const result = await audioCaptureRef.current.start((chunk: Int16Array, source: 'mic' | 'system') => {
+          chunkCount++
+
+          if (chunkCount % 25 === 0) {
+            console.log(
+              `[OverlayToolbar] Sending chunk #${chunkCount}, source: ${source}, size: ${chunk.byteLength}`
+            )
+          }
+
           window.raven.audioSendChunk(chunk.buffer, source)
         }, selectedDevice)
-        console.log('[Overlay] Audio capture result:', result)
+
+        console.log('[OverlayToolbar] Audio capture result:', result)
+
+        if (result.mic && !result.system) {
+          console.warn(
+            '[OverlayToolbar] System audio not available — only capturing mic'
+          )
+        }
       } catch (err) {
         console.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()
