@@ -36,7 +36,16 @@ export default defineConfig({
           },
         },
       },
-      renderer: process.env.NODE_ENV === 'test' ? undefined : {},
+      renderer: process.env.NODE_ENV === 'test' ? undefined : {
+        build: {
+          rollupOptions: {
+            input: {
+              index: 'src/renderer/index.html',
+            },
+          },
+        },
+        assetsInclude: ['**/*.js'],
+      },
     }),
   ],
 })
