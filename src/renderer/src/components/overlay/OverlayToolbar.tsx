@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { AudioCapture } from '../../services/audioCapture'
+import { DualAudioCapture } from '../../services/audioCapture'
 
 interface OverlayToolbarProps {
   stealthEnabled: boolean
@@ -17,12 +17,12 @@ export function OverlayToolbar({
   const [isRecording, setIsRecording] = useState(false)
   const [audioDevices, setAudioDevices] = useState<{ deviceId: string; label: string }[]>([])
   const [selectedDevice, setSelectedDevice] = useState<string | undefined>(undefined)
-  const audioCaptureRef = useRef<AudioCapture | null>(null)
+  const audioCaptureRef = useRef<DualAudioCapture | null>(null)
 
   useEffect(() => {
-    audioCaptureRef.current = new AudioCapture()
+    audioCaptureRef.current = new DualAudioCapture()
 
-    AudioCapture.getDevices().then(setAudioDevices)
+    DualAudioCapture.getDevices().then(setAudioDevices)
 
     const unsubRecording = window.raven.onRecordingStateChanged((state) => {
       setIsRecording(state.isRecording)
@@ -48,9 +48,10 @@ export function OverlayToolbar({
     } else {
       try {
         await window.raven.audioStartRecording(selectedDevice)
-        await audioCaptureRef.current.start((chunk: Int16Array) => {
-          window.raven.audioSendChunk(chunk.buffer)
+        const result = await audioCaptureRef.current.start((chunk: Int16Array, source: 'mic' | 'system') => {
+          window.raven.audioSendChunk(chunk.buffer, source)
         }, selectedDevice)
+        console.log('[Overlay] Audio capture result:', result)
       } catch (err) {
         console.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()

@@ -70,12 +70,12 @@ export class AudioManager {
       return { success: true, duration }
     })
 
-    // Receive audio chunks from overlay renderer
-    ipcMain.on('audio:chunk', (_event, buffer: ArrayBuffer) => {
+    // Receive audio chunks from overlay renderer (now with source tag)
+    ipcMain.on('audio:chunk', (_event, buffer: ArrayBuffer, source: 'mic' | 'system') => {
       if (!this.isRecording) return
       this.chunkCount++
 
-      this.transcriptionService.sendAudio(buffer)
+      this.transcriptionService.sendAudio(buffer, source)
     })
 
     ipcMain.handle('audio:get-state', async () => {
@@ -92,6 +92,10 @@ export class AudioManager {
     ipcMain.handle('audio:clear-transcript', async () => {
       this.transcriptionService.clearTranscript()
       return { success: true }
+    })
+
+    ipcMain.handle('audio:get-transcript-entries', async () => {
+      return this.transcriptionService.getTranscriptEntries()
     })
   }
 

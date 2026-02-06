@@ -25,7 +25,8 @@ contextBridge.exposeInMainWorld('raven', {
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
-  audioSendChunk: (buffer: ArrayBuffer) => ipcRenderer.send('audio:chunk', buffer),
+  audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') =>
+    ipcRenderer.send('audio:chunk', buffer, source),
   audioGetState: () => ipcRenderer.invoke('audio:get-state'),
   onRecordingStateChanged: (callback: (state: { isRecording: boolean }) => void) => {
     const handler = (_event: unknown, state: { isRecording: boolean }) => callback(state)
@@ -35,10 +36,40 @@ contextBridge.exposeInMainWorld('raven', {
     }
   },
   onTranscriptUpdate: (
-    callback: (data: { text: string; isFinal: boolean; fullTranscript: string; speaker?: number }) => void
+    callback: (data: {
+      text: string
+      isFinal: boolean
+      fullTranscript: string
+      speaker?: number
+      entries?: Array<{
+        id: string
+        source: 'mic' | 'system'
+        text: string
+        speaker: 'you' | 'them'
+        timestamp: number
+        isFinal: boolean
+      }>
+      interims?: { mic: string; system: string }
+    }) => void
   ) => {
-    const handler = (_event: unknown, data: { text: string; isFinal: boolean; fullTranscript: string; speaker?: number }) =>
-      callback(data)
+    const handler = (
+      _event: unknown,
+      data: {
+        text: string
+        isFinal: boolean
+        fullTranscript: string
+        speaker?: number
+        entries?: Array<{
+          id: string
+          source: 'mic' | 'system'
+          text: string
+          speaker: 'you' | 'them'
+          timestamp: number
+          isFinal: boolean
+        }>
+        interims?: { mic: string; system: string }
+      }
+    ) => callback(data)
     ipcRenderer.on('transcription:update', handler)
     return () => {
       ipcRenderer.removeListener('transcription:update', handler)
@@ -53,6 +84,7 @@ contextBridge.exposeInMainWorld('raven', {
   },
   getTranscript: () => ipcRenderer.invoke('audio:get-transcript'),
   clearTranscript: () => ipcRenderer.invoke('audio:clear-transcript'),
+  getTranscriptEntries: () => ipcRenderer.invoke('audio:get-transcript-entries'),
   // Claude AI
   claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) =>
     ipcRenderer.invoke('claude:get-response', params),

@@ -21,7 +21,7 @@ declare global {
       windowGetType: () => Promise<'dashboard' | 'overlay' | 'unknown'>;
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
-      audioSendChunk: (buffer: ArrayBuffer) => void;
+      audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;
       audioGetState: () => Promise<{ isRecording: boolean; duration: number }>;
       onRecordingStateChanged: (callback: (state: { isRecording: boolean }) => void) => () => void;
       onTranscriptUpdate: (callback: (data: {
@@ -29,10 +29,27 @@ declare global {
         isFinal: boolean;
         fullTranscript: string;
         speaker?: number;
+        entries?: Array<{
+          id: string;
+          source: 'mic' | 'system';
+          text: string;
+          speaker: 'you' | 'them';
+          timestamp: number;
+          isFinal: boolean;
+        }>;
+        interims?: { mic: string; system: string };
       }) => void) => () => void;
       onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
       getTranscript: () => Promise<string>;
       clearTranscript: () => Promise<{ success: boolean }>;
+      getTranscriptEntries: () => Promise<Array<{
+        id: string;
+        source: 'mic' | 'system';
+        text: string;
+        speaker: 'you' | 'them';
+        timestamp: number;
+        isFinal: boolean;
+      }>>;
       claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) => Promise<void>;
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
       claudeClearHistory: () => Promise<{ success: boolean }>;
