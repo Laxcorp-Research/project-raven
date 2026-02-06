@@ -1,6 +1,6 @@
 /**
  * AudioWorklet processor code as a blob URL.
- * This avoids module loading issues in Electron.
+ * Includes keep-alive mechanism to prevent stalling.
  */
 
 const processorCode = `
@@ -11,6 +11,7 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
     this.buffer = new Float32Array(this.bufferSize);
     this.bufferIndex = 0;
     this.isCapturing = true;
+    this.frameCount = 0;
 
     this.port.onmessage = (event) => {
       if (event.data.command === 'stop') {
@@ -19,13 +20,25 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
         this.isCapturing = true;
       }
     };
+
+    this.port.postMessage({ type: 'init', message: 'AudioWorklet processor initialized' });
   }
 
   process(inputs, outputs, parameters) {
-    if (!this.isCapturing) return true;
+    this.frameCount++;
+
+    if (this.frameCount % 128 === 0) {
+      this.port.postMessage({ type: 'heartbeat', frames: this.frameCount });
+    }
+
+    if (!this.isCapturing) {
+      return true;
+    }
 
     const input = inputs[0];
-    if (!input || !input[0]) return true;
+    if (!input || !input[0] || input[0].length === 0) {
+      return true;
+    }
 
     const inputChannel = input[0];
 
@@ -48,12 +61,13 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
 registerProcessor('audio-capture-processor', AudioCaptureProcessor);
 `;
 
-let workletUrl: string | null = null;
+const workletUrls: Map<string, string> = new Map()
 
-export function getWorkletUrl(): string {
-  if (!workletUrl) {
-    const blob = new Blob([processorCode], { type: 'application/javascript' });
-    workletUrl = URL.createObjectURL(blob);
+export function getWorkletUrl(processorName: string = 'audio-capture-processor'): string {
+  if (!workletUrls.has(processorName)) {
+    const code = processorCode.replace(/audio-capture-processor/g, processorName)
+    const blob = new Blob([code], { type: 'application/javascript' })
+    workletUrls.set(processorName, URL.createObjectURL(blob))
   }
-  return workletUrl;
+  return workletUrls.get(processorName) as string
 }

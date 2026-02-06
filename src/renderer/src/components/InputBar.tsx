@@ -11,6 +11,12 @@ export function InputBar() {
     if (isRecording) {
       stopMicrophoneCapture()
       stopDeepgram()
+      try {
+        await window.raven.systemAudioStop()
+        console.log('[Recording] System audio stopped')
+      } catch (err) {
+        console.warn('[Recording] System audio stop failed:', err)
+      }
       setRecording(false)
     } else {
       const apiKey = useAppStore.getState().deepgramApiKey
@@ -35,6 +41,14 @@ export function InputBar() {
             }
           }
         )
+
+        // Start system audio capture
+        try {
+          await window.raven.systemAudioStart()
+          console.log('[Recording] System audio started')
+        } catch (err) {
+          console.warn('[Recording] System audio failed, continuing mic-only:', err)
+        }
 
         // Then start mic capture, sending audio chunks to Deepgram
         await startMicrophoneCapture((audioBuffer) => {

@@ -40,6 +40,12 @@ export function Overlay() {
       if (isRecordingRef.current) {
         stopMicrophoneCapture()
         stopDeepgram()
+        try {
+          await window.raven.systemAudioStop()
+          console.log('[Recording] System audio stopped')
+        } catch (err) {
+          console.warn('[Recording] System audio stop failed:', err)
+        }
         useAppStore.getState().setRecording(false)
       } else {
         const apiKey = useAppStore.getState().deepgramApiKey
@@ -59,6 +65,13 @@ export function Overlay() {
               }
             }
           )
+
+          try {
+            await window.raven.systemAudioStart()
+            console.log('[Recording] System audio started')
+          } catch (err) {
+            console.warn('[Recording] System audio failed, continuing mic-only:', err)
+          }
 
           await startMicrophoneCapture((audioBuffer) => {
             sendAudio(audioBuffer)

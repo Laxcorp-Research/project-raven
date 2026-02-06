@@ -5,11 +5,13 @@ import { registerIpcHandlers } from './ipc'
 import {
   createDashboardWindow,
   createOverlayWindow,
+  getOverlayWindow,
   setStealthMode
 } from './windowManager'
 import { getSetting } from './store'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
+import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudioNative'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -34,6 +36,14 @@ ipcMain.handle('desktop:get-sources', async () => {
   } catch (err) {
     console.error('[Desktop] Failed to get sources:', err)
     return []
+  }
+})
+
+// Forward system audio chunks to Deepgram (overlay renderer)
+ipcMain.on('system-audio:to-deepgram', (_event, chunk: { data: number[]; timestamp: number }) => {
+  const overlayWindow = getOverlayWindow()
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('system-audio:for-deepgram', chunk)
   }
 })
 
@@ -89,6 +99,8 @@ function boot(): void {
   const overlay = createOverlayWindow(preloadPath, rendererURL)
   const claudeService = new ClaudeService(overlay)
 
+  setSystemAudioWindows(dashboard, overlay)
+
   audioManager.setWindows(dashboard, overlay)
 
   // Show overlay after dashboard is ready
@@ -110,6 +122,7 @@ function boot(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers()
+  registerSystemAudioHandlers()
   boot()
 
   app.on('activate', () => {

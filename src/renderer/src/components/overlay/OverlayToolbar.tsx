@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { DualAudioCapture } from '../../services/audioCapture'
+import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
 
 interface OverlayToolbarProps {
   stealthEnabled: boolean
@@ -18,6 +18,7 @@ export function OverlayToolbar({
   const [audioDevices, setAudioDevices] = useState<{ deviceId: string; label: string }[]>([])
   const [selectedDevice, setSelectedDevice] = useState<string | undefined>(undefined)
   const audioCaptureRef = useRef<DualAudioCapture | null>(null)
+  const chunkCount = useRef(0)
 
   useEffect(() => {
     audioCaptureRef.current = new DualAudioCapture()
@@ -39,6 +40,16 @@ export function OverlayToolbar({
     }
   }, [])
 
+  const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
+    chunkCount.current++
+    if (chunkCount.current <= 5 || chunkCount.current % 100 === 0) {
+      console.log(
+        `[OverlayToolbar] Received chunk #${chunkCount.current}, source: ${source}, size: ${chunk.byteLength}`
+      )
+    }
+    window.raven.audioSendChunk(chunk.buffer, source)
+  }, [])
+
   const handleMicToggle = useCallback(async () => {
     if (!audioCaptureRef.current) return
 
@@ -49,18 +60,8 @@ export function OverlayToolbar({
       try {
         await window.raven.audioStartRecording(selectedDevice)
 
-        let chunkCount = 0
-        const result = await audioCaptureRef.current.start((chunk: Int16Array, source: 'mic' | 'system') => {
-          chunkCount++
-
-          if (chunkCount % 25 === 0) {
-            console.log(
-              `[OverlayToolbar] Sending chunk #${chunkCount}, source: ${source}, size: ${chunk.byteLength}`
-            )
-          }
-
-          window.raven.audioSendChunk(chunk.buffer, source)
-        }, selectedDevice)
+        chunkCount.current = 0
+        const result = await audioCaptureRef.current.start(handleChunk, selectedDevice)
 
         console.log('[OverlayToolbar] Audio capture result:', result)
 
@@ -74,7 +75,7 @@ export function OverlayToolbar({
         await window.raven.audioStopRecording()
       }
     }
-  }, [isRecording, selectedDevice])
+  }, [handleChunk, isRecording, selectedDevice])
 
   useEffect(() => {
     const unsubHotkey = window.raven.onHotkeyToggleRecording(() => {

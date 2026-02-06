@@ -1,5 +1,14 @@
 let ws: WebSocket | null = null
 let keepAliveInterval: ReturnType<typeof setInterval> | null = null
+let unsubscribeSystemAudioChunk: (() => void) | null = null
+let unsubscribeSystemAudioForDeepgram: (() => void) | null = null
+
+function toUint8Array(data: ArrayBuffer | Uint8Array): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data)
+  }
+  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+}
 
 type TranscriptCallback = (text: string, isFinal: boolean) => void
 type StatusCallback = (status: 'connected' | 'disconnected' | 'error') => void
@@ -58,6 +67,25 @@ export function startDeepgram(
     }
     ws = null
   }
+
+  if (window.raven?.onSystemAudioChunk) {
+    unsubscribeSystemAudioChunk = window.raven.onSystemAudioChunk((chunk) => {
+      const bytes = toUint8Array(chunk.data)
+      window.raven.sendSystemAudioToDeepgram({
+        data: Array.from(bytes),
+        timestamp: chunk.timestamp
+      })
+    })
+  }
+
+  if (window.raven?.onSystemAudioForDeepgram) {
+    unsubscribeSystemAudioForDeepgram = window.raven.onSystemAudioForDeepgram((chunk) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const buffer = new Uint8Array(chunk.data).buffer
+        ws.send(buffer)
+      }
+    })
+  }
 }
 
 export function sendAudio(buffer: ArrayBuffer): void {
@@ -70,6 +98,14 @@ export function stopDeepgram(): void {
   if (keepAliveInterval) {
     clearInterval(keepAliveInterval)
     keepAliveInterval = null
+  }
+  if (unsubscribeSystemAudioChunk) {
+    unsubscribeSystemAudioChunk()
+    unsubscribeSystemAudioChunk = null
+  }
+  if (unsubscribeSystemAudioForDeepgram) {
+    unsubscribeSystemAudioForDeepgram()
+    unsubscribeSystemAudioForDeepgram = null
   }
   if (ws) {
     if (ws.readyState === WebSocket.OPEN) {

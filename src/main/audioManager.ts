@@ -78,6 +78,12 @@ export class AudioManager {
       if (!this.isRecording) return
       this.chunkCount++
 
+      if (this.chunkCount <= 3) {
+        console.log(
+          `[AudioManager] Received chunk from ${source}, size: ${buffer.byteLength}`
+        )
+      }
+
       if (this.chunkCount % 50 === 0) {
         console.log(
           `[AudioManager] Received ${this.chunkCount} chunks (source: ${source}, size: ${buffer.byteLength})`

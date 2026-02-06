@@ -23,6 +23,38 @@ contextBridge.exposeInMainWorld('raven', {
   windowSetStealth: (enabled: boolean) => ipcRenderer.invoke('window:set-stealth', enabled),
   windowGetType: () => ipcRenderer.invoke('window:get-type'),
   desktopGetSources: () => ipcRenderer.invoke('desktop:get-sources'),
+  systemAudioIsAvailable: () => ipcRenderer.invoke('system-audio:is-available'),
+  systemAudioHasPermission: () => ipcRenderer.invoke('system-audio:has-permission'),
+  systemAudioRequestPermission: () => ipcRenderer.invoke('system-audio:request-permission'),
+  systemAudioStart: () => ipcRenderer.invoke('system-audio:start'),
+  systemAudioStop: () => ipcRenderer.invoke('system-audio:stop'),
+  sendSystemAudioToDeepgram: (chunk: { data: number[]; timestamp: number }) => {
+    ipcRenderer.send('system-audio:to-deepgram', chunk)
+  },
+  onSystemAudioChunk: (callback: (data: {
+    data: ArrayBuffer | Buffer;
+    sampleRate: number;
+    channels: number;
+    timestamp: number;
+  }) => void) => {
+    const handler = (_event: unknown, data: {
+      data: ArrayBuffer | Buffer;
+      sampleRate: number;
+      channels: number;
+      timestamp: number;
+    }) => callback(data)
+    ipcRenderer.on('system-audio:chunk', handler)
+    return () => {
+      ipcRenderer.removeListener('system-audio:chunk', handler)
+    }
+  },
+  onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => {
+    const handler = (_event: unknown, chunk: { data: number[]; timestamp: number }) => callback(chunk)
+    ipcRenderer.on('system-audio:for-deepgram', handler)
+    return () => {
+      ipcRenderer.removeListener('system-audio:for-deepgram', handler)
+    }
+  },
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
