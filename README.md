@@ -1,30 +1,73 @@
-# React + TypeScript + Vite
+# Project Raven 🦅
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**AI-powered meeting assistant with real-time transcription and stealth mode**
 
-Currently, two official plugins are available:
+An open-source desktop app that provides real-time audio transcription and AI-powered suggestions during meetings, interviews, and calls — completely invisible to screen sharing.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Features
 
-## Expanding the ESLint configuration
+- **Real-time Transcription** — Dual-stream capture (your mic + system audio) with speaker separation
+- **AI Suggestions** — Claude-powered responses with quick action chips (Assist, What to say, Follow-up, Recap)
+- **Stealth Mode** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
+- **Multilingual** — Auto-detects language with Deepgram Nova-3
+- **Local-First** — Your API keys, your data, stored locally
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+## 🛠 Tech Stack
 
-- Configure the top-level `parserOptions` property like this:
+- **Desktop:** Electron + React + TypeScript + Tailwind
+- **Audio:** Swift native module with ScreenCaptureKit + Apple Voice Processing (AEC)
+- **Transcription:** Deepgram Nova-3 (real-time WebSocket)
+- **AI:** Claude claude-sonnet-4-20250514 (streaming responses)
 
-```js
-export default {
-  // other rules...
-  parserOptions: {
-    ecmaVersion: 'latest',
-    sourceType: 'module',
-    project: ['./tsconfig.json', './tsconfig.node.json'],
-    tsconfigRootDir: __dirname,
-  },
-}
+## 📋 Requirements
+
+- macOS 12+ (Monterey or later)
+- Node.js 18+
+- Deepgram API key ([get one free](https://console.deepgram.com))
+- Anthropic API key ([get one here](https://console.anthropic.com))
+
+## 🚀 Getting Started
+```bash
+# Clone the repo
+git clone https://github.com/Laxcorp-Research/project-raven.git
+cd project-raven
+
+# Install dependencies
+npm install
+
+# Build the native Swift module
+cd src/native/swift/AudioCapture
+swift build -c release
+cd ../../../..
+
+# Run in development
+npm run dev
 ```
 
-- Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
-- Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
+On first launch, you'll be prompted to enter your Deepgram and Anthropic API keys.
+
+## ⌨️ Keyboard Shortcuts
+
+| Action | Shortcut |
+|--------|----------|
+| Toggle Overlay | `Cmd + Shift + H` |
+| Start/Stop Recording | `Cmd + Shift + R` |
+| Get AI Suggestion | `Cmd + Enter` |
+
+## 📦 Project Status
+
+- [x] **Phase A:** Foundation (two-window architecture, onboarding, hotkeys)
+- [x] **Phase B (macOS):** Audio engine with AEC, transcription, Claude AI
+- [ ] **Phase B (Windows):** Windows audio capture (WASAPI + Voice Capture DSP)
+- [ ] **Phase C:** Session management & history
+- [ ] **Phase D:** Custom AI modes/profiles
+- [ ] **Phase E:** Full settings UI
+- [ ] **Phase F-J:** Distribution, backend, polish
+
+## 🤝 Contributing
+
+This project is in active development. Issues and PRs welcome!
+
+## 📄 License
+
+MIT
