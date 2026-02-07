@@ -257,11 +257,11 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
   const groupedSessions = groupSessionsByDate(mergedSessions, activeId)
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-2">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="max-w-[900px] mx-auto w-full px-6 min-w-[500px]">
         {Array.from(groupedSessions.entries()).map(([dateGroup, groupSessions]) => (
           <div key={dateGroup} className="mb-2">
-            <div className="pl-8 pr-6 py-3 text-sm font-medium text-gray-500">
+            <div className="py-3 px-4 -mx-4 text-sm font-medium text-gray-500">
               {dateGroup}
             </div>
 
@@ -276,37 +276,40 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
               return (
                 <div
                   key={session.id}
-                  className="group flex items-center pl-8 pr-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className={`group flex items-center justify-between py-3 px-4 -mx-4 rounded-lg cursor-pointer transition-colors duration-150 ${
+                    hoveredId === session.id || menuState.sessionId === session.id
+                      ? 'bg-gray-100/70'
+                      : ''
+                  }`}
                   onMouseEnter={() => setHoveredId(session.id)}
                   onMouseLeave={() => setHoveredId(null)}
                   onClick={() => onSessionSelect?.(session)}
                 >
-                  {isActive ? (
-                    <span className="w-2 h-2 rounded-full bg-cyan-500 mr-3 animate-pulse" />
-                  ) : (
-                    <span className="w-2 mr-3" />
-                  )}
+                  <div className="flex items-center gap-3 min-w-0 flex-1 mr-6">
+                    {isActive && (
+                      <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse shrink-0" />
+                    )}
 
-                <div className="flex-1 min-w-0">
-                  <span
-                    className={`block truncate max-w-[600px] ${
-                      regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
-                    }`}
-                  >
-                    {displayTitle}
-                  </span>
-                </div>
+                    <span
+                      className={`truncate max-w-[500px] ${
+                        regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
+                      }`}
+                      title={displayTitle}
+                    >
+                      {displayTitle}
+                    </span>
+                  </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500 tabular-nums bg-gray-100 px-2 py-0.5 rounded">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm text-gray-600 tabular-nums bg-gray-200/70 px-2.5 py-0.5 rounded-full">
                       {formatDuration(session.duration)}
                     </span>
 
-                    <div className="relative w-12 flex justify-end items-center">
+                    <div className="w-[65px] relative h-6 flex items-center justify-end overflow-hidden">
                       <span
-                        className={`text-sm text-gray-500 transition-all duration-200 ease-in-out ${
+                        className={`text-sm text-gray-500 tabular-nums absolute right-0 transition-all duration-200 ease-out ${
                           hoveredId === session.id || menuState.sessionId === session.id
-                            ? 'opacity-0 translate-x-2'
+                            ? 'opacity-0 -translate-x-3'
                             : 'opacity-100 translate-x-0'
                         }`}
                       >
@@ -314,14 +317,17 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                       </span>
 
                       <button
-                        onClick={(event) => openMenu(event, session.id)}
-                        className={`absolute right-0 p-1.5 cursor-pointer transition-all duration-200 ease-in-out ${
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openMenu(event, session.id)
+                        }}
+                        className={`absolute right-0 p-1 cursor-pointer transition-all duration-200 ease-out ${
                           hoveredId === session.id || menuState.sessionId === session.id
                             ? 'opacity-100 translate-x-0'
-                            : 'opacity-0 -translate-x-2 pointer-events-none'
+                            : 'opacity-0 translate-x-3 pointer-events-none'
                         }`}
                       >
-                        <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
                           <circle cx="4" cy="10" r="1.5" />
                           <circle cx="10" cy="10" r="1.5" />
                           <circle cx="16" cy="10" r="1.5" />
@@ -344,13 +350,13 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
         >
           <button
             onClick={() => openRegenerateModal(menuState.sessionId!)}
-            className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+            className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors"
           >
             Regenerate
           </button>
           <button
             onClick={() => openDeleteModal(menuState.sessionId!)}
-            className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
+            className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-100 cursor-pointer transition-colors"
           >
             Delete
           </button>

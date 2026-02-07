@@ -44,14 +44,17 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
   const [messages, setMessages] = useState<SessionMessage[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
-  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const titleRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isEditingTitle && titleRef.current) {
       titleRef.current.focus()
-      titleRef.current.select()
-      titleRef.current.style.height = 'auto'
-      titleRef.current.style.height = titleRef.current.scrollHeight + 'px'
+      const range = document.createRange()
+      const selection = window.getSelection()
+      range.selectNodeContents(titleRef.current)
+      range.collapse(false)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
     }
   }, [isEditingTitle])
 
@@ -94,11 +97,12 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     }
   }
 
-  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      handleTitleBlur()
-    } else if (e.key === 'Escape') {
+      titleRef.current?.blur()
+    }
+    if (e.key === 'Escape') {
       setEditedTitle(session.title)
       setIsEditingTitle(false)
     }
@@ -141,19 +145,24 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     return ''
   }
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value.slice(0, MAX_TITLE_LENGTH)
-    setEditedTitle(value)
-    e.target.style.height = 'auto'
-    e.target.style.height = e.target.scrollHeight + 'px'
+  const handleTitleChange = () => {
+    if (titleRef.current) {
+      const newValue = titleRef.current.innerText || ''
+      if (newValue.length <= MAX_TITLE_LENGTH) {
+        setEditedTitle(newValue)
+      } else {
+        titleRef.current.innerText = newValue.slice(0, MAX_TITLE_LENGTH)
+        setEditedTitle(newValue.slice(0, MAX_TITLE_LENGTH))
+      }
+    }
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex-1 overflow-y-auto">
       <div className="px-10 pt-8 pb-6">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors mb-6"
+          className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors mb-6 cursor-pointer"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -169,27 +178,32 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
           onMouseLeave={() => setShowTitleTooltip(false)}
         >
           {isEditingTitle ? (
-            <>
-              <textarea
-                ref={titleRef}
-                value={editedTitle}
-                onChange={handleTitleChange}
-                onBlur={handleTitleBlur}
-                onKeyDown={handleTitleKeyDown}
-                rows={1}
-                maxLength={MAX_TITLE_LENGTH}
-              className="w-full text-3xl font-semibold text-gray-900 bg-transparent border border-gray-300 rounded-lg px-2 py-1 -mx-2 outline-none focus:border-gray-400 resize-none overflow-hidden break-words"
-                style={{ lineHeight: '1.2' }}
-              />
-              <span className="absolute right-0 -bottom-6 text-xs text-gray-400">
-                {editedTitle.length}/{MAX_TITLE_LENGTH}
-              </span>
-            </>
+            <div
+              ref={titleRef}
+              contentEditable
+              onInput={handleTitleChange}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              suppressContentEditableWarning
+              className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent rounded-lg break-words px-2 py-1 -mx-2 tracking-normal outline-none"
+              style={{
+                lineHeight: '1.2',
+                fontKerning: 'auto',
+                textRendering: 'optimizeLegibility',
+                minHeight: '1.2em',
+              }}
+            >
+              {editedTitle}
+            </div>
           ) : (
             <h1
               onClick={handleTitleClick}
-              className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words"
-              style={{ lineHeight: '1.2' }}
+              className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words tracking-normal"
+              style={{
+                lineHeight: '1.2',
+                fontKerning: 'auto',
+                textRendering: 'optimizeLegibility',
+              }}
             >
               {session.title}
             </h1>

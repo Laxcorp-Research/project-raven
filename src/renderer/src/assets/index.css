@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+button {
+  cursor: pointer;
+}
+
+[role="button"] {
+  cursor: pointer;
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

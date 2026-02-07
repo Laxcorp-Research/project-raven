@@ -35,13 +35,13 @@ export function ConfirmModal({
         <div className="flex items-center justify-between">
           <button
             onClick={onCancel}
-            className="text-gray-900 font-medium hover:text-gray-600 transition-colors"
+            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className={`px-6 py-2.5 rounded-lg text-white font-medium transition-colors ${buttonColors[confirmColor]}`}
+            className={`px-6 py-2 text-white rounded-lg cursor-pointer transition-colors ${buttonColors[confirmColor]}`}
           >
             {confirmLabel}
           </button>
