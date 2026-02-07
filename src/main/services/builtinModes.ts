@@ -126,46 +126,11 @@ Guidelines:
 ];
 
 /**
- * Seed built-in modes if they don't exist
+ * Seed built-in modes - DISABLED
+ * Templates now create modes on-demand, not pre-seeded
  */
 export function seedBuiltinModes(): void {
-  const existingCount = databaseService.getModeCount();
-
-  if (existingCount > 0) {
-    console.log('[BuiltinModes] Modes already exist, skipping seed');
-    return;
-  }
-
-  console.log('[BuiltinModes] Seeding built-in modes...');
-
-  let isFirst = true;
-  for (const modeDef of BUILTIN_MODES) {
-    const db = (databaseService as any).db;
-    if (!db) throw new Error('Database not initialized');
-
-    const now = Date.now();
-
-    db.prepare(
-      `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, quick_actions_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      modeDef.id,
-      modeDef.name,
-      modeDef.systemPrompt,
-      modeDef.icon,
-      modeDef.color,
-      isFirst ? 1 : 0,
-      1,
-      JSON.stringify(modeDef.quickActions),
-      now,
-      now
-    );
-
-    console.log('[BuiltinModes] Created:', modeDef.name);
-    isFirst = false;
-  }
-
-  console.log('[BuiltinModes] Seeding complete');
+  console.log('[BuiltinModes] Templates available on-demand, no seeding needed');
 }
 
 /**

@@ -22,6 +22,12 @@ export interface QuickAction {
   icon?: string;
 }
 
+export interface NotesSection {
+  id: string;
+  title: string;
+  instructions: string;
+}
+
 export interface Mode {
   id: string;
   name: string;
@@ -31,6 +37,7 @@ export interface Mode {
   isDefault: boolean;
   isBuiltin: boolean;
   quickActions: QuickAction[];
+  notesTemplate: NotesSection[] | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -40,6 +47,7 @@ interface Session {
   title: string;
   transcript: TranscriptEntry[];
   aiResponses: AIResponse[];
+  summary: string | null;
   modeId: string | null;
   durationSeconds: number;
   startedAt: number;

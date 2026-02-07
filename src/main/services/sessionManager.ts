@@ -8,6 +8,7 @@ import Store from 'electron-store';
 import { databaseService, type Session, type TranscriptEntry, type AIResponse } from './database';
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
+import { generateSessionSummary } from './summaryService';
 
 class SessionManager {
   private activeSession: Session | null = null;
@@ -32,12 +33,14 @@ class SessionManager {
       this.endSession();
     }
 
+    const resolvedModeId = modeId ?? databaseService.getActiveMode()?.id ?? null;
     const session: Session = {
       id: uuidv4(),
       title: 'Untitled Session',
       transcript: [],
       aiResponses: [],
-      modeId,
+      summary: null,
+      modeId: resolvedModeId,
       durationSeconds: 0,
       startedAt: Date.now(),
       endedAt: null,
@@ -125,15 +128,34 @@ class SessionManager {
     };
 
     const sessionId = this.activeSession.id;
+    const modeId = this.activeSession.modeId;
+    const transcriptText = finalTranscript
+      .map((e) => `${e.source === 'mic' ? 'You' : 'Them'}: ${e.text}`)
+      .join('\n');
     console.log('[SessionManager] Session ended:', sessionId, 'duration:', durationSeconds, 's');
 
     this.activeSession = null;
     this.broadcastSessionUpdate();
+    this.dashboardWindow?.webContents.send('sessions:list-updated');
 
-    // Generate title asynchronously (don't block the stop flow)
-    this.generateTitle(sessionId).catch((err) => {
-      console.error('[SessionManager] Async title generation failed:', err);
-    });
+    // Generate title + summary asynchronously (don't block the stop flow)
+    const store = new Store();
+    const anthropicApiKey = store.get('anthropicApiKey') as string;
+    if (anthropicApiKey) {
+      generateSessionSummary(transcriptText, modeId, anthropicApiKey)
+        .then((result) => {
+          databaseService.updateSession(sessionId, {
+            title: result.title || endedSession.title,
+            summary: result.summary,
+          });
+          this.dashboardWindow?.webContents.send('sessions:list-updated');
+        })
+        .catch((err) => {
+          console.error('[SessionManager] Async summary generation failed:', err);
+        });
+    } else {
+      console.warn('[SessionManager] No Anthropic API key — summary disabled');
+    }
 
     return endedSession;
   }
@@ -154,9 +176,7 @@ class SessionManager {
       .join('\n');
 
     if (!transcriptText.trim()) {
-      const fallback = this.generateFallbackTitle(session.startedAt);
-      databaseService.updateSession(sessionId, { title: fallback });
-      return fallback;
+      return session.title || 'Untitled Session';
     }
 
     try {

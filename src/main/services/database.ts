@@ -41,6 +41,7 @@ export interface Mode {
   isDefault: boolean;
   isBuiltin: boolean;
   quickActions: QuickAction[];
+  notesTemplate: NotesSection[] | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -50,6 +51,7 @@ export interface Session {
   title: string;
   transcript: TranscriptEntry[];
   aiResponses: AIResponse[];
+  summary: string | null;
   modeId: string | null;
   durationSeconds: number;
   startedAt: number;
@@ -62,6 +64,7 @@ export interface SessionRow {
   title: string;
   transcript_json: string;
   ai_responses_json: string;
+  summary: string | null;
   mode_id: string | null;
   duration_seconds: number;
   started_at: number;
@@ -78,9 +81,18 @@ export interface ModeRow {
   is_default: number;
   is_builtin: number;
   quick_actions_json: string;
+  notes_template_json: string | null;
   created_at: number;
   updated_at: number;
 }
+
+export interface NotesSection {
+  id: string;
+  title: string;
+  instructions: string;
+}
+
+const LATEST_VERSION = 4;
 
 class DatabaseService {
   private db: Database.Database | null = null;
@@ -170,6 +182,18 @@ class DatabaseService {
           CREATE INDEX IF NOT EXISTS idx_modes_is_builtin ON modes(is_builtin);
         `,
       },
+      {
+        name: '003_add_notes_template',
+        sql: `
+          ALTER TABLE modes ADD COLUMN notes_template_json TEXT DEFAULT NULL;
+        `,
+      },
+      {
+        name: '004_add_session_summary',
+        sql: `
+          ALTER TABLE sessions ADD COLUMN summary TEXT DEFAULT NULL;
+        `,
+      },
     ];
 
     const applied = this.db
@@ -186,6 +210,8 @@ class DatabaseService {
           .run(migration.name, Date.now());
       }
     }
+
+    console.log('[Database] Migrations up to v' + LATEST_VERSION);
   }
 
   /**
@@ -195,18 +221,19 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const createdAt = Date.now();
-    const fullSession: Session = { ...session, createdAt };
+    const fullSession: Session = { ...session, summary: session.summary ?? null, createdAt };
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, mode_id, duration_seconds, started_at, ended_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, mode_id, duration_seconds, started_at, ended_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullSession.id,
         fullSession.title,
         JSON.stringify(fullSession.transcript),
         JSON.stringify(fullSession.aiResponses),
+        fullSession.summary,
         fullSession.modeId,
         fullSession.durationSeconds,
         fullSession.startedAt,
@@ -238,6 +265,10 @@ class DatabaseService {
     if (updates.aiResponses !== undefined) {
       setClauses.push('ai_responses_json = ?');
       values.push(JSON.stringify(updates.aiResponses));
+    }
+    if (updates.summary !== undefined) {
+      setClauses.push('summary = ?');
+      values.push(updates.summary);
     }
     if (updates.modeId !== undefined) {
       setClauses.push('mode_id = ?');
@@ -374,6 +405,7 @@ class DatabaseService {
       title: row.title,
       transcript: JSON.parse(row.transcript_json),
       aiResponses: JSON.parse(row.ai_responses_json),
+      summary: row.summary || null,
       modeId: row.mode_id,
       durationSeconds: row.duration_seconds,
       startedAt: row.started_at,
@@ -401,8 +433,8 @@ class DatabaseService {
 
     this.db
       .prepare(
-        `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, quick_actions_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, quick_actions_json, notes_template_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullMode.id,
@@ -413,6 +445,7 @@ class DatabaseService {
         fullMode.isDefault ? 1 : 0,
         fullMode.isBuiltin ? 1 : 0,
         JSON.stringify(fullMode.quickActions),
+        fullMode.notesTemplate ? JSON.stringify(fullMode.notesTemplate) : null,
         fullMode.createdAt,
         fullMode.updatedAt
       );
@@ -512,6 +545,10 @@ class DatabaseService {
       setClauses.push('quick_actions_json = ?');
       values.push(JSON.stringify(updates.quickActions));
     }
+    if (updates.notesTemplate !== undefined) {
+      setClauses.push('notes_template_json = ?');
+      values.push(updates.notesTemplate ? JSON.stringify(updates.notesTemplate) : null);
+    }
 
     values.push(id);
     this.db
@@ -568,6 +605,7 @@ class DatabaseService {
       isDefault: false,
       isBuiltin: false,
       quickActions: original.quickActions,
+      notesTemplate: original.notesTemplate,
     });
   }
 
@@ -597,6 +635,7 @@ class DatabaseService {
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
       quickActions: JSON.parse(row.quick_actions_json),
+      notesTemplate: row.notes_template_json ? JSON.parse(row.notes_template_json) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
