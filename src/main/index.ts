@@ -15,6 +15,7 @@ import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudi
 import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
+import { generateSessionSummary } from './services/summaryService'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -157,7 +158,13 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('sessions:delete', (_event, id: string) => {
-    return databaseService.deleteSession(id)
+    const deleted = databaseService.deleteSession(id)
+    if (deleted) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send('sessions:list-updated')
+      })
+    }
+    return deleted
   })
 
   ipcMain.handle('sessions:getInProgress', () => {
@@ -174,6 +181,30 @@ app.whenReady().then(() => {
 
   ipcMain.handle('session:regenerateTitle', async (_event, sessionId: string) => {
     return sessionManager.generateTitle(sessionId)
+  })
+
+  ipcMain.handle('sessions:regenerate-summary', async (_event, sessionId: string) => {
+    const session = databaseService.getSession(sessionId)
+    if (!session || !session.transcript || session.transcript.length === 0) return false
+
+    const anthropicApiKey = getSetting('anthropicApiKey') as string
+    if (!anthropicApiKey) return false
+
+    const transcriptText = session.transcript
+      .filter((e) => e.isFinal)
+      .map((e) => `${e.source === 'mic' ? 'You' : 'Them'}: ${e.text}`)
+      .join('\n')
+
+    const result = await generateSessionSummary(transcriptText, session.modeId, anthropicApiKey)
+    databaseService.updateSession(sessionId, {
+      title: result.title || session.title,
+      summary: result.summary,
+    })
+
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('sessions:list-updated')
+    })
+    return true
   })
 
   // ==================== MODE IPC HANDLERS ====================

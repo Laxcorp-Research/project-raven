@@ -103,6 +103,7 @@ declare global {
         getAll: () => Promise<Session[]>;
         search: (query: string) => Promise<Session[]>;
         delete: (id: string) => Promise<boolean>;
+        regenerateSummary: (id: string) => Promise<boolean>;
         getInProgress: () => Promise<Session | null>;
         getActive: () => Promise<Session | null>;
         hasActive: () => Promise<boolean>;

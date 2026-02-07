@@ -79,6 +79,7 @@ contextBridge.exposeInMainWorld('raven', {
     getAll: () => ipcRenderer.invoke('sessions:getAll'),
     search: (query: string) => ipcRenderer.invoke('sessions:search', query),
     delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
+    regenerateSummary: (id: string) => ipcRenderer.invoke('sessions:regenerate-summary', id),
     getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
     hasActive: () => ipcRenderer.invoke('session:hasActive'),
