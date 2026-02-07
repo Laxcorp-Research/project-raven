@@ -107,6 +107,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [menuState, setMenuState] = useState<MenuState>({ sessionId: null, x: 0, y: 0 })
   const menuRef = useRef<HTMLDivElement>(null)
+  const [tooltipState, setTooltipState] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; sessionId: string | null }>({
     isOpen: false,
     sessionId: null,
@@ -153,6 +154,11 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const isTextTruncated = (element: HTMLElement | null): boolean => {
+    if (!element) return false
+    return element.scrollWidth > element.clientWidth
   }
 
   function openDeleteModal(sessionId: string) {
@@ -291,10 +297,24 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                     )}
 
                     <span
+                      ref={(el) => {
+                        if (el) el.dataset.sessionId = session.id
+                      }}
+                      onMouseEnter={(e) => {
+                        const target = e.currentTarget
+                        if (isTextTruncated(target)) {
+                          const rect = target.getBoundingClientRect()
+                          setTooltipState({
+                            sessionId: session.id,
+                            x: rect.left + rect.width / 2,
+                            y: rect.bottom + 8,
+                          })
+                        }
+                      }}
+                      onMouseLeave={() => setTooltipState(null)}
                       className={`truncate max-w-[500px] ${
                         regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
                       }`}
-                      title={displayTitle}
                     >
                       {displayTitle}
                     </span>
@@ -341,6 +361,20 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
           </div>
         ))}
       </div>
+
+      {tooltipState && (
+        <div
+          className="fixed z-50 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-lg max-w-md break-words pointer-events-none"
+          style={{
+            left: tooltipState.x,
+            top: tooltipState.y,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          {sessions.find((s) => s.id === tooltipState.sessionId)?.title ||
+            (activeSession?.id === tooltipState.sessionId ? activeSession.title : '')}
+        </div>
+      )}
 
       {menuState.sessionId && (
         <div

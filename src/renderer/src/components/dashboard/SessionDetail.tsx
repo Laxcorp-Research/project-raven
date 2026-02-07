@@ -41,13 +41,25 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
   const [showTitleTooltip, setShowTitleTooltip] = useState(false)
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
+  const [tabDimensions, setTabDimensions] = useState({
+    summary: { left: 0, width: 0 },
+    transcript: { left: 0, width: 0 },
+    usage: { left: 0, width: 0 },
+  })
   const [messages, setMessages] = useState<SessionMessage[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const titleRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const tabContainerRef = useRef<HTMLDivElement>(null)
+  const summaryTabRef = useRef<HTMLButtonElement>(null)
+  const transcriptTabRef = useRef<HTMLButtonElement>(null)
+  const usageTabRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (isEditingTitle && titleRef.current) {
+      titleRef.current.innerText = editedTitle
       titleRef.current.focus()
       const range = document.createRange()
       const selection = window.getSelection()
@@ -74,6 +86,42 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     }
   }, [activeTab])
 
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (
+        tabContainerRef.current &&
+        summaryTabRef.current &&
+        transcriptTabRef.current &&
+        usageTabRef.current
+      ) {
+        setTabDimensions({
+          summary: {
+            left: summaryTabRef.current.offsetLeft,
+            width: summaryTabRef.current.offsetWidth,
+          },
+          transcript: {
+            left: transcriptTabRef.current.offsetLeft,
+            width: transcriptTabRef.current.offsetWidth,
+          },
+          usage: {
+            left: usageTabRef.current.offsetLeft,
+            width: usageTabRef.current.offsetWidth,
+          },
+        })
+      }
+    }
+
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
+    return () => window.removeEventListener('resize', updateDimensions)
+  }, [])
+
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0
+    }
+  }, [activeTab])
+
   const formatDate = (timestamp: number): string => {
     const date = new Date(timestamp)
     return date.toLocaleDateString('en-US', {
@@ -88,12 +136,23 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     setShowTitleTooltip(false)
   }
 
+  const handleTitleMouseMove = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setTooltipPosition({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    })
+  }
+
   const handleTitleBlur = () => {
+    const finalTitle = titleRef.current?.innerText?.trim() || session.title
+    const newTitle = finalTitle.slice(0, MAX_TITLE_LENGTH)
+
+    setEditedTitle(newTitle)
     setIsEditingTitle(false)
-    if (editedTitle.trim() && editedTitle !== session.title) {
-      onUpdateTitle?.(session.id, editedTitle.trim())
-    } else {
-      setEditedTitle(session.title)
+
+    if (newTitle !== session.title && onUpdateTitle) {
+      onUpdateTitle(session.id, newTitle)
     }
   }
 
@@ -148,134 +207,169 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const handleTitleChange = () => {
     if (titleRef.current) {
       const newValue = titleRef.current.innerText || ''
-      if (newValue.length <= MAX_TITLE_LENGTH) {
-        setEditedTitle(newValue)
-      } else {
+      if (newValue.length > MAX_TITLE_LENGTH) {
+        const selection = window.getSelection()
+        const range = selection?.getRangeAt(0)
+        const cursorOffset = range?.startOffset || 0
+
         titleRef.current.innerText = newValue.slice(0, MAX_TITLE_LENGTH)
-        setEditedTitle(newValue.slice(0, MAX_TITLE_LENGTH))
+
+        const textNode = titleRef.current.firstChild
+        if (textNode && selection) {
+          const newRange = document.createRange()
+          const newOffset = Math.min(cursorOffset, MAX_TITLE_LENGTH)
+          newRange.setStart(textNode, newOffset)
+          newRange.setEnd(textNode, newOffset)
+          selection.removeAllRanges()
+          selection.addRange(newRange)
+        }
       }
     }
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-10 pt-8 pb-6">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors mb-6 cursor-pointer"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          <span className="text-sm">Back</span>
-        </button>
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="max-w-[900px] mx-auto w-full px-6 pt-8 pb-6">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors mb-6 cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm">Back</span>
+          </button>
 
-        <p className="text-sm text-gray-500 mb-1">{formatDate(session.startedAt)}</p>
+          <p className="text-sm text-gray-500 mb-1">{formatDate(session.startedAt)}</p>
 
-        <div
-          className="relative max-w-2xl"
-          onMouseEnter={() => !isEditingTitle && setShowTitleTooltip(true)}
-          onMouseLeave={() => setShowTitleTooltip(false)}
-        >
-          {isEditingTitle ? (
+          <div
+            className="relative max-w-lg"
+            onMouseEnter={() => !isEditingTitle && setShowTitleTooltip(true)}
+            onMouseLeave={() => setShowTitleTooltip(false)}
+            onMouseMove={handleTitleMouseMove}
+          >
+            {isEditingTitle ? (
+              <div
+                ref={titleRef}
+                contentEditable
+                onInput={handleTitleChange}
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                suppressContentEditableWarning
+                className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent rounded-lg break-words px-2 py-1 -mx-2 tracking-normal outline-none"
+                style={{
+                  lineHeight: '1.2',
+                  fontKerning: 'auto',
+                  textRendering: 'optimizeLegibility',
+                  minHeight: '1.2em',
+                }}
+              />
+            ) : (
+              <h1
+                onClick={handleTitleClick}
+                className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words tracking-normal"
+                style={{
+                  lineHeight: '1.2',
+                  fontKerning: 'auto',
+                  textRendering: 'optimizeLegibility',
+                }}
+              >
+                {session.title}
+              </h1>
+            )}
+
+            {showTitleTooltip && !isEditingTitle && (
+              <div
+                className="absolute px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg whitespace-nowrap z-10 pointer-events-none"
+                style={{
+                  left: tooltipPosition.x,
+                  top: tooltipPosition.y + 25,
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                Click to edit title
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="max-w-[900px] mx-auto w-full px-6 mb-6">
+          <div ref={tabContainerRef} className="relative inline-flex bg-gray-100/80 rounded-full p-1">
             <div
-              ref={titleRef}
-              contentEditable
-              onInput={handleTitleChange}
-              onBlur={handleTitleBlur}
-              onKeyDown={handleTitleKeyDown}
-              suppressContentEditableWarning
-              className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent rounded-lg break-words px-2 py-1 -mx-2 tracking-normal outline-none"
+              className="absolute top-1 bottom-1 bg-white rounded-full shadow-sm transition-all duration-200 ease-out"
               style={{
-                lineHeight: '1.2',
-                fontKerning: 'auto',
-                textRendering: 'optimizeLegibility',
-                minHeight: '1.2em',
+                left: tabDimensions[activeTab].left,
+                width: tabDimensions[activeTab].width,
               }}
-            >
-              {editedTitle}
-            </div>
-          ) : (
-            <h1
-              onClick={handleTitleClick}
-              className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words tracking-normal"
-              style={{
-                lineHeight: '1.2',
-                fontKerning: 'auto',
-                textRendering: 'optimizeLegibility',
-              }}
-            >
-              {session.title}
-            </h1>
-          )}
-
-          {showTitleTooltip && !isEditingTitle && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg whitespace-nowrap z-10">
-              Click to edit title
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="px-10 mb-6">
-        <div className="inline-flex rounded-lg border border-gray-200 p-1">
-          <button
-            onClick={() => setActiveTab('summary')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'summary'
-                ? 'bg-white shadow-sm text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Summary
-          </button>
-          <button
-            onClick={() => setActiveTab('transcript')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'transcript'
-                ? 'bg-white shadow-sm text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Transcript
-          </button>
-          <button
-            onClick={() => setActiveTab('usage')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              activeTab === 'usage'
-                ? 'bg-white shadow-sm text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Usage
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-10 pb-8">
-        {(hasTranscript || (activeTab === 'usage' && messages.length > 0)) && (
-          <div className="flex justify-end mb-4">
+            />
             <button
-              onClick={() => handleCopy(getCopyText(), activeTab)}
-              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              ref={summaryTabRef}
+              onClick={() => setActiveTab('summary')}
+              className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                activeTab === 'summary'
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              {copySuccess === activeTab ? 'Copied!' : `Copy full ${activeTab}`}
+              Summary
+            </button>
+            <button
+              ref={transcriptTabRef}
+              onClick={() => setActiveTab('transcript')}
+              className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                activeTab === 'transcript'
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Transcript
+            </button>
+            <button
+              ref={usageTabRef}
+              onClick={() => setActiveTab('usage')}
+              className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                activeTab === 'usage'
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Usage
             </button>
           </div>
-        )}
+        </div>
 
-        {activeTab === 'summary' && (
-          <SummaryTab summary={session.summary} hasTranscript={hasTranscript} />
-        )}
-        {activeTab === 'transcript' && (
-          <TranscriptTab transcript={session.transcript} />
-        )}
-        {activeTab === 'usage' && (
-          <UsageTab messages={messages} loading={loadingMessages} />
-        )}
+        <div className="flex-1 h-0 relative">
+          <div ref={scrollContainerRef} className="h-full overflow-y-auto">
+            <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
+              {(hasTranscript || (activeTab === 'usage' && messages.length > 0)) && (
+                <div className="flex justify-end mb-4">
+                  <button
+                    onClick={() => handleCopy(getCopyText(), activeTab)}
+                    className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    {copySuccess === activeTab ? 'Copied!' : `Copy full ${activeTab}`}
+                  </button>
+                </div>
+              )}
+
+              {activeTab === 'summary' && (
+                <SummaryTab summary={session.summary} hasTranscript={hasTranscript} />
+              )}
+              {activeTab === 'transcript' && (
+                <TranscriptTab transcript={session.transcript} />
+              )}
+              {activeTab === 'usage' && (
+                <UsageTab messages={messages} loading={loadingMessages} />
+              )}
+            </div>
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+        </div>
       </div>
     </div>
   )
@@ -426,6 +520,15 @@ function formatTimestamp(timestamp: number): string {
 }
 
 function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: boolean }) {
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+
+  const handleCopy = async (messageId: string, content: string) => {
+    await navigator.clipboard.writeText(content)
+    setCopiedMessageId(messageId)
+    setTimeout(() => setCopiedMessageId(null), 2000)
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -460,19 +563,37 @@ function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: 
   return (
     <div className="space-y-6">
       {messages.map((message) => (
-        <div key={message.id}>
+        <div
+          key={message.id}
+          onMouseEnter={() => setHoveredMessageId(message.id)}
+          onMouseLeave={() => setHoveredMessageId(null)}
+        >
           {message.role === 'user' ? (
-            <div className="flex justify-end">
+            <div className="flex flex-col items-end">
               <div className="max-w-[80%] bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-br-md">
                 <p className="text-sm leading-relaxed">{message.content}</p>
+              </div>
+              <div
+                className={`mt-1 transition-opacity duration-150 ${hoveredMessageId === message.id ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <button
+                  onClick={() => handleCopy(message.id, message.content)}
+                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors relative group"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                    {copiedMessageId === message.id ? 'Copied!' : 'Copy message'}
+                  </span>
+                </button>
               </div>
             </div>
           ) : (
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="currentColor">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C9.5 2 7.5 3.5 6.5 5.5C5 5 3 5.5 2 7C3 8 4.5 8.5 6 8.5C6 10 6.5 11.5 7.5 12.5L4 20H6L8.5 14C9.5 15 11 16 12 16C13 16 14.5 15 15.5 14L18 20H20L16.5 12.5C17.5 11.5 18 10 18 8.5C19.5 8.5 21 8 22 7C21 5.5 19 5 17.5 5.5C16.5 3.5 14.5 2 12 2ZM12 4C13.5 4 14.78 4.83 15.5 6C14.5 6.5 13.5 7 12 7C10.5 7 9.5 6.5 8.5 6C9.22 4.83 10.5 4 12 4ZM10 10C10.55 10 11 10.45 11 11C11 11.55 10.55 12 10 12C9.45 12 9 11.55 9 11C9 10.45 9.45 10 10 10ZM14 10C14.55 10 15 10.45 15 11C15 11.55 14.55 12 14 12C13.45 12 13 11.55 13 11C13 10.45 13.45 10 14 10Z" />
                 </svg>
               </div>
               <div className="flex-1">
@@ -481,13 +602,15 @@ function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: 
                 </div>
                 <p className="text-gray-700 leading-relaxed">{message.content}</p>
                 <button
-                  onClick={() => navigator.clipboard.writeText(message.content)}
-                  className="flex items-center gap-1 mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                  onClick={() => handleCopy(message.id, message.content)}
+                  className={`flex items-center gap-1 mt-2 text-xs text-gray-400 hover:text-gray-600 transition-all duration-150 ${
+                    hoveredMessageId === message.id ? 'opacity-100' : 'opacity-0'
+                  }`}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  Copy message
+                  {copiedMessageId === message.id ? 'Copied!' : 'Copy message'}
                 </button>
               </div>
             </div>
