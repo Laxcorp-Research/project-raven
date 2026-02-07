@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { BrowserWindow, ipcMain } from 'electron';
+import { v4 as uuidv4 } from 'uuid';
+import { sessionManager } from './services/sessionManager';
 
 interface ChatMessage {
   id: string;
@@ -46,6 +48,62 @@ const ACTION_PROMPTS: Record<string, string> = {
   'follow-up': 'Suggest 2-3 smart follow-up questions I could ask RIGHT NOW based on what\'s been discussed. Format as direct questions I can use verbatim.',
   recap: 'Provide a concise recap of this conversation so far. Include: key points discussed, any decisions made, action items, and anything that seems unresolved.',
 };
+
+/**
+ * Generate a session title from transcript using Claude
+ */
+export async function generateSessionTitle(
+  anthropicApiKey: string,
+  transcriptText: string
+): Promise<string> {
+  if (!anthropicApiKey) {
+    throw new Error('Anthropic API key not configured');
+  }
+
+  try {
+    const response = await (new Anthropic({ apiKey: anthropicApiKey })).messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 30,
+      messages: [{
+        role: 'user',
+        content: `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
+
+<transcript>
+${transcriptText.slice(0, 1500)}
+</transcript>
+
+<examples>
+Good titles: "Q4 Sales Review", "Marketing Budget Discussion", "Team Standup Meeting", "Interview with John"
+Bad titles: "I'd be happy to help...", "Here's a title:", "The conversation is about..."
+</examples>
+
+Title:`
+      }],
+    });
+
+    let title = (response.content[0] as any).text?.trim() || 'Untitled Session';
+
+    title = title
+      .replace(/^["']|["']$/g, '')
+      .replace(/^(Title:|Here's|The title is|A good title would be)/i, '')
+      .replace(/[.!?]$/, '')
+      .trim();
+
+    if (
+      title.toLowerCase().startsWith("i'd")
+      || title.toLowerCase().startsWith('i need')
+      || title.toLowerCase().startsWith("i don't")
+      || title.length > 60
+    ) {
+      throw new Error('Invalid title format');
+    }
+
+    return title.length > 50 ? title.slice(0, 47) + '...' : title;
+  } catch (error) {
+    console.error('[ClaudeService] Title generation failed:', error);
+    throw error;
+  }
+}
 
 export class ClaudeService {
   private client: Anthropic | null = null;
@@ -140,6 +198,18 @@ export class ClaudeService {
           timestamp: Date.now(),
         };
         this.conversation.messages.push(assistantMessage);
+
+        const userMessageText = params.action === 'custom' && params.customPrompt
+          ? params.customPrompt
+          : this.getActionLabel(params.action);
+
+        sessionManager.addAIResponse({
+          id: uuidv4(),
+          action: params.action,
+          userMessage: userMessageText,
+          response: fullResponse,
+          timestamp: Date.now(),
+        });
 
         this.broadcast({
           type: 'done',

@@ -72,6 +72,28 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.removeListener('system-audio:for-deepgram', handler)
     }
   },
+  sessions: {
+    create: (session: unknown) => ipcRenderer.invoke('sessions:create', session),
+    update: (id: string, updates: unknown) => ipcRenderer.invoke('sessions:update', id, updates),
+    get: (id: string) => ipcRenderer.invoke('sessions:get', id),
+    getAll: () => ipcRenderer.invoke('sessions:getAll'),
+    search: (query: string) => ipcRenderer.invoke('sessions:search', query),
+    delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
+    getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
+    getActive: () => ipcRenderer.invoke('session:getActive'),
+    hasActive: () => ipcRenderer.invoke('session:hasActive'),
+    regenerateTitle: (id: string) => ipcRenderer.invoke('session:regenerateTitle', id),
+    onListUpdated: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('sessions:list-updated', handler)
+      return () => ipcRenderer.removeListener('sessions:list-updated', handler)
+    },
+    onSessionUpdated: (callback: (session: unknown) => void) => {
+      const handler = (_event: unknown, session: unknown) => callback(session)
+      ipcRenderer.on('session:updated', handler)
+      return () => ipcRenderer.removeListener('session:updated', handler)
+    },
+  },
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),

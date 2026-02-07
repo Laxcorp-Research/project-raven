@@ -6,6 +6,7 @@
 
 import { BrowserWindow } from 'electron';
 import type WebSocket from 'ws';
+import { sessionManager } from './services/sessionManager';
 
 const DEEPGRAM_WS_BASE = 'wss://api.deepgram.com/v1/listen';
 
@@ -187,6 +188,15 @@ export class TranscriptionService {
 
       state.currentInterim = '';
 
+      const latestEntry = this.transcriptEntries[this.transcriptEntries.length - 1];
+      sessionManager.addTranscriptEntry({
+        id: latestEntry.id,
+        source: latestEntry.source,
+        text: latestEntry.text,
+        timestamp: latestEntry.timestamp,
+        isFinal: latestEntry.isFinal,
+      });
+
       this.broadcastTranscript({
         entry: this.transcriptEntries[this.transcriptEntries.length - 1],
         isFinal: true,
@@ -195,6 +205,14 @@ export class TranscriptionService {
       });
     } else {
       state.currentInterim = transcript;
+
+      sessionManager.addTranscriptEntry({
+        id: `interim-${source}`,
+        source,
+        text: transcript,
+        timestamp: Date.now(),
+        isFinal: false,
+      });
 
       this.broadcastTranscript({
         entry: {

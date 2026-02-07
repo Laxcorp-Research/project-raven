@@ -12,6 +12,8 @@ import { getSetting } from './store'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudioNative'
+import { databaseService, type Session } from './services/database'
+import { sessionManager } from './services/sessionManager'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -100,6 +102,8 @@ function boot(): void {
   const claudeService = new ClaudeService(overlay)
 
   setSystemAudioWindows(dashboard, overlay)
+  sessionManager.setWindows(dashboard, overlay)
+  sessionManager.recoverSession()
 
   audioManager.setWindows(dashboard, overlay)
 
@@ -121,13 +125,62 @@ function boot(): void {
 }
 
 app.whenReady().then(() => {
+  // Initialize database
+  databaseService.initialize()
+
   registerIpcHandlers()
   registerSystemAudioHandlers()
   boot()
 
+  // Session IPC handlers
+  ipcMain.handle('sessions:create', (_event, session: Omit<Session, 'createdAt'>) => {
+    return databaseService.createSession(session)
+  })
+
+  ipcMain.handle('sessions:update', (_event, id: string, updates: Partial<Session>) => {
+    databaseService.updateSession(id, updates)
+    return true
+  })
+
+  ipcMain.handle('sessions:get', (_event, id: string) => {
+    return databaseService.getSession(id)
+  })
+
+  ipcMain.handle('sessions:getAll', () => {
+    return databaseService.getAllSessions()
+  })
+
+  ipcMain.handle('sessions:search', (_event, query: string) => {
+    return databaseService.searchSessions(query)
+  })
+
+  ipcMain.handle('sessions:delete', (_event, id: string) => {
+    return databaseService.deleteSession(id)
+  })
+
+  ipcMain.handle('sessions:getInProgress', () => {
+    return databaseService.getInProgressSession()
+  })
+
+  ipcMain.handle('session:getActive', () => {
+    return sessionManager.getActiveSession()
+  })
+
+  ipcMain.handle('session:hasActive', () => {
+    return sessionManager.hasActiveSession()
+  })
+
+  ipcMain.handle('session:regenerateTitle', async (_event, sessionId: string) => {
+    return sessionManager.generateTitle(sessionId)
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) boot()
   })
+})
+
+app.on('before-quit', () => {
+  databaseService.close()
 })
 
 app.on('will-quit', () => {

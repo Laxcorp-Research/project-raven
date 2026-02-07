@@ -15,6 +15,7 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             rollupOptions: {
+              external: ['better-sqlite3'],
               output: {
                 entryFileNames: 'index.js',
               },

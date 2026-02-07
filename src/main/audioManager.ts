@@ -8,6 +8,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { getSetting } from './store'
 import { TranscriptionService } from './transcriptionService'
+import { sessionManager } from './services/sessionManager'
 
 export class AudioManager {
   private isRecording = false
@@ -47,6 +48,9 @@ export class AudioManager {
         console.warn('[AudioManager] No Deepgram API key — transcription disabled')
       }
 
+      // Start a new session
+      sessionManager.startSession(null)
+
       this.isRecording = true
       this.chunkCount = 0
       this.recordingStartTime = Date.now()
@@ -60,6 +64,12 @@ export class AudioManager {
 
     ipcMain.handle('audio:stop-recording', async () => {
       await this.transcriptionService.stop()
+
+      // End the session
+      const session = sessionManager.endSession()
+      if (session) {
+        console.log('[AudioManager] Session saved with', session.transcript.length, 'entries')
+      }
 
       this.isRecording = false
       const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0

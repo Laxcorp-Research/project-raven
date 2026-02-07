@@ -1,3 +1,31 @@
+interface TranscriptEntry {
+  id: string;
+  source: 'mic' | 'system';
+  text: string;
+  timestamp: number;
+  isFinal: boolean;
+}
+
+interface AIResponse {
+  id: string;
+  action: string;
+  userMessage: string;
+  response: string;
+  timestamp: number;
+}
+
+interface Session {
+  id: string;
+  title: string;
+  transcript: TranscriptEntry[];
+  aiResponses: AIResponse[];
+  modeId: string | null;
+  durationSeconds: number;
+  startedAt: number;
+  endedAt: number | null;
+  createdAt: number;
+}
+
 declare global {
   interface Window {
     raven: {
@@ -39,6 +67,20 @@ declare global {
         timestamp: number;
       }) => void) => () => void;
       onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => () => void;
+      sessions: {
+        create: (session: Omit<Session, 'createdAt'>) => Promise<Session>;
+        update: (id: string, updates: Partial<Session>) => Promise<boolean>;
+        get: (id: string) => Promise<Session | null>;
+        getAll: () => Promise<Session[]>;
+        search: (query: string) => Promise<Session[]>;
+        delete: (id: string) => Promise<boolean>;
+        getInProgress: () => Promise<Session | null>;
+        getActive: () => Promise<Session | null>;
+        hasActive: () => Promise<boolean>;
+        regenerateTitle: (id: string) => Promise<string>;
+        onListUpdated: (callback: () => void) => () => void;
+        onSessionUpdated: (callback: (session: { id: string; title: string; startedAt: number } | null) => void) => () => void;
+      };
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
       audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;
