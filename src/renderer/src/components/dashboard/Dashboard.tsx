@@ -52,9 +52,6 @@ export function Dashboard() {
     console.log('Settings clicked — coming in Phase E')
   }
 
-  // Demo sessions (empty for now — real sessions come in Phase C)
-  const sessions: { id: string; title: string; duration: string; timestamp: string; date: string }[] = []
-
   return (
     <div className="flex h-screen bg-white">
       <Sidebar onOpenSettings={handleOpenSettings} />
@@ -67,7 +64,7 @@ export function Dashboard() {
           isRecording={isRecording}
         />
 
-        <SessionList sessions={sessions} />
+        <SessionList />
       </div>
     </div>
   )
