@@ -32,6 +32,12 @@ declare global {
         channels: number;
         timestamp: number;
       }) => void) => () => void;
+      onNativeMicChunk: (callback: (data: {
+        data: ArrayBuffer | Uint8Array;
+        sampleRate: number;
+        channels: number;
+        timestamp: number;
+      }) => void) => () => void;
       onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => () => void;
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;

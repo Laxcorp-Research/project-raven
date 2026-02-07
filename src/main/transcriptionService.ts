@@ -120,6 +120,9 @@ export class TranscriptionService {
         state.ws!.onmessage = (event: { data: unknown }) => {
           try {
             const data = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
+            
+            console.log(`[Transcription] ${source} received:`, JSON.stringify(data).slice(0, 200));
+            
             this.handleTranscriptResult(data, source);
           } catch (err) {
             console.error(`[Transcription] ${source} parse error:`, err);
@@ -144,28 +147,48 @@ export class TranscriptionService {
   }
 
   private handleTranscriptResult(data: { channel?: { alternatives?: Array<{ transcript?: string }> }; is_final?: boolean }, source: AudioSource): void {
+    console.log(`[Transcription] handleTranscriptResult called for ${source}`);
+    
     const transcript = data.channel?.alternatives?.[0]?.transcript;
-    if (!transcript) return;
+    if (!transcript) {
+      console.log(`[Transcription] ${source} - no transcript in message`);
+      return;
+    }
+
+    console.log(`[Transcription] ${source} transcript: "${transcript}" (final: ${data.is_final})`);
 
     const isFinal = !!data.is_final;
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
     const speaker: 'you' | 'them' = source === 'mic' ? 'you' : 'them';
 
     if (isFinal) {
-      const entry: TranscriptEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        source,
-        text: transcript,
-        speaker,
-        timestamp: Date.now(),
-        isFinal: true,
-      };
+      const now = Date.now();
+      const MERGE_WINDOW_MS = 5000;
 
-      this.transcriptEntries.push(entry);
+      const lastEntry = this.transcriptEntries[this.transcriptEntries.length - 1];
+      const shouldMerge = lastEntry
+        && lastEntry.speaker === speaker
+        && (now - lastEntry.timestamp) < MERGE_WINDOW_MS;
+
+      if (shouldMerge && lastEntry) {
+        lastEntry.text = `${lastEntry.text} ${transcript}`;
+        lastEntry.timestamp = now;
+      } else {
+        const entry: TranscriptEntry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          source,
+          text: transcript,
+          speaker,
+          timestamp: now,
+          isFinal: true,
+        };
+        this.transcriptEntries.push(entry);
+      }
+
       state.currentInterim = '';
 
       this.broadcastTranscript({
-        entry,
+        entry: this.transcriptEntries[this.transcriptEntries.length - 1],
         isFinal: true,
         fullTranscript: this.getFullTranscriptText(),
         entries: this.transcriptEntries,

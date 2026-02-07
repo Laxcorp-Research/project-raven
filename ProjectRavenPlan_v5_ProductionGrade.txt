@@ -1,0 +1,890 @@
+Project Raven - Production-Grade Implementation Plan (v5)
+================================================================
+
+Version History:
+- v3: Initial production-grade plan
+- v4: Added WebRTC AEC3 for acoustic echo cancellation (Feb 2025)
+- v5: Updated AEC approach (OS-native solutions), Windows implementation details,
+      reflects actual implementation progress (Feb 2025)
+
+Core Principles:
+1. LOCAL-FIRST: Free tier is a complete standalone desktop app. No backend dependency.
+2. PRODUCTION-GRADE: No shortcuts, no deprecated APIs, no hacks. Built to last.
+3. NATIVE PERFORMANCE: Use native modules for audio capture, not browser workarounds.
+4. RELIABILITY: Must work flawlessly in real meetings. Zero tolerance for audio drops or lag.
+5. OS-NATIVE AEC: Use each platform's battle-tested voice processing (Apple/Microsoft).
+
+================================================================================
+PHASE A: Foundation (Local-First Architecture) ✅ COMPLETE
+================================================================================
+Goal: Electron app shell with proper architecture, persistence, and two-window system
+
+A1 - Project Scaffold ✅
+  - Electron 28+ (latest stable)
+  - React 18 + TypeScript 5 (strict mode)
+  - Tailwind CSS with design system tokens
+  - electron-vite for fast HMR
+  - ESLint + Prettier (strict config)
+  - electron-store for encrypted local persistence
+
+A2 - Plan Mode System ✅
+  - Global config: mode: 'free' | 'pro' stored locally
+  - Feature flags derived from mode
+  - All conditional logic branches cleanly from this flag
+  - Default: free (standalone, no backend)
+
+A3 - Secure API Key Management ✅
+  - Onboarding flow collects Deepgram + Anthropic keys
+  - Keys encrypted via electron-store (AES-256-GCM)
+  - Keys validated on entry (actual API ping, not just format check)
+  - Secure memory handling (keys never logged, cleared from memory when not needed)
+  - Persisted across restarts, editable in settings
+
+A4 - Two-Window Architecture ✅
+  - Main process as coordinator (no business logic in renderer)
+  - Dashboard window: normal, resizable, light theme
+  - Overlay window: frameless, always-on-top, transparent, stealth-capable
+  - Robust IPC bridge with typed channels (windowManager.ts)
+  - Window state persistence (position, size)
+
+A5 - Dashboard Shell ✅
+  - Header: "My Raven" branding, Mode dropdown, Stealth toggle, "Start Raven" button
+  - Session list placeholder (grouped by date)
+  - Settings gear icon
+  - Light theme with proper contrast ratios (WCAG AA)
+  - Cluely-inspired interface elements
+
+A6 - Overlay Shell ✅
+  - Pill toolbar: logo, stealth badge, mic toggle, device selector, minimize, close
+  - Expandable response panel with tabs (Chat, Transcript)
+  - Input bar with quick action chips
+  - Dark/translucent theme with backdrop blur
+  - Drag handle for repositioning
+
+✓ CHECKPOINT A: PASSED
+  - App launches reliably on macOS 12+
+  - Two windows render with proper themes
+  - API keys persist encrypted across restarts
+  - Hotkeys work (Cmd/Ctrl+Shift+H toggle overlay, Cmd/Ctrl+Shift+R toggle recording)
+  - No console errors or warnings
+
+================================================================================
+PHASE B: Audio Engine (Production-Grade Capture + AEC)
+================================================================================
+Goal: Bulletproof audio capture with OS-native AEC for perfect speaker separation
+
+--------------------------------------------------------------------------------
+KEY ARCHITECTURE DECISION: OS-Native Voice Processing (Not WebRTC)
+--------------------------------------------------------------------------------
+
+After extensive testing with WebRTC AEC3, we discovered that ScreenCaptureKit's
+unpredictable latency (varies 50-200ms) makes manual AEC timing synchronization
+extremely difficult. The solution: use each OS's built-in voice processing.
+
+APPROACH COMPARISON:
+┌─────────────────────┬──────────────┬─────────────┬─────────────────────────┐
+│ Approach            │ Effectiveness│ Complexity  │ Notes                   │
+├─────────────────────┼──────────────┼─────────────┼─────────────────────────┤
+│ WebRTC AEC3         │ 90-95%       │ HIGH        │ Requires manual timing  │
+│ (manual)            │              │             │ sync - fails with SCK   │
+├─────────────────────┼──────────────┼─────────────┼─────────────────────────┤
+│ Apple Voice Proc AU │ 95%+         │ LOW         │ OS handles everything,  │
+│ (macOS)             │              │             │ hardware-optimized      │
+├─────────────────────┼──────────────┼─────────────┼─────────────────────────┤
+│ Windows Voice       │ 95%+         │ LOW         │ Same approach, Windows  │
+│ Capture DSP         │              │             │ Media Foundation        │
+└─────────────────────┴──────────────┴─────────────┴─────────────────────────┘
+
+Decision: OS-Native Voice Processing
+- Battle-tested at OS level (used by FaceTime, Teams, Zoom internally)
+- Handles all timing automatically
+- Hardware-optimized for each platform
+- Brief calibration period (~3 seconds) then clean separation
+- WebRTC libraries kept as fallback if needed
+
+--------------------------------------------------------------------------------
+
+B1 - Native Audio Module Architecture ✅
+  - Swift executable for macOS (spawned as child process)
+  - Rust module for Windows (to be implemented)
+  - Binary stdout protocol for audio data streaming
+  - TypeScript wrapper (nativeAudioBridge.ts)
+  - Graceful fallback if native module fails to load
+
+B2 - macOS System Audio Capture (ScreenCaptureKit) ✅
+  - Native Swift module using ScreenCaptureKit (macOS 13.0+)
+  - SCStreamConfiguration for audio-only capture
+  - Capture system audio WITHOUT showing picker dialog
+  - One-time Screen Recording permission (guided onboarding)
+  - 48kHz stereo capture → downsample to 16kHz mono Int16 PCM
+  - Proper cleanup on stop (no orphaned streams)
+  - Located: src/native/swift/AudioCapture/
+
+B3 - Windows System Audio Capture (WASAPI) 🔲 PENDING
+  - Native Rust module using WASAPI loopback capture
+  - cpal crate for cross-platform audio abstraction
+  - Capture system audio from default output device
+  - No special permissions required on Windows
+  - 48kHz capture → downsample to 16kHz mono Int16 PCM
+  - Handle device changes gracefully
+  - N-API bindings for Electron integration
+  - Located: src/native/windows/ (to be created)
+
+B4 - Microphone Capture with AEC
+
+B4a - macOS: Apple Voice Processing Audio Unit ✅
+  - AVAudioEngine with Voice Processing enabled
+  - setVoiceProcessingEnabled(true) - single line enables AEC + NS + AGC
+  - Voice Processing returns 9-channel format at 48kHz (spatial audio)
+  - Extract channel 0 (mono microphone) from multi-channel buffer
+  - Linear resampling: 48kHz → 16kHz
+  - Format conversion: Float32 → Int16 PCM
+  - ~20ms audio chunks for real-time streaming
+  - Brief calibration period (~3 seconds) for adaptive filter
+
+B4b - Windows: Voice Capture DSP (Media Foundation) 🔲 PENDING
+  - Windows equivalent to Apple Voice Processing
+  - Media Foundation transform for AEC + NS + AGC
+  - WASAPI input device capture
+  - Same output format: 16kHz mono Int16 PCM
+  - Used by Microsoft Teams, Skype, Discord on Windows
+
+B5 - Binary Protocol (Swift/Rust → Node.js) ✅
+  - stdout binary protocol: [source_byte][length_hi][length_lo][pcm_data]
+    • 0x00 = system audio (for "Them" transcript)
+    • 0x01 = microphone audio (for "You" transcript)
+  - stderr for debug logging (prefixed with [System] or [Mic])
+  - Node.js parser in nativeAudioBridge.ts
+  - Chunk buffering for network jitter
+
+B6 - Dual-Stream Architecture ✅
+  - Microphone stream (AEC-cleaned) → "You" (outgoing messages)
+  - System audio stream → "Them" (incoming messages)
+  - Separate Deepgram WebSocket connections per stream
+  - Streams tagged at source, never mixed
+  - Transcript merging with 5-second sliding window
+
+B7 - Audio Pipeline Manager (Main Process) ✅
+  - Spawns native audio capture helper (Swift binary)
+  - Parses binary stdout protocol
+  - Routes audio chunks to TranscriptionService
+  - Broadcasts state to both windows via IPC
+  - Handles start/stop/error lifecycle
+  - Clean process termination on stop
+
+✓ CHECKPOINT B1 (Audio) - macOS PASSED:
+  - Click record → mic captures YOUR voice (AEC-cleaned)
+  - System audio captures MEETING audio
+  - Audio flows continuously (verified with chunk count logs)
+  - Clean stop with no orphaned processes
+  - Play YouTube through speakers → NOT in "You" transcript
+
+================================================================================
+PHASE B (continued): Transcription & AI Engine
+================================================================================
+
+B8 - Deepgram Integration (Dual Connection) ✅
+  - Two WebSocket connections: one for mic, one for system audio
+  - Model: nova-3 (latest, best accuracy)
+  - Language: 'multi' for auto-detection (supports Hindi + English code-switching)
+  - Features: smart_format, punctuate, interim_results
+  - Keep-alive pings every 8 seconds
+  - Automatic reconnection on disconnect (exponential backoff)
+  - Proper CloseStream on stop
+
+B9 - Transcript Merging ✅
+  - 5-second sliding window for temporal ordering
+  - Transcripts sorted by timestamp across both streams
+  - getMergedTranscript() returns chronological conversation
+  - Format: "You: ... / Them: ..." with timestamps
+  - Implemented in transcriptionService.ts
+
+B10 - Transcript Data Model ✅
+  - Each utterance stored as: { id, source: 'mic'|'system', text, timestamp, isFinal }
+  - Entries stored chronologically per source
+  - Interim results shown in italics, replaced when final
+  - Full transcript derived from merged entries
+
+B11 - Claude AI Integration ✅
+  - Model: claude-sonnet-4-20250514 (fast, capable)
+  - Conversation history: array of { role: 'user'|'assistant', content }
+  - Claude receives: system prompt + conversation history + transcript + user request
+  - Smart focus on NEW content since last response
+  - Streaming responses (SSE) for real-time display
+  - Rate limit handling (429 → backoff, retry)
+  - Error handling with user-friendly messages
+
+B12 - Quick Action System ✅
+  - Action chips: Assist, "What should I say?", Follow-up, Recap
+  - Each chip = different prompt template
+  - Custom text input for freeform questions
+  - All actions include current transcript context
+  - Response tagged with triggering action
+
+B13 - Chat-Based UI (Overlay) ✅
+  - Two tabs: Chat | Transcript
+  - Chat tab: scrollable message history (user requests + Raven responses)
+  - Transcript tab: live transcript with You/Them bubbles
+  - Auto-scroll to latest message
+  - Loading states (typing indicator)
+  - Error states (red toast, retry option)
+
+B14 - Stealth Mode ✅
+  - macOS: setContentProtection(true) — hides from screen recording
+  - Windows: SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)
+  - Visual indicator in overlay (badge)
+  - Toggle in both dashboard header and overlay toolbar
+  - State persisted in settings
+
+B15 - Global Hotkeys ✅
+  - Cmd/Ctrl+Shift+H: Toggle overlay visibility
+  - Cmd/Ctrl+Shift+R: Toggle recording
+  - Cmd/Ctrl+Enter: Trigger AI suggestion
+  - Hotkeys work even when app not focused (globalShortcut)
+  - Implemented in globalHotkeys.ts
+
+✓ CHECKPOINT B (Full Engine):
+  - Start recording → mic AND system audio captured (AEC-cleaned separation) ✅
+  - Transcript shows You vs Them correctly ✅
+  - Playing audio through speakers does NOT appear in "You" transcript ✅
+  - Click "Assist" → Claude response streams in Chat tab ✅
+  - Stealth mode hides overlay from screen sharing ✅
+  - Hotkeys work globally ✅
+  - Stop recording → clean shutdown ✅
+
+================================================================================
+PHASE C: Sessions (Persistent History)
+================================================================================
+Goal: Session history with robust local persistence
+
+C1 - Session Data Model
+  - Local SQLite database via better-sqlite3 (synchronous, reliable)
+  - Schema: sessions (id, title, transcript_json, ai_responses_json, mode_id, 
+    duration_seconds, started_at, ended_at, created_at)
+  - Indexes on started_at for fast sorting
+  - Migration system for schema updates
+
+C2 - Session Lifecycle
+  - Start: Create session record with started_at
+  - During: Append transcript entries and AI responses in memory
+  - Stop: Write final data, calculate duration, set ended_at
+  - Auto-save: Periodic flush to disk during long sessions (every 60s)
+  - Crash recovery: Recover in-progress session on restart
+
+C3 - Auto-Naming
+  - After session ends, send transcript summary to Claude
+  - Generate concise title (e.g., "Interview with Acme Corp")
+  - Fallback: timestamp-based name if Claude fails
+
+C4 - Dashboard Session List
+  - Sessions grouped by date (Today, Yesterday, This Week, Earlier)
+  - Each row: title, duration, timestamp, mode badge
+  - Click to expand: full transcript + AI responses
+  - Search/filter by title or content
+
+C5 - Session Detail View
+  - Full transcript with You/Them formatting
+  - AI responses inline with their triggers
+  - Copy transcript button
+  - Export as markdown/text
+  - Delete session (with confirmation)
+
+C6 - Session Playback (Future Enhancement)
+  - Store audio alongside transcript (optional setting)
+  - Playback with synchronized transcript highlighting
+  - Skip to specific utterance
+
+✓ CHECKPOINT C:
+  - Sessions persist across app restarts
+  - Session list loads quickly (even with 100+ sessions)
+  - Search finds sessions by content
+  - Delete removes session completely
+  - Crash recovery works
+
+================================================================================
+PHASE D: Modes (Custom AI Profiles)
+================================================================================
+Goal: User-customizable AI behavior profiles
+
+D1 - Mode Data Model
+  - Schema: modes (id, name, system_prompt, icon, color, is_default, is_builtin)
+  - Built-in modes: Interview, Sales Call, Meeting Notes, Learning
+  - Custom modes: user-created, editable, deletable
+  - Active mode stored in session settings
+
+D2 - Built-in Modes
+  - Interview: Focus on behavioral questions, STAR format suggestions
+  - Sales Call: Objection handling, value proposition reinforcement
+  - Meeting Notes: Action items, decisions, key points extraction
+  - Learning: Explain concepts, ask clarifying questions
+
+D3 - Mode Selection UI
+  - Dashboard header dropdown for quick switching
+  - Mode displayed in overlay toolbar
+  - Persist last-used mode
+
+D4 - Mode Editor
+  - Settings page for managing modes
+  - Create new mode: name, icon, color, system prompt
+  - Edit existing modes (except built-in names)
+  - Delete custom modes (with confirmation)
+  - Duplicate mode as starting point
+
+D5 - System Prompt Editor
+  - Multi-line text area with syntax hints
+  - Preview how prompt will appear to Claude
+  - Character count / token estimate
+  - Reset to default (for built-in modes)
+
+D6 - Mode-Specific Actions
+  - Each mode can define custom quick action chips
+  - Default actions available in all modes
+  - Custom actions stored with mode
+
+D7 - Mode Import/Export
+  - Export mode as JSON file
+  - Import mode from JSON
+  - Share modes with other users (via file)
+
+✓ CHECKPOINT D:
+  - Can create custom mode with unique prompt
+  - Mode affects Claude's responses appropriately
+  - Modes persist across restarts
+  - Can import/export modes
+
+================================================================================
+PHASE E: Settings (Full Configuration)
+================================================================================
+Goal: Comprehensive settings with great UX
+
+E1 - Settings Architecture
+  - Settings stored in electron-store (encrypted for sensitive fields)
+  - Settings window as modal over dashboard
+  - Changes apply immediately (no "Save" button needed)
+  - Reset to defaults option per section
+
+E2 - API Keys Tab
+  - Deepgram API key (masked input, show/hide toggle)
+  - Anthropic API key (masked input, show/hide toggle)
+  - Validation status indicator (green check / red X)
+  - Re-validate button
+  - Links to get API keys
+
+E3 - Audio Tab
+  - Microphone device selector (dropdown)
+  - System audio: "Capture meeting audio" toggle
+  - Test microphone button (shows waveform)
+  - AEC status indicator (Voice Processing active)
+  - Sample rate info (16kHz, read-only)
+
+E4 - Transcription Tab
+  - Language preference (Auto/Multi, English, Spanish, Hindi, etc.)
+  - Punctuation toggle
+  - Profanity filter toggle
+  - Speaker labels format
+
+E5 - AI Tab
+  - Model selector (Claude Sonnet, future: other models)
+  - Response length preference (Concise, Balanced, Detailed)
+  - Temperature slider (0.0 - 1.0, default 0.7)
+
+E6 - Appearance Tab
+  - Overlay opacity slider
+  - Overlay size presets (Compact, Standard, Large)
+  - Font size adjustment
+  - Theme (Dark, Light, System)
+
+E7 - Hotkeys Tab
+  - Display current hotkey mappings
+  - Edit hotkeys (record new combination)
+  - Reset to defaults
+  - Conflict warnings
+
+E8 - About Tab
+  - App version
+  - Check for updates button
+  - Licenses (open source attributions)
+  - Links: website, GitHub, support
+
+✓ CHECKPOINT E:
+  - All settings persist across restarts
+  - API key changes take effect immediately
+  - Audio device changes work without restart
+  - Hotkey changes apply instantly
+
+================================================================================
+PHASE F: Overlay Polish (Premium UX)
+================================================================================
+Goal: Overlay feels like a premium native app
+
+F1 - Drag & Resize
+  - Smooth dragging via title bar
+  - Resize from edges/corners
+  - Snap to screen edges (optional)
+  - Remember position per display
+
+F2 - Expand/Collapse Animation
+  - Smooth height transition when expanding
+  - Content fades in after expand
+  - Collapse to pill preserves state
+
+F3 - Transcript Polish
+  - Message bubbles with proper styling
+  - Smooth auto-scroll (not jarring)
+  - Timestamp on hover
+  - Copy individual messages
+
+F4 - Chat Polish
+  - Typing indicator animation
+  - Message appear animation
+  - Error state with retry
+  - Empty state messaging
+
+F5 - Quick Actions Polish
+  - Chip hover/press states
+  - Active chip highlight
+  - Scrollable if many chips
+  - Keyboard navigation (Tab)
+
+F6 - Input Bar Polish
+  - Expanding textarea
+  - Character count for long inputs
+  - Submit on Enter (Shift+Enter for newline)
+  - Clear button
+
+F7 - Status Indicators
+  - Recording pulse animation
+  - Connection status (green/yellow/red dot)
+  - Word count / duration display
+  - Voice Processing active indicator
+
+F8 - Accessibility
+  - Full keyboard navigation
+  - Screen reader labels
+  - Focus indicators
+  - Reduced motion option
+
+✓ CHECKPOINT F:
+  - Overlay feels smooth and premium
+  - All animations at 60fps
+  - Keyboard-only usage possible
+  - No visual glitches during resize/drag
+
+================================================================================
+PHASE G: Backend + Paid Tier (Optional Cloud Features)
+================================================================================
+Goal: Pro tier with cloud sync and managed API keys
+
+G1 - Backend Architecture
+  - Node.js + Express (or Fastify)
+  - PostgreSQL for data storage
+  - Redis for sessions/cache
+  - Deployed on Railway / Fly.io / AWS
+
+G2 - Authentication
+  - Email/password signup
+  - Magic link login option
+  - OAuth (Google, GitHub)
+  - JWT tokens with refresh
+
+G3 - Stripe Integration
+  - Subscription plans: Pro ($15/mo), Team ($25/mo)
+  - Customer portal for billing management
+  - Webhook handlers for subscription events
+  - Grace period for failed payments
+
+G4 - Managed API Keys (Pro)
+  - Backend stores Deepgram/Anthropic keys
+  - Proxy API calls through backend
+  - Usage tracking per user
+  - Fair use limits
+
+G5 - Cloud Sync (Pro)
+  - Sessions synced to cloud
+  - Modes synced across devices
+  - Conflict resolution (last-write-wins)
+  - Offline-first: local changes queue, sync when online
+
+G6 - Electron Auth Integration
+  - Login/signup screens in dashboard (Pro mode)
+  - Secure token storage (encrypted)
+  - Auto-refresh tokens
+  - Logout clears tokens
+
+G7 - Billing Tab (Pro Mode)
+  - Replaces API Keys tab when Pro
+  - Current plan display
+  - Usage statistics
+  - Upgrade/downgrade options
+  - Payment method management
+
+G8 - Calendar Integration (Pro)
+  - Google Calendar OAuth
+  - Fetch upcoming meetings
+  - Show in dashboard sidebar
+  - One-click start recording for meeting
+  - Auto-title sessions with meeting name
+
+G9 - Team Features (Pro)
+  - Team workspace
+  - Shared modes (team templates)
+  - Invite members via email
+  - Role-based access (admin, member)
+
+✓ CHECKPOINT G:
+  - Pro users can sign up, login
+  - Stripe subscription works
+  - Sessions sync to cloud
+  - Free tier completely unaffected by backend
+
+================================================================================
+PHASE H: Distribution
+================================================================================
+Goal: Ship production-ready installers
+
+H1 - App Icons & Branding
+  - Icon: 512x512 PNG, ICNS (Mac), ICO (Windows)
+  - Tray icon: 16x16, 22x22 (template image for macOS)
+  - Installer graphics (DMG background, NSIS header)
+  - Consistent Raven branding throughout
+
+H2 - Build Configuration
+  - electron-builder configuration
+  - macOS: DMG (with drag-to-Applications), ZIP
+    • Universal binary (Intel + Apple Silicon)
+    • Include pre-built Swift audio helper
+  - Windows: NSIS installer, ZIP
+    • x64 build
+    • Include pre-built Rust audio module
+  - Linux: AppImage, deb (optional)
+
+H3 - Code Signing
+  - macOS: Apple Developer certificate, notarization
+  - Windows: EV code signing certificate (avoid SmartScreen warnings)
+  - CI/CD pipeline for automated signing
+
+H4 - Auto-Updater
+  - electron-updater with GitHub Releases
+  - Check for updates on launch (non-blocking)
+  - User-initiated check in Settings
+  - Download in background, prompt to restart
+  - Differential updates if possible
+
+H5 - Backend Deployment (Pro Tier)
+  - Railway / Fly.io / AWS ECS
+  - PostgreSQL managed database
+  - Redis managed instance
+  - Environment-based configuration
+  - CI/CD pipeline
+
+H6 - Landing Page & Documentation
+  - Marketing landing page
+  - Download links for Mac/Windows
+  - Documentation site (setup, usage, troubleshooting)
+  - Changelog
+
+H7 - Analytics & Error Tracking (Optional)
+  - Opt-in anonymous analytics (Mixpanel/PostHog)
+  - Error tracking (Sentry) — opt-in, no PII
+  - Crash reports with user consent
+
+✓ CHECKPOINT H:
+  - Installers build successfully
+  - Code signing passes
+  - Auto-update works
+  - Landing page live
+  - Documentation complete
+
+================================================================================
+PHASE I: Quality Assurance
+================================================================================
+Goal: Production-grade reliability
+
+I1 - Automated Testing
+  - Unit tests for core logic (audio processing, transcript handling)
+  - Integration tests for IPC communication
+  - E2E tests with Playwright (dashboard flows)
+  - Test coverage target: 80%+
+
+I2 - Manual Testing Matrix
+  - macOS 13, 14, 15 (Intel + Apple Silicon)
+  - Windows 10, 11
+  - Test with: Zoom, Google Meet, Microsoft Teams, Discord
+  - Test stealth mode with each platform
+  - Test AEC with speakers (not headphones) on each platform
+
+I3 - Performance Profiling
+  - Memory usage < 200MB during active session
+  - CPU usage < 10% during transcription (Voice Processing is efficient)
+  - Audio latency < 500ms (capture to transcript display)
+  - UI responsiveness (no frame drops)
+
+I4 - Security Audit
+  - API key handling review
+  - No sensitive data in logs
+  - Proper IPC security (contextIsolation, no nodeIntegration)
+  - CSP headers configured
+  - Dependencies audited (npm audit)
+
+I5 - Accessibility
+  - Keyboard navigation throughout
+  - Screen reader compatibility
+  - Sufficient color contrast
+  - Focus indicators visible
+
+I6 - Edge Cases
+  - Network disconnection during recording
+  - API rate limiting
+  - Very long sessions (1+ hours)
+  - Rapid start/stop cycles
+  - Low disk space
+  - Permission revoked mid-session
+  - Audio device disconnected mid-session
+  - Voice Processing calibration period
+
+✓ CHECKPOINT I:
+  - All tests pass
+  - Performance benchmarks met
+  - Security audit clean
+  - Edge cases handled gracefully
+  - AEC works in diverse acoustic environments
+
+================================================================================
+PHASE J: FE Polish (Final Visual Quality)
+================================================================================
+Goal: Premium visual experience
+
+J1 - Animation System
+  - Consistent easing curves (spring for interactive, ease-out for reveals)
+  - Micro-interactions on buttons, toggles, inputs
+  - Loading skeletons for async content
+  - Smooth transitions between views
+
+J2 - Visual Consistency
+  - Design tokens applied consistently (colors, spacing, typography)
+  - Dark/light theme both polished
+  - No layout shifts or flicker
+  - Proper empty states for all lists
+
+J3 - Responsive Behavior
+  - Overlay handles resize gracefully
+  - Dashboard responsive to window size
+  - Text truncation with tooltips where needed
+
+J4 - Final Review
+  - Design QA pass
+  - Pixel-perfect alignment
+  - Consistent iconography
+  - Professional feel throughout
+
+✓ CHECKPOINT J:
+  - App feels premium
+  - Animations smooth 60fps
+  - No visual bugs
+  - Designer approved
+
+================================================================================
+NATIVE MODULE FILE STRUCTURE (ACTUAL)
+================================================================================
+
+src/native/
+├── swift/                              # macOS Audio Capture
+│   └── AudioCapture/
+│       ├── Package.swift               # Swift package definition
+│       └── Sources/
+│           └── AudioCapture/
+│               └── main.swift          # Complete implementation:
+│                                        # - ScreenCaptureKit system audio
+│                                        # - AVAudioEngine + Voice Processing mic
+│                                        # - Channel 0 extraction (9ch → mono)
+│                                        # - 48kHz → 16kHz resampling
+│                                        # - Float32 → Int16 conversion
+│                                        # - Binary stdout protocol
+│
+├── windows/                            # Windows Audio Capture (TO BUILD)
+│   ├── Cargo.toml                      # Rust crate with cpal, windows crates
+│   └── src/
+│       ├── lib.rs                      # Main entry, binary protocol
+│       ├── system_audio.rs             # WASAPI loopback capture
+│       └── mic_capture.rs              # Voice Capture DSP integration
+│
+└── webrtc-aec/                         # WebRTC AEC (BACKUP - not currently used)
+    ├── CMakeLists.txt                  
+    ├── include/
+    │   └── aec_api.h                   # C API header
+    ├── src/
+    │   └── aec_api.cpp                 # C API implementation
+    └── lib/
+        └── macos/
+            ├── libwebrtc_audio_processing.a  # Universal (x64+arm64)
+            └── libabsl.a                     # Abseil dependency
+
+================================================================================
+WINDOWS IMPLEMENTATION DETAILS
+================================================================================
+
+Development Approach:
+- Build on actual Windows laptop (not VM)
+- Use Cursor IDE with Claude assistance
+- Test with real Windows audio hardware
+- Same workflow as macOS development
+
+Technology Stack:
+┌─────────────────────┬──────────────────────────────────────────────────┐
+│ Component           │ Technology                                       │
+├─────────────────────┼──────────────────────────────────────────────────┤
+│ System Audio        │ WASAPI Loopback (cpal crate)                     │
+│ Microphone + AEC    │ Voice Capture DSP (Media Foundation)             │
+│ Language            │ Rust (napi-rs for Node bindings)                 │
+│ Audio Format        │ 48kHz → 16kHz mono Int16 PCM                     │
+│ IPC Protocol        │ Same binary stdout as macOS                      │
+└─────────────────────┴──────────────────────────────────────────────────┘
+
+Voice Capture DSP Features:
+- Acoustic Echo Cancellation (AEC)
+- Noise Suppression (NS)  
+- Automatic Gain Control (AGC)
+- Same capabilities as Apple Voice Processing
+
+Key Rust Crates:
+- cpal: Cross-platform audio I/O
+- windows: Windows API bindings
+- napi-rs: Node.js native module bindings (if using N-API approach)
+
+Alternative: Standalone Executable
+- Same as macOS Swift approach
+- Rust binary spawned as child process
+- Binary stdout protocol for audio data
+- Simpler integration, no N-API complexity
+
+Estimated Timeline:
+- Day 1: WASAPI system audio capture (loopback)
+- Day 2: Voice Capture DSP microphone integration
+- Day 3: Testing, polish, edge cases
+
+================================================================================
+CROSS-PLATFORM AUDIO ARCHITECTURE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ELECTRON MAIN PROCESS                             │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     nativeAudioBridge.ts                             │   │
+│  │  - Spawns platform-specific audio helper                             │   │
+│  │  - Parses binary protocol from stdout                                │   │
+│  │  - Routes audio to TranscriptionService                              │   │
+│  │  - Handles lifecycle (start/stop/error)                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                    ┌───────────────┴───────────────┐                       │
+│                    ▼                               ▼                        │
+│  ┌─────────────────────────────┐   ┌─────────────────────────────┐        │
+│  │     macOS: Swift Binary     │   │    Windows: Rust Binary     │        │
+│  │                             │   │                             │        │
+│  │  ┌───────────────────────┐  │   │  ┌───────────────────────┐  │        │
+│  │  │   ScreenCaptureKit    │  │   │  │   WASAPI Loopback     │  │        │
+│  │  │   (System Audio)      │  │   │  │   (System Audio)      │  │        │
+│  │  └───────────────────────┘  │   │  └───────────────────────┘  │        │
+│  │                             │   │                             │        │
+│  │  ┌───────────────────────┐  │   │  ┌───────────────────────┐  │        │
+│  │  │  Apple Voice Proc AU  │  │   │  │  Voice Capture DSP    │  │        │
+│  │  │  (Mic + AEC + NS)     │  │   │  │  (Mic + AEC + NS)     │  │        │
+│  │  └───────────────────────┘  │   │  └───────────────────────┘  │        │
+│  │                             │   │                             │        │
+│  │  Output: Binary Protocol    │   │  Output: Binary Protocol    │        │
+│  │  0x00 = system audio        │   │  0x00 = system audio        │        │
+│  │  0x01 = mic audio           │   │  0x01 = mic audio           │        │
+│  └─────────────────────────────┘   └─────────────────────────────┘        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        TranscriptionService.ts                              │
+│  - Two Deepgram WebSocket connections (mic + system)                        │
+│  - 5-second sliding window for transcript merging                           │
+│  - getMergedTranscript() returns chronological conversation                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+SUMMARY: 10 Phases, ~82 Tasks
+================================================================================
+
+Phase A: Foundation ✅ COMPLETE    (6 tasks)   - Local-first architecture
+Phase B: Audio Engine              (15 tasks)  - Native capture, AEC, transcription, AI
+  └── macOS: ✅ COMPLETE
+  └── Windows: 🔲 PENDING (3 days estimated)
+Phase C: Sessions                  (6 tasks)   - Persistent history
+Phase D: Modes                     (7 tasks)   - Custom AI profiles
+Phase E: Settings                  (8 tasks)   - Full configuration
+Phase F: Overlay Polish            (8 tasks)   - Premium UX
+Phase G: Backend + Paid            (9 tasks)   - Cloud features (optional)
+Phase H: Distribution              (7 tasks)   - Installers, signing, deployment
+Phase I: Quality Assurance         (6 tasks)   - Testing, security, performance
+Phase J: FE Polish                 (4 tasks)   - Visual excellence
+
+================================================================================
+Key Changes from v4:
+================================================================================
+
+1. PIVOTED FROM WebRTC AEC3 TO OS-NATIVE VOICE PROCESSING
+   - WebRTC AEC3 required manual timing sync
+   - ScreenCaptureKit latency (50-200ms) made this unreliable
+   - Apple Voice Processing handles everything automatically
+   - Same approach for Windows (Voice Capture DSP)
+
+2. SIMPLIFIED NATIVE MODULE ARCHITECTURE
+   - Single main.swift file (not separate files per component)
+   - Voice Processing returns 9-channel audio → extract channel 0
+   - Linear resampling replaces complex audio converters
+
+3. TRANSCRIPT MERGING
+   - 5-second sliding window for temporal ordering
+   - Both streams merged chronologically
+   - Implemented in transcriptionService.ts
+
+4. WINDOWS IMPLEMENTATION PLAN
+   - Will use Voice Capture DSP (Media Foundation)
+   - Rust standalone binary (same pattern as macOS Swift)
+   - Development on actual Windows laptop
+   - Estimated 2-3 days implementation
+
+5. UPDATED PERFORMANCE BENCHMARKS
+   - CPU usage < 10% (Voice Processing is efficient)
+   - Brief calibration period (~3 seconds) is normal
+   - No manual timing management needed
+
+6. WEBRTC LIBRARIES KEPT AS BACKUP
+   - Built and functional
+   - Available if OS-native solutions have issues
+   - May be useful for Linux support in future
+
+================================================================================
+LESSONS LEARNED
+================================================================================
+
+1. OS-native voice processing (Apple/Microsoft) is superior to manual AEC
+   - Battle-tested, hardware-optimized
+   - Handles timing automatically
+   - Brief calibration period is acceptable
+
+2. ScreenCaptureKit has unpredictable latency (50-200ms)
+   - Makes manual AEC timing synchronization very difficult
+   - Let the OS handle audio processing internals
+
+3. Voice Processing returns multi-channel audio
+   - macOS: 9 channels (spatial audio format)
+   - Must explicitly extract channel 0 for mono mic
+
+4. Development workflow matters
+   - Test on actual hardware (not VMs for audio)
+   - Cursor + Claude works great for native code
+   - Same approach for Windows development
+
+5. Binary protocol is robust
+   - Simple format: [source][length][data]
+   - Works reliably across Swift and Node.js
+   - Will work same way for Rust
+
+================================================================================

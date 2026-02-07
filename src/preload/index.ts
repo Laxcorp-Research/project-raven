@@ -48,6 +48,23 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.removeListener('system-audio:chunk', handler)
     }
   },
+  onNativeMicChunk: (callback: (data: {
+    data: ArrayBuffer | Buffer;
+    sampleRate: number;
+    channels: number;
+    timestamp: number;
+  }) => void) => {
+    const handler = (_event: unknown, data: {
+      data: ArrayBuffer | Buffer;
+      sampleRate: number;
+      channels: number;
+      timestamp: number;
+    }) => callback(data)
+    ipcRenderer.on('native-mic:chunk', handler)
+    return () => {
+      ipcRenderer.removeListener('native-mic:chunk', handler)
+    }
+  },
   onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => {
     const handler = (_event: unknown, chunk: { data: number[]; timestamp: number }) => callback(chunk)
     ipcRenderer.on('system-audio:for-deepgram', handler)

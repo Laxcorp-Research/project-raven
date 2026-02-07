@@ -1,330 +1,516 @@
-import AppKit
-import AVFoundation
-import CoreMedia
 import Foundation
 import ScreenCaptureKit
+import AVFoundation
+import AudioToolbox
+import CoreMedia
+import CAecBridge
 
-enum Log {
-    static func error(_ message: String) {
-        write("[AudioCapture] ERROR: \(message)")
+// MARK: - Audio Chunk Types
+enum AudioSource: String {
+    case system = "system"
+    case mic = "mic"
+}
+
+// MARK: - Audio Delay Buffer
+final class AudioDelayBuffer {
+    private var buffer: [Int16]
+    private var writeIndex = 0
+    private var readIndex = 0
+    private let capacity: Int
+    private var filled = 0
+    private let delayFrames: Int
+    
+    /// Create buffer with delay in milliseconds at given sample rate
+    init(delayMs: Int, sampleRate: Int = 16000) {
+        self.delayFrames = (delayMs * sampleRate) / 1000
+        self.capacity = delayFrames * 2
+        self.buffer = [Int16](repeating: 0, count: capacity)
+        fputs("[DelayBuffer] Created with \(delayMs)ms delay (\(delayFrames) samples)\n", stderr)
     }
-
-    static func info(_ message: String) {
-        write("[AudioCapture] \(message)")
-    }
-
-    private static func write(_ message: String) {
-        let line = "\(message)\n"
-        if let data = line.data(using: .utf8) {
-            FileHandle.standardError.write(data)
+    
+    /// Write samples and get delayed samples back
+    func process(_ input: [Int16]) -> [Int16]? {
+        for sample in input {
+            buffer[writeIndex] = sample
+            writeIndex = (writeIndex + 1) % capacity
+            filled = min(filled + 1, capacity)
         }
+        
+        if filled < delayFrames {
+            return nil
+        }
+        
+        var output = [Int16](repeating: 0, count: input.count)
+        for i in 0..<input.count {
+            output[i] = buffer[readIndex]
+            readIndex = (readIndex + 1) % capacity
+        }
+        
+        return output
+    }
+    
+    func reset() {
+        buffer = [Int16](repeating: 0, count: capacity)
+        writeIndex = 0
+        readIndex = 0
+        filled = 0
     }
 }
 
-@available(macOS 13.0, *)
-final class AudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
-    private let outputHandle = FileHandle.standardOutput
-    private let audioQueue = DispatchQueue(label: "raven.audiocapture.audio")
-    private var stream: SCStream?
-    private var captureStarted = false
+// MARK: - WebRTC AEC Processor Wrapper
+final class AECProcessor {
+    private var processor: OpaquePointer?
+    private let sampleRate: Int32
+    private let frameSize: Int32  // samples per 10ms frame
+    private var outputBuffer: [Int16]
+    private let lock = NSLock()
+    
+    init(sampleRate: Int32 = 16000) {
+        self.sampleRate = sampleRate
+        self.frameSize = sampleRate / 100  // 10ms = 160 samples at 16kHz
+        self.outputBuffer = [Int16](repeating: 0, count: Int(frameSize))
+        
+        processor = raven_aec_create(sampleRate)
+        if processor == nil {
+            fputs("[AEC] Failed to create processor\n", stderr)
+        } else {
+            fputs("[AEC] Created (sampleRate=\(sampleRate), frameSize=\(frameSize))\n", stderr)
+        }
+    }
+    
+    deinit {
+        if let proc = processor {
+            raven_aec_destroy(proc)
+        }
+    }
+    
+    /// Feed speaker/system audio as reference signal
+    func processRender(samples: UnsafePointer<Int16>, count: Int) {
+        guard let proc = processor else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        
+        // Process in 10ms frames
+        var offset = 0
+        while offset + Int(frameSize) <= count {
+            let result = raven_aec_process_render(proc, samples.advanced(by: offset), frameSize)
+            if result != 0 {
+                fputs("[AEC] processRender error: \(result)\n", stderr)
+            }
+            offset += Int(frameSize)
+        }
+    }
+    
+    /// Process microphone audio, removing echo
+    func processCapture(samples: UnsafePointer<Int16>, count: Int) -> Data {
+        guard let proc = processor else {
+            return Data(bytes: samples, count: count * MemoryLayout<Int16>.size)
+        }
+        
+        lock.lock()
+        defer { lock.unlock() }
+        
+        var result = Data()
+        result.reserveCapacity(count * MemoryLayout<Int16>.size)
+        
+        // Process in 10ms frames
+        var offset = 0
+        while offset + Int(frameSize) <= count {
+            let status = raven_aec_process_capture(
+                proc,
+                samples.advanced(by: offset),
+                &outputBuffer,
+                frameSize
+            )
+            
+            if status != 0 {
+                // On error, pass through original
+                let byteCount = Int(frameSize) * MemoryLayout<Int16>.size
+                let rawBytes = UnsafeRawBufferPointer(
+                    start: samples.advanced(by: offset),
+                    count: byteCount
+                )
+                result.append(contentsOf: rawBytes)
+            } else {
+                outputBuffer.withUnsafeBufferPointer { buffer in
+                    let bytes = UnsafeRawBufferPointer(buffer)
+                    result.append(contentsOf: bytes)
+                }
+            }
+            offset += Int(frameSize)
+        }
+        
+        return result
+    }
+    
+    func setStreamDelay(ms: Int32) {
+        guard let proc = processor else { return }
+        raven_aec_set_stream_delay(proc, ms)
+    }
 
+    struct Stats {
+        var erl: Float = 0
+        var erle: Float = 0
+        var delay: Int32 = 0
+        var diverged: Bool = false
+    }
+    
+    func getStats() -> Stats {
+        guard let proc = processor else {
+            return Stats()
+        }
+        
+        var cStats = RavenAecStats()
+        raven_aec_get_stats(proc, &cStats)
+        
+        return Stats(
+            erl: cStats.echo_return_loss,
+            erle: cStats.echo_return_loss_enhancement,
+            delay: Int32(cStats.delay_ms),
+            diverged: cStats.diverged
+        )
+    }
+
+    func reset() {
+        guard let proc = processor else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        raven_aec_reset(proc)
+    }
+}
+
+// MARK: - Mic Capture with Apple Voice Processing
+@available(macOS 14.0, *)
+final class MicCapture {
+    private let engine = AVAudioEngine()
+    private var onData: ((Data) -> Void)?
+    private let targetSampleRate: Double = 16000
+    
+    func start(onData: @escaping (Data) -> Void) throws {
+        self.onData = onData
+        
+        let inputNode = engine.inputNode
+        
+        // Enable Apple's Voice Processing (AEC + Noise Suppression + AGC)
+        do {
+            try inputNode.setVoiceProcessingEnabled(true)
+            fputs("[Mic] Voice Processing ENABLED (Apple AEC)\n", stderr)
+        } catch {
+            fputs("[Mic] WARNING: Voice Processing failed: \(error). Continuing without AEC.\n", stderr)
+        }
+        
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        fputs("[Mic] Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels\n", stderr)
+        
+        // Buffer size for ~20ms at input sample rate
+        let bufferSize = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
+        
+        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
+            self?.processAudioBuffer(buffer)
+        }
+        
+        try engine.start()
+        fputs("[Mic] Started with Voice Processing\n", stderr)
+    }
+    
+    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let onData = self.onData,
+              let floatData = buffer.floatChannelData else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        let inputSampleRate = buffer.format.sampleRate
+        
+        // Extract channel 0 only (mono) - Voice Processing may return multiple channels
+        let channel0 = floatData[0]
+        
+        // Calculate output frame count for resampling
+        let ratio = targetSampleRate / inputSampleRate
+        let outputFrameCount = Int(Double(frameCount) * ratio)
+        
+        // Simple linear resampling from input rate to 16kHz
+        var resampled = [Float](repeating: 0, count: outputFrameCount)
+        for i in 0..<outputFrameCount {
+            let srcIndex = Double(i) / ratio
+            let srcIndexInt = Int(srcIndex)
+            let frac = Float(srcIndex - Double(srcIndexInt))
+            
+            if srcIndexInt + 1 < frameCount {
+                // Linear interpolation
+                resampled[i] = channel0[srcIndexInt] * (1 - frac) + channel0[srcIndexInt + 1] * frac
+            } else if srcIndexInt < frameCount {
+                resampled[i] = channel0[srcIndexInt]
+            }
+        }
+        
+        // Convert Float32 to Int16
+        var int16Samples = [Int16](repeating: 0, count: outputFrameCount)
+        for i in 0..<outputFrameCount {
+            let sample = max(-1.0, min(1.0, resampled[i]))
+            int16Samples[i] = Int16(sample * 32767.0)
+        }
+        
+        // Create data
+        let data = int16Samples.withUnsafeBufferPointer { buffer in
+            Data(buffer: buffer)
+        }
+        
+        onData(data)
+    }
+    
+    func stop() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        fputs("[Mic] Stopped\n", stderr)
+    }
+}
+
+// MARK: - System Audio Capture (ScreenCaptureKit)
+@available(macOS 13.0, *)
+class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
+    private var stream: SCStream?
+    private var isRunning = false
+    private let callback: (Data) -> Void
+    private var captureStarted = false
+    
+    init(callback: @escaping (Data) -> Void) {
+        self.callback = callback
+        super.init()
+    }
+    
     func start() async throws {
-        Log.info("Getting shareable content...")
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
-            onScreenWindowsOnly: true
+            onScreenWindowsOnly: false
         )
-
-        Log.info("Got shareable content")
-        Log.info("Displays: \(content.displays.count), Windows: \(content.windows.count), Apps: \(content.applications.count)")
-
-        if content.displays.isEmpty {
-            Log.error("No displays returned in shareable content")
-        }
-
+        
         guard let display = content.displays.first else {
-            throw NSError(domain: "AudioCapture", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "No displays available"
+            throw NSError(domain: "SystemAudio", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "No display found"
             ])
         }
-
-        let displayId = display.displayID
-        let displayName = resolveDisplayName(displayId: displayId) ?? "unknown"
-        Log.info("Using display id=\(displayId), name=\"\(displayName)\", size=\(display.width)x\(display.height)")
-        Log.info("Display description: \(String(describing: display))")
-
-        Log.info("Creating content filter...")
+        
         let filter = SCContentFilter(display: display, excludingWindows: [])
-        Log.info("Creating stream configuration...")
+        
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        config.excludesCurrentProcessAudio = false
-        config.sampleRate = 48_000
+        config.excludesCurrentProcessAudio = true
+        config.sampleRate = 48000
         config.channelCount = 1
+        
+        // Minimal video capture (required by ScreenCaptureKit)
         config.width = 2
         config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-
-        Log.info(
-            "Stream config: capturesAudio=\(config.capturesAudio), excludesCurrentProcessAudio=\(config.excludesCurrentProcessAudio), sampleRate=\(config.sampleRate), channels=\(config.channelCount), size=\(config.width)x\(config.height)"
-        )
-
-        Log.info("Creating stream...")
-        let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        Log.info("Stream created: \(stream)")
-        Log.info("Adding audio output...")
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
-        Log.info("Stream output added")
-        self.stream = stream
-
-        Log.info("Starting capture (delayed 100ms)...")
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        let maxAttempts = 3
-        var lastError: Error? = nil
-
-        for attempt in 1...maxAttempts {
-            Log.info("Start capture attempt \(attempt)/\(maxAttempts)")
-            
+        
+        stream = SCStream(filter: filter, configuration: config, delegate: self)
+        guard let stream = stream else {
+            throw NSError(domain: "SystemAudio", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create SCStream"
+            ])
+        }
+        
+        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .main)
+        
+        // Retry logic with timeout
+        var lastError: Error?
+        for attempt in 1...3 {
             do {
-                // Timeout after 3 seconds using task group race
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
                         try await stream.startCapture()
                     }
                     group.addTask {
-                        try await Task.sleep(nanoseconds: 3_000_000_000) // 3 sec timeout
-                        throw NSError(domain: "AudioCapture", code: 3, 
-                            userInfo: [NSLocalizedDescriptionKey: "startCapture timed out"])
+                        try await Task.sleep(nanoseconds: 3_000_000_000)
+                        throw NSError(domain: "SystemAudio", code: 3, userInfo: [
+                            NSLocalizedDescriptionKey: "startCapture timed out"
+                        ])
                     }
-                    // First to complete wins, cancel the other
                     try await group.next()
                     group.cancelAll()
                 }
-                
                 captureStarted = true
-                Log.info("Audio capture started")
+                isRunning = true
+                fputs("[SystemAudio] Started (attempt \(attempt))\n", stderr)
                 return
             } catch {
                 lastError = error
-                Log.error("startCapture failed: \(error.localizedDescription)")
-                if attempt < maxAttempts {
-                    let delayMs = attempt * 500 // 500ms, 1000ms increasing backoff
-                    Log.info("Retrying in \(delayMs)ms...")
-                    try await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+                fputs("[SystemAudio] Attempt \(attempt) failed: \(error.localizedDescription)\n", stderr)
+                if attempt < 3 {
+                    try await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
                 }
             }
         }
-
-        throw lastError ?? NSError(
-            domain: "AudioCapture",
-            code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "startCapture failed after \(maxAttempts) retries"]
+        
+        throw lastError ?? NSError(domain: "SystemAudio", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "Failed after 3 attempts"
+        ])
+    }
+    
+    func stop() {
+        if let stream = stream {
+            Task { try? await stream.stopCapture() }
+        }
+        stream = nil
+        isRunning = false
+        fputs("[SystemAudio] Stopped\n", stderr)
+    }
+    
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio, captureStarted else { return }
+        
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: nil,
+            totalLengthOut: &length,
+            dataPointerOut: &dataPointer
         )
-    }
-
-    func stop() async {
-        guard let stream = stream else { return }
-        do {
-            try await stream.stopCapture()
-        } catch {
-            Log.error("Failed to stop capture: \(error)")
-        }
-        self.stream = nil
-        Log.info("Audio capture stopped")
-    }
-
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Log.error("Stream stopped with error: \(error.localizedDescription) (\(error))")
-        if captureStarted {
-            exit(1)
-        }
-    }
-
-    func stream(
-        _ stream: SCStream,
-        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of type: SCStreamOutputType
-    ) {
-        guard type == .audio else { return }
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
-
+        
+        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return }
+        
         guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee
-        else {
-            Log.error("Missing audio format description (formatDesc or ASBD is nil)")
-            return
-        }
-
-        let sampleRate = asbd.mSampleRate
-        let channels = Int(asbd.mChannelsPerFrame)
-
-        var blockBuffer: CMBlockBuffer?
-        var audioBufferList = AudioBufferList(
-            mNumberBuffers: 1,
-            mBuffers: AudioBuffer(mNumberChannels: 0, mDataByteSize: 0, mData: nil)
-        )
-
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
-            blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: 0,
-            blockBufferOut: &blockBuffer
-        )
-
-        guard status == noErr else {
-            Log.error("AudioBufferList extract failed: \(status)")
-            return
-        }
-
-        let audioBuffer = audioBufferList.mBuffers
-        guard let dataPtr = audioBuffer.mData else {
-            Log.error("Audio buffer data is null")
-            return
-        }
-
-        let byteCount = Int(audioBuffer.mDataByteSize)
-        if byteCount == 0 { return }
-
-        let floatCount = byteCount / MemoryLayout<Float>.size
-        let floatPtr = dataPtr.bindMemory(to: Float.self, capacity: floatCount)
-        let floatBuf = UnsafeBufferPointer(start: floatPtr, count: floatCount)
-
-        let mono: [Float]
-        if channels <= 1 {
-            mono = Array(floatBuf)
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return }
+        
+        let sampleRate = asbd.pointee.mSampleRate
+        let bytesPerSample = asbd.pointee.mBitsPerChannel / 8
+        let isFloat = (asbd.pointee.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        
+        let floatSamples: [Float]
+        if isFloat && bytesPerSample == 4 {
+            let floatPtr = UnsafeRawPointer(data).bindMemory(to: Float.self, capacity: length / 4)
+            floatSamples = Array(UnsafeBufferPointer(start: floatPtr, count: length / 4))
         } else {
-            let frames = floatCount / channels
-            var downmixed = [Float](repeating: 0, count: frames)
-            for i in 0..<frames {
-                downmixed[i] = floatBuf[i * channels]
+            return
+        }
+        
+        // Downsample to 16kHz
+        let ratio = Int(sampleRate / 16000)
+        var downsampled = [Int16]()
+        downsampled.reserveCapacity(floatSamples.count / max(1, ratio))
+        
+        for i in stride(from: 0, to: floatSamples.count, by: max(1, ratio)) {
+            let sample = max(-1.0, min(1.0, floatSamples[i]))
+            downsampled.append(Int16(sample * 32767))
+        }
+        
+        let bytes = downsampled.withUnsafeBufferPointer { buffer in
+            Data(bytes: buffer.baseAddress!, count: buffer.count * 2)
+        }
+        
+        callback(bytes)
+    }
+    
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        if captureStarted {
+            fputs("[SystemAudio] Stream stopped with error: \(error.localizedDescription)\n", stderr)
+        }
+    }
+}
+
+// MARK: - Main
+@available(macOS 14.0, *)
+struct AudioCaptureApp {
+    static var systemCapture: SystemAudioCapture?
+    static var micCapture: MicCapture?
+    static var systemChunkCount = 0
+    static var micChunkCount = 0
+    
+    static func main() async {
+        // Setup signal handlers
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+        
+        let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termSource.setEventHandler {
+            fputs("[AudioCapture] Received SIGTERM\n", stderr)
+            cleanup()
+            exit(0)
+        }
+        termSource.resume()
+        
+        let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        intSource.setEventHandler {
+            fputs("[AudioCapture] Received SIGINT\n", stderr)
+            cleanup()
+            exit(0)
+        }
+        intSource.resume()
+        
+        fputs("[AudioCapture] Starting dual capture with Apple Voice Processing\n", stderr)
+        
+        // System audio capture - outputs to "Them" stream
+        systemCapture = SystemAudioCapture { data in
+            systemChunkCount += 1
+            if systemChunkCount <= 5 || systemChunkCount % 100 == 0 {
+                fputs("[SystemAudio] Chunk #\(systemChunkCount), bytes: \(data.count)\n", stderr)
             }
-            mono = downmixed
+            
+            // Output system audio directly for "Them" transcript
+            writeChunk(source: .system, data: data)
         }
-
-        let int16 = downsampleToInt16(mono, fromRate: sampleRate, toRate: 16_000)
-        if int16.isEmpty { return }
-
-        let data = int16.withUnsafeBufferPointer { Data(buffer: $0) }
+        
+        // Mic capture - Apple Voice Processing handles AEC automatically
+        micCapture = MicCapture()
+        
         do {
-            try outputHandle.write(contentsOf: data)
+            try await systemCapture?.start()
+            try micCapture?.start { data in
+                micChunkCount += 1
+                if micChunkCount <= 5 || micChunkCount % 100 == 0 {
+                    fputs("[Mic] Chunk #\(micChunkCount), bytes: \(data.count)\n", stderr)
+                }
+                
+                // Output directly - Voice Processing already removed echo
+                writeChunk(source: .mic, data: data)
+            }
+            
+            fputs("[AudioCapture] Both captures running with Voice Processing\n", stderr)
+            
+            // Keep running
+            while true {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         } catch {
-            Log.error("stdout write failed: \(error) (\(String(reflecting: error)))")
-        }
-    }
-}
-
-func downsampleToInt16(_ input: [Float], fromRate: Double, toRate: Double) -> [Int16] {
-    guard !input.isEmpty else { return [] }
-    let ratio = fromRate / toRate
-
-    if ratio > 0.999 && ratio < 1.001 {
-        return input.map(floatToInt16)
-    }
-
-    let newLen = Int(Double(input.count) / ratio)
-    if newLen <= 0 { return [] }
-
-    var output = [Int16](repeating: 0, count: newLen)
-    for i in 0..<newLen {
-        let srcIndex = min(Int(Double(i) * ratio), input.count - 1)
-        output[i] = floatToInt16(input[srcIndex])
-    }
-    return output
-}
-
-func floatToInt16(_ value: Float) -> Int16 {
-    let clamped = max(-1.0, min(1.0, value))
-    if clamped < 0 {
-        return Int16(clamped * 32768.0)
-    }
-    return Int16(clamped * 32767.0)
-}
-
-@available(macOS 13.0, *)
-func resolveDisplayName(displayId: CGDirectDisplayID) -> String? {
-    for screen in NSScreen.screens {
-        if let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-           number.uint32Value == displayId {
-            return screen.localizedName
-        }
-    }
-    return nil
-}
-
-@available(macOS 13.0, *)
-func checkPermission() async -> Bool {
-    do {
-        _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        return true
-    } catch {
-        Log.error("Permission check failed: \(error)")
-        return false
-    }
-}
-
-@available(macOS 13.0, *)
-func installSignalHandlers(capture: AudioCapture) {
-    signal(SIGTERM, SIG_IGN)
-    signal(SIGINT, SIG_IGN)
-
-    let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-    termSource.setEventHandler {
-        Log.info("Received SIGTERM, shutting down")
-        Task {
-            await capture.stop()
-            exit(0)
-        }
-    }
-    termSource.resume()
-
-    let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-    intSource.setEventHandler {
-        Log.info("Received SIGINT, shutting down")
-        Task {
-            await capture.stop()
-            exit(0)
-        }
-    }
-    intSource.resume()
-}
-
-@main
-struct Runner {
-    static func main() {
-        guard #available(macOS 13.0, *) else {
-            Log.error("System audio capture requires macOS 13.0 or newer")
+            fputs("[AudioCapture] Fatal error: \(error.localizedDescription)\n", stderr)
+            cleanup()
             exit(1)
         }
-
-        let capture = AudioCapture()
-        installSignalHandlers(capture: capture)
-
-        if CommandLine.arguments.contains("--check") ||
-            CommandLine.arguments.contains("--request") {
-            let semaphore = DispatchSemaphore(value: 0)
-            var ok = false
-            Task {
-                ok = await checkPermission()
-                semaphore.signal()
-            }
-            semaphore.wait()
-            exit(ok ? 0 : 1)
-        }
-
-        Task {
-            do {
-                try await capture.start()
-            } catch {
-                Log.error("Failed to start capture: \(error)")
-                exit(1)
-            }
-        }
-
-        dispatchMain()
     }
+    
+    static func writeChunk(source: AudioSource, data: Data) {
+        let sourceByte: UInt8 = source == .system ? 0x00 : 0x01
+        var length = UInt32(data.count).littleEndian
+        
+        var packet = Data()
+        packet.append(sourceByte)
+        packet.append(Data(bytes: &length, count: 4))
+        packet.append(data)
+        
+        FileHandle.standardOutput.write(packet)
+    }
+    
+    static func cleanup() {
+        systemCapture?.stop()
+        micCapture?.stop()
+        fputs("[AudioCapture] Cleanup complete. System chunks: \(systemChunkCount), Mic chunks: \(micChunkCount)\n", stderr)
+    }
+}
+
+@available(macOS 14.0, *)
+private func runAudioCapture() {
+    Task {
+        await AudioCaptureApp.main()
+    }
+    RunLoop.main.run()
+}
+
+if #available(macOS 14.0, *) {
+    runAudioCapture()
+} else {
+    fputs("[AudioCapture] Requires macOS 14.0+\n", stderr)
+    exit(1)
 }

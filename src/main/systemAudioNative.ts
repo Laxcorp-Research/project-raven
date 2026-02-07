@@ -7,6 +7,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { createRequire } from 'module'
 
 type AudioChunk = {
   data: Buffer
@@ -17,14 +18,29 @@ type AudioChunk = {
 
 let overlayWindow: BrowserWindow | null = null
 let dashboardWindow: BrowserWindow | null = null
-let chunkCount = 0
+let systemChunkCount = 0
+let micChunkCount = 0
 let captureProcess: ChildProcessWithoutNullStreams | null = null
+let windowsModule: WindowsAudioModule | null = null
+let parseBuffer = Buffer.alloc(0)
 
 const STREAM_SAMPLE_RATE = 16000
 const STREAM_CHANNELS = 1
+const isMac = process.platform === 'darwin'
+const isWindows = process.platform === 'win32'
+const require = createRequire(import.meta.url)
+
+interface WindowsAudioModule {
+  isSystemAudioAvailable: () => boolean
+  hasPermission: () => boolean
+  requestPermission: () => boolean
+  isCapturing: () => boolean
+  startSystemAudioCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void) => boolean
+  stopSystemAudioCapture: () => boolean
+}
 
 function getBinaryPath(): string | null {
-  if (process.platform !== 'darwin') return null
+  if (!isMac) return null
 
   const devPath = join(
     process.cwd(),
@@ -43,6 +59,38 @@ function getBinaryPath(): string | null {
   if (existsSync(packagedPath)) return packagedPath
 
   return null
+}
+
+function loadWindowsModule(): WindowsAudioModule | null {
+  if (!isWindows || windowsModule) return windowsModule
+
+  const devPath = join(
+    process.cwd(),
+    'src',
+    'native',
+    'windows',
+    'raven-windows-audio.win32-x64-msvc.node'
+  )
+
+  const packagedPath = join(
+    process.resourcesPath,
+    'raven-windows-audio.win32-x64-msvc.node'
+  )
+
+  try {
+    windowsModule = require(devPath) as WindowsAudioModule
+    console.log('[SystemAudioNative] Windows module loaded (dev)')
+    return windowsModule
+  } catch (err) {
+    try {
+      windowsModule = require(packagedPath) as WindowsAudioModule
+      console.log('[SystemAudioNative] Windows module loaded (packaged)')
+      return windowsModule
+    } catch (err2) {
+      console.error('[SystemAudioNative] Failed to load Windows module:', err2)
+      return null
+    }
+  }
 }
 
 function runHelperSync(args: string[]): boolean {
@@ -71,7 +119,7 @@ export function setSystemAudioWindows(
   overlayWindow = overlay
 }
 
-function broadcastChunk(chunk: AudioChunk): void {
+function broadcastSystemChunk(chunk: AudioChunk): void {
   const payload = {
     data: chunk.data,
     sampleRate: chunk.sampleRate,
@@ -96,80 +144,186 @@ function broadcastChunk(chunk: AudioChunk): void {
   }
 }
 
+function broadcastNativeMicChunk(chunk: AudioChunk): void {
+  const payload = {
+    data: chunk.data,
+    sampleRate: chunk.sampleRate,
+    channels: chunk.channels,
+    timestamp: chunk.timestamp
+  }
+
+  try {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('native-mic:chunk', payload)
+    }
+  } catch (err) {
+    console.error('[SystemAudioNative] Failed to send native mic to overlay:', err)
+  }
+
+  try {
+    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+      dashboardWindow.webContents.send('native-mic:chunk', payload)
+    }
+  } catch (err) {
+    console.error('[SystemAudioNative] Failed to send native mic to dashboard:', err)
+  }
+}
+
 export function registerSystemAudioHandlers(): void {
   ipcMain.handle('system-audio:is-available', () => {
-    return !!getBinaryPath()
+    if (isMac) return !!getBinaryPath()
+    if (isWindows) return !!loadWindowsModule()?.isSystemAudioAvailable()
+    return false
   })
 
   ipcMain.handle('system-audio:has-permission', () => {
-    return runHelperSync(['--check'])
+    if (isMac) return true
+    if (isWindows) return !!loadWindowsModule()?.hasPermission()
+    return false
   })
 
   ipcMain.handle('system-audio:request-permission', () => {
-    return runHelperSync(['--request'])
+    if (isMac) return true
+    if (isWindows) return !!loadWindowsModule()?.requestPermission()
+    return false
   })
 
   ipcMain.handle('system-audio:start', () => {
-    if (captureProcess) {
-      console.warn('[SystemAudioNative] audiocapture already running')
-      return true
-    }
-
-    const binaryPath = getBinaryPath()
-    if (!binaryPath) {
-      console.error('[SystemAudioNative] audiocapture binary not found')
-      return false
-    }
-
-    chunkCount = 0
-
-    captureProcess = spawn(binaryPath, [], {
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    captureProcess.stdout.on('data', (data: Buffer) => {
-      chunkCount++
-      if (chunkCount <= 5 || chunkCount % 100 === 0) {
-        console.log(
-          `[SystemAudioNative] Chunk #${chunkCount}, bytes: ${data.length}`
-        )
-      }
-
-      broadcastChunk({
-        data,
-        sampleRate: STREAM_SAMPLE_RATE,
-        channels: STREAM_CHANNELS,
-        timestamp: Date.now()
-      })
-    })
-
-    captureProcess.stderr.on('data', (data: Buffer) => {
-      const message = data.toString().trim()
-      if (message.length > 0) {
-        console.error(`[SystemAudioNative] audiocapture: ${message}`)
-      }
-    })
-
-    captureProcess.on('exit', (code, signal) => {
-      console.warn(
-        `[SystemAudioNative] audiocapture exited (code=${code}, signal=${signal})`
-      )
-      captureProcess = null
-    })
-
-    captureProcess.on('error', (err) => {
-      console.error('[SystemAudioNative] audiocapture error:', err)
-      captureProcess = null
-    })
-
-    return true
+    systemChunkCount = 0
+    micChunkCount = 0
+    if (isMac) return startMacCapture()
+    if (isWindows) return startWindowsCapture()
+    return false
   })
 
   ipcMain.handle('system-audio:stop', () => {
-    if (!captureProcess) return false
-    captureProcess.kill('SIGTERM')
-    captureProcess = null
-    console.log(`[SystemAudioNative] Capture stopped. Total chunks: ${chunkCount}`)
-    return true
+    if (isMac) return stopMacCapture()
+    if (isWindows) return stopWindowsCapture()
+    return false
   })
+}
+
+function startMacCapture(): boolean {
+  if (captureProcess) {
+    console.warn('[SystemAudioNative] audiocapture already running')
+    return true
+  }
+
+  const binaryPath = getBinaryPath()
+  if (!binaryPath) {
+    console.error('[SystemAudioNative] audiocapture binary not found')
+    return false
+  }
+
+  captureProcess = spawn(binaryPath, [], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  parseBuffer = Buffer.alloc(0)
+
+  captureProcess.stdout.on('data', (data: Buffer) => {
+    parseBuffer = Buffer.concat([parseBuffer, data])
+
+    while (parseBuffer.length >= 5) {
+      const sourceByte = parseBuffer[0]
+      const length = parseBuffer.readUInt32LE(1)
+
+      if (parseBuffer.length < 5 + length) {
+        break
+      }
+
+      const audioData = parseBuffer.subarray(5, 5 + length)
+      parseBuffer = parseBuffer.subarray(5 + length)
+
+      if (sourceByte === 0x00) {
+        systemChunkCount++
+        if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
+          console.log(
+            `[SystemAudioNative] System chunk #${systemChunkCount}, bytes: ${audioData.length}`
+          )
+        }
+
+        broadcastSystemChunk({
+          data: audioData,
+          sampleRate: STREAM_SAMPLE_RATE,
+          channels: STREAM_CHANNELS,
+          timestamp: Date.now()
+        })
+      } else {
+        micChunkCount++
+        if (micChunkCount <= 5 || micChunkCount % 100 === 0) {
+          console.log(
+            `[SystemAudioNative] Mic chunk #${micChunkCount}, bytes: ${audioData.length}`
+          )
+        }
+
+        broadcastNativeMicChunk({
+          data: audioData,
+          sampleRate: STREAM_SAMPLE_RATE,
+          channels: STREAM_CHANNELS,
+          timestamp: Date.now()
+        })
+      }
+    }
+  })
+
+  captureProcess.stderr.on('data', (data: Buffer) => {
+    const message = data.toString().trim()
+    if (message.length > 0) {
+      console.error(`[SystemAudioNative] audiocapture: ${message}`)
+    }
+  })
+
+  captureProcess.on('exit', (code, signal) => {
+    console.warn(
+      `[SystemAudioNative] audiocapture exited (code=${code}, signal=${signal})`
+    )
+    captureProcess = null
+  })
+
+  captureProcess.on('error', (err) => {
+    console.error('[SystemAudioNative] audiocapture error:', err)
+    captureProcess = null
+  })
+
+  return true
+}
+
+function stopMacCapture(): boolean {
+  if (!captureProcess) return false
+  captureProcess.kill('SIGTERM')
+  captureProcess = null
+  console.log(
+    `[SystemAudioNative] Capture stopped. System: ${systemChunkCount}, Mic: ${micChunkCount}`
+  )
+  return true
+}
+
+function startWindowsCapture(): boolean {
+  const mod = loadWindowsModule()
+  if (!mod) return false
+
+  return mod.startSystemAudioCapture((chunk) => {
+    systemChunkCount++
+    if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
+      console.log(
+        `[SystemAudioNative] Chunk #${systemChunkCount}, bytes: ${chunk.data.length}`
+      )
+    }
+
+    broadcastSystemChunk({
+      data: chunk.data,
+      sampleRate: STREAM_SAMPLE_RATE,
+      channels: STREAM_CHANNELS,
+      timestamp: chunk.timestamp
+    })
+  })
+}
+
+function stopWindowsCapture(): boolean {
+  const mod = loadWindowsModule()
+  if (!mod) return false
+  const stopped = mod.stopSystemAudioCapture()
+  console.log(`[SystemAudioNative] Capture stopped. Total chunks: ${systemChunkCount}`)
+  return stopped
 }

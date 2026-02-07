@@ -1,10 +1,25 @@
 let audioContext: AudioContext | null = null
 let mediaStream: MediaStream | null = null
 let processor: ScriptProcessorNode | null = null
+let nativeMicUnsubscribe: (() => void) | null = null
 
 export async function startMicrophoneCapture(
   onAudioData: (int16Buffer: ArrayBuffer) => void
 ): Promise<void> {
+  const isMac = navigator.userAgent.includes('Mac')
+  if (isMac && window.raven?.onNativeMicChunk) {
+    nativeMicUnsubscribe = window.raven.onNativeMicChunk((chunk) => {
+      const bytes = chunk.data instanceof ArrayBuffer
+        ? new Uint8Array(chunk.data)
+        : new Uint8Array(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength)
+      const alignedLength = bytes.byteLength - (bytes.byteLength % 2)
+      const alignedBuffer = new ArrayBuffer(alignedLength)
+      new Uint8Array(alignedBuffer).set(bytes.subarray(0, alignedLength))
+      onAudioData(alignedBuffer)
+    })
+    return
+  }
+
   mediaStream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
@@ -33,6 +48,10 @@ export async function startMicrophoneCapture(
 }
 
 export function stopMicrophoneCapture(): void {
+  if (nativeMicUnsubscribe) {
+    nativeMicUnsubscribe()
+    nativeMicUnsubscribe = null
+  }
   processor?.disconnect()
   processor = null
   audioContext?.close()
