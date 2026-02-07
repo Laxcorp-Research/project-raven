@@ -98,6 +98,18 @@ class SessionManager {
   }
 
   /**
+   * Add a chat message to the active session
+   */
+  addSessionMessage(role: 'user' | 'assistant', content: string): void {
+    if (!this.activeSession) {
+      console.log('[SessionManager] Warning: No active session for message');
+      return;
+    }
+
+    databaseService.addSessionMessage(this.activeSession.id, role, content);
+  }
+
+  /**
    * End the active session
    */
   endSession(): Session | null {

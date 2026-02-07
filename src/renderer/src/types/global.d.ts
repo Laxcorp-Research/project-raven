@@ -55,6 +55,14 @@ interface Session {
   createdAt: number;
 }
 
+interface SessionMessage {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
+
 declare global {
   interface Window {
     raven: {
@@ -102,8 +110,11 @@ declare global {
         get: (id: string) => Promise<Session | null>;
         getAll: () => Promise<Session[]>;
         search: (query: string) => Promise<Session[]>;
+        getMessages: (sessionId: string) => Promise<SessionMessage[]>;
+        addMessage: (sessionId: string, role: 'user' | 'assistant', content: string) => Promise<SessionMessage>;
         delete: (id: string) => Promise<boolean>;
         regenerateSummary: (id: string) => Promise<boolean>;
+        updateTitle: (id: string, title: string) => Promise<boolean>;
         getInProgress: () => Promise<Session | null>;
         getActive: () => Promise<Session | null>;
         hasActive: () => Promise<boolean>;

@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { up as migration005 } from './migrations/005_add_session_messages';
 
 // Types
 export interface TranscriptEntry {
@@ -72,6 +73,14 @@ export interface SessionRow {
   created_at: number;
 }
 
+export interface SessionMessage {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
+
 export interface ModeRow {
   id: string;
   name: string;
@@ -92,7 +101,7 @@ export interface NotesSection {
   instructions: string;
 }
 
-const LATEST_VERSION = 4;
+const LATEST_VERSION = 5;
 
 class DatabaseService {
   private db: Database.Database | null = null;
@@ -142,7 +151,7 @@ class DatabaseService {
       )
     `);
 
-    const migrations = [
+    const migrations: Array<{ name: string; sql?: string; run?: (db: Database.Database) => void }> = [
       {
         name: '001_create_sessions',
         sql: `
@@ -194,6 +203,10 @@ class DatabaseService {
           ALTER TABLE sessions ADD COLUMN summary TEXT DEFAULT NULL;
         `,
       },
+      {
+        name: '005_add_session_messages',
+        run: migration005,
+      },
     ];
 
     const applied = this.db
@@ -204,7 +217,11 @@ class DatabaseService {
     for (const migration of migrations) {
       if (!applied.includes(migration.name)) {
         console.log('[Database] Running migration:', migration.name);
-        this.db.exec(migration.sql);
+        if (migration.sql) {
+          this.db.exec(migration.sql);
+        } else if (migration.run) {
+          migration.run(this.db);
+        }
         this.db
           .prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)')
           .run(migration.name, Date.now());
@@ -394,6 +411,47 @@ class DatabaseService {
     if (!row) return null;
 
     return this.rowToSession(row);
+  }
+
+  /**
+   * Add a message to a session
+   */
+  addSessionMessage(
+    sessionId: string,
+    role: 'user' | 'assistant',
+    content: string
+  ): SessionMessage {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const id = globalThis.crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO session_messages (id, session_id, role, content, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(id, sessionId, role, content, createdAt);
+
+    return { id, sessionId, role, content, createdAt };
+  }
+
+  /**
+   * Get all messages for a session
+   */
+  getSessionMessages(sessionId: string): SessionMessage[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id as sessionId, role, content, created_at as createdAt
+         FROM session_messages
+         WHERE session_id = ?
+         ORDER BY created_at ASC`
+      )
+      .all(sessionId) as SessionMessage[];
+
+    return rows;
   }
 
   /**

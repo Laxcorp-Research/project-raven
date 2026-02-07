@@ -78,8 +78,12 @@ contextBridge.exposeInMainWorld('raven', {
     get: (id: string) => ipcRenderer.invoke('sessions:get', id),
     getAll: () => ipcRenderer.invoke('sessions:getAll'),
     search: (query: string) => ipcRenderer.invoke('sessions:search', query),
+    getMessages: (sessionId: string) => ipcRenderer.invoke('sessions:get-messages', sessionId),
+    addMessage: (sessionId: string, role: 'user' | 'assistant', content: string) =>
+      ipcRenderer.invoke('sessions:add-message', sessionId, role, content),
     delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
     regenerateSummary: (id: string) => ipcRenderer.invoke('sessions:regenerate-summary', id),
+    updateTitle: (id: string, title: string) => ipcRenderer.invoke('sessions:update-title', id, title),
     getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
     hasActive: () => ipcRenderer.invoke('session:hasActive'),

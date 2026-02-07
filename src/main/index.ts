@@ -157,6 +157,14 @@ app.whenReady().then(() => {
     return databaseService.searchSessions(query)
   })
 
+  ipcMain.handle('sessions:get-messages', (_event, sessionId: string) => {
+    return databaseService.getSessionMessages(sessionId)
+  })
+
+  ipcMain.handle('sessions:add-message', (_event, sessionId: string, role: 'user' | 'assistant', content: string) => {
+    return databaseService.addSessionMessage(sessionId, role, content)
+  })
+
   ipcMain.handle('sessions:delete', (_event, id: string) => {
     const deleted = databaseService.deleteSession(id)
     if (deleted) {
@@ -165,6 +173,14 @@ app.whenReady().then(() => {
       })
     }
     return deleted
+  })
+
+  ipcMain.handle('sessions:update-title', (_event, id: string, title: string) => {
+    databaseService.updateSession(id, { title })
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('sessions:list-updated')
+    })
+    return true
   })
 
   ipcMain.handle('sessions:getInProgress', () => {

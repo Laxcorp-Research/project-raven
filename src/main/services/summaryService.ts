@@ -17,117 +17,69 @@ interface SummaryResult {
   summary: string
 }
 
-let anthropicClient: Anthropic | null = null
-
-function getClient(apiKey: string): Anthropic {
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey })
-  }
-  return anthropicClient
-}
-
 export async function generateSessionSummary(
   transcript: string,
   modeId: string | null,
   apiKey: string
 ): Promise<SummaryResult> {
   if (!transcript || transcript.trim().length < 20) {
-    return {
-      title: 'Untitled session',
-      summary: '',
-    }
+    return { title: 'Untitled session', summary: '' }
   }
 
-  const client = getClient(apiKey)
+  const anthropic = new Anthropic({ apiKey })
 
-  let notesTemplate: NotesSection[] | null = null
+  let modeContext = ''
   if (modeId) {
     const mode = databaseService.getMode(modeId)
-    if (mode?.notesTemplate) {
-      notesTemplate = mode.notesTemplate
+    if (mode) {
+      modeContext = `\nContext: This is a "${mode.name}" session.`
+      if (mode.notesTemplate) {
+        modeContext += `\nThe user wants notes structured around: ${JSON.stringify(mode.notesTemplate)}`
+      }
     }
   }
 
-  let systemPrompt: string
-  let userPrompt: string
+  const prompt = `Analyze this meeting/conversation transcript and generate:
+1. A concise, descriptive title (5-10 words, no quotes)
+2. A comprehensive summary with intelligent sections
 
-  if (notesTemplate && notesTemplate.length > 0) {
-    const sectionsDescription = notesTemplate
-      .map((section, index) => `${index + 1}. **${section.title}**: ${section.instructions}`)
-      .join('\n')
+${modeContext}
 
-    systemPrompt = `You are a meeting assistant that generates concise titles and structured summaries from transcripts.
+TRANSCRIPT:
+${transcript.slice(0, 8000)}
 
-Your task:
-1. Generate a short, descriptive title (3-7 words) that captures the main topic
-2. Generate a structured summary following the exact sections provided
+---
 
-Output format (use exactly this JSON structure):
-{
-  "title": "Your Generated Title",
-  "summary": {
-    "sections": [
-      { "title": "Section Name", "content": "Bullet points or short paragraphs" }
-    ]
-  }
-}
+Generate a summary following these rules:
 
-Important:
-- Title should be professional and descriptive (e.g., "Q4 Sales Strategy Review", "Product Launch Planning Meeting")
-- Each section should have 2-5 bullet points or a short paragraph
-- If a section has no relevant content from the transcript, write "No information discussed"
-- Be concise but capture key points`
+FORMAT REQUIREMENTS:
+- Use ## for section headings (choose headings that fit the content)
+- Use bullet points starting with "- " for each item
+- Use **bold** for key labels, names, numbers, or emphasis within bullets
+- Be specific and actionable, not vague
 
-    userPrompt = `Generate a title and summary for this transcript using these sections:
+SECTION EXAMPLES (adapt to content):
+- **Action Items** - specific tasks with owners if mentioned
+- **Key Decisions** - what was decided
+- **Discussion Points** - main topics covered
+- **Recommendations** - suggested approaches
+- **Open Questions** - unresolved items
+- **Timeline/Roadmap** - if dates or phases mentioned
+- **Metrics/Data** - if numbers discussed
+- **Next Steps** - immediate follow-ups
 
-${sectionsDescription}
+Choose 3-7 sections that best fit the actual content. Don't force sections that don't apply.
 
-Transcript:
-"""
-${transcript.slice(0, 15000)}
-"""
-
-Respond with valid JSON only.`
-  } else {
-    systemPrompt = `You are a meeting assistant that generates concise titles and summaries from transcripts.
-
-Your task:
-1. Generate a short, descriptive title (3-7 words) that captures the main topic
-2. Generate a well-organized summary with relevant sections based on the content
-
-Output format (use exactly this JSON structure):
-{
-  "title": "Your Generated Title",
-  "summary": {
-    "sections": [
-      { "title": "Overview", "content": "Brief overview" },
-      { "title": "Key Points", "content": "Main discussion points" },
-      { "title": "Action Items", "content": "Tasks or next steps if any" }
-    ]
-  }
-}
-
-Important:
-- Title should be professional and descriptive
-- Create 3-5 sections based on what's actually in the transcript
-- Be concise but capture key points
-- Adapt section titles to fit the content (e.g., "Technical Discussion", "Decisions Made", "Questions Raised")`
-
-    userPrompt = `Generate a title and summary for this transcript:
-
-"""
-${transcript.slice(0, 15000)}
-"""
-
-Respond with valid JSON only.`
-  }
+Respond in this exact format:
+TITLE: [your title here]
+SUMMARY:
+[your markdown summary here]`
 
   try {
-    const response = await client.messages.create({
+    const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      messages: [{ role: 'user', content: prompt }],
     })
 
     const textBlock = response.content.find((block) => block.type === 'text')
@@ -135,26 +87,16 @@ Respond with valid JSON only.`
       throw new Error('No text response from Claude')
     }
 
-    const jsonStr = textBlock.text.trim()
-    const cleanJson = jsonStr.replace(/^```json\n?/, '').replace(/\n?```$/, '')
-    const parsed = JSON.parse(cleanJson)
+    const text = textBlock.text || ''
+    const titleMatch = text.match(/TITLE:\s*(.+?)(?:\n|SUMMARY:)/s)
+    const summaryMatch = text.match(/SUMMARY:\s*([\s\S]+)/)
 
-    let formattedSummary = ''
-    if (parsed.summary?.sections) {
-      for (const section of parsed.summary.sections) {
-        formattedSummary += `## ${section.title}\n${section.content}\n\n`
-      }
-    }
+    const title = titleMatch?.[1]?.trim() || 'Untitled session'
+    const summary = summaryMatch?.[1]?.trim() || ''
 
-    return {
-      title: parsed.title || 'Untitled session',
-      summary: formattedSummary.trim(),
-    }
+    return { title, summary }
   } catch (error) {
     console.error('[SummaryService] Failed to generate summary:', error)
-    return {
-      title: 'Untitled session',
-      summary: '',
-    }
+    return { title: 'Untitled session', summary: '' }
   }
 }

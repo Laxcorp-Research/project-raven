@@ -161,6 +161,7 @@ export class ClaudeService {
 
         this.conversation.messages.push(userMessage);
         this.conversation.lastProcessedTranscriptLength = params.transcript.length;
+        sessionManager.addSessionMessage('user', userMessage.content);
 
         this.broadcast({
           type: 'start',
@@ -198,6 +199,7 @@ export class ClaudeService {
           timestamp: Date.now(),
         };
         this.conversation.messages.push(assistantMessage);
+        sessionManager.addSessionMessage('assistant', assistantMessage.content);
 
         const userMessageText = params.action === 'custom' && params.customPrompt
           ? params.customPrompt

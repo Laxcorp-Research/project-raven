@@ -3,12 +3,14 @@ import { Header } from './Header'
 import { SessionList } from './SessionList'
 import { Sidebar } from './Sidebar'
 import { RecordingChip } from './RecordingChip'
+import { SessionDetail } from './SessionDetail'
 
 export function Dashboard() {
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
 
   useEffect(() => {
     async function loadState() {
@@ -117,27 +119,63 @@ export function Dashboard() {
     console.log('Settings clicked — coming in Phase E')
   }
 
+  const handleSessionSelect = async (session: { id: string }) => {
+    try {
+      const fullSession = await window.raven.sessions.get(session.id)
+      if (fullSession) {
+        setSelectedSession(fullSession)
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error)
+    }
+  }
+
+  const handleBackToList = () => {
+    setSelectedSession(null)
+  }
+
+  const handleUpdateTitle = async (sessionId: string, newTitle: string) => {
+    try {
+      await window.raven.sessions.updateTitle(sessionId, newTitle)
+      setSelectedSession((prev) => (prev ? { ...prev, title: newTitle } : null))
+    } catch (error) {
+      console.error('Failed to update title:', error)
+    }
+  }
+
   return (
     <div className="flex h-screen bg-white">
       <Sidebar onOpenSettings={handleOpenSettings} />
 
       <div className="flex-1 flex flex-col">
-        <Header
-          stealth={stealth}
-          onToggleStealth={handleToggleStealth}
-          onStartRaven={handleStartRaven}
-          isRecording={isRecording}
-        />
+        {!selectedSession && (
+          <Header
+            stealth={stealth}
+            onToggleStealth={handleToggleStealth}
+            onStartRaven={handleStartRaven}
+            isRecording={isRecording}
+          />
+        )}
 
-        <SessionList 
-          onSessionSelect={(session) => console.log('Selected:', session)}
-          activeSessionId={activeSession?.id || null}
-          activeSession={
-            activeSession
-              ? { ...activeSession, durationSeconds: recordingDuration }
-              : null
-          }
-        />
+        <div className="flex-1 overflow-hidden">
+          {selectedSession ? (
+            <SessionDetail
+              session={selectedSession}
+              onBack={handleBackToList}
+              onUpdateTitle={handleUpdateTitle}
+            />
+          ) : (
+            <SessionList
+              onSessionSelect={handleSessionSelect}
+              activeSessionId={activeSession?.id || null}
+              activeSession={
+                activeSession
+                  ? { ...activeSession, durationSeconds: recordingDuration }
+                  : null
+              }
+            />
+          )}
+        </div>
       </div>
 
       {activeSession && (

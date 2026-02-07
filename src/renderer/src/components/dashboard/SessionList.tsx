@@ -287,13 +287,15 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                     <span className="w-2 mr-3" />
                   )}
 
+                <div className="flex-1 min-w-0">
                   <span
-                    className={`flex-1 truncate ${
+                    className={`block truncate max-w-[600px] ${
                       regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
                     }`}
                   >
                     {displayTitle}
                   </span>
+                </div>
 
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500 tabular-nums bg-gray-100 px-2 py-0.5 rounded">
