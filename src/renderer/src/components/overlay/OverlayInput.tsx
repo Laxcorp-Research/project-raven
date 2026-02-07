@@ -18,7 +18,13 @@ export function OverlayInput({ onSend, onQuickAction, isRecording }: OverlayInpu
 
   const handleQuickAction = async (action: string) => {
     const transcript = await window.raven.getTranscript()
-    window.raven.claudeGetResponse({ transcript, action })
+    const activeMode = await window.raven.modes.getActive()
+    
+    window.raven.claudeGetResponse({
+      transcript,
+      action,
+      modePrompt: activeMode?.systemPrompt
+    })
     onQuickAction(action)
   }
 
@@ -26,7 +32,14 @@ export function OverlayInput({ onSend, onQuickAction, isRecording }: OverlayInpu
     const trimmed = message.trim()
     if (!trimmed) return
     const transcript = await window.raven.getTranscript()
-    window.raven.claudeGetResponse({ transcript, action: 'custom', customPrompt: trimmed })
+    const activeMode = await window.raven.modes.getActive()
+    
+    window.raven.claudeGetResponse({
+      transcript,
+      action: 'custom',
+      customPrompt: trimmed,
+      modePrompt: activeMode?.systemPrompt
+    })
     onSend(trimmed)
     setMessage('')
   }

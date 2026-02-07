@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import type { Mode } from '../../types/global'
 
 interface HeaderProps {
   stealth: boolean
@@ -9,10 +10,14 @@ interface HeaderProps {
 
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: HeaderProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false)
-  const [activeMode, setActiveMode] = useState('Default')
+  const [modes, setModes] = useState<Mode[]>([])
+  const [activeMode, setActiveMode] = useState<Mode | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close dropdown on outside click
+  useEffect(() => {
+    loadModes()
+  }, [])
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -23,7 +28,28 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const modes = ['Default', 'Sales', 'Recruiting', 'Team Meet', 'Looking for Work', 'Lecture']
+  async function loadModes() {
+    try {
+      const [allModes, active] = await Promise.all([
+        window.raven.modes.getAll(),
+        window.raven.modes.getActive(),
+      ])
+      setModes(allModes)
+      setActiveMode(active)
+    } catch (error) {
+      console.error('Failed to load modes:', error)
+    }
+  }
+
+  async function handleSelectMode(mode: Mode) {
+    try {
+      await window.raven.modes.setActive(mode.id)
+      setActiveMode(mode)
+      setModeDropdownOpen(false)
+    } catch (error) {
+      console.error('Failed to set active mode:', error)
+    }
+  }
 
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white">
@@ -41,7 +67,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
             onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <span>{activeMode}</span>
+            <span>{activeMode?.name || 'Select Mode'}</span>
             <svg
               className={`w-4 h-4 transition-transform ${modeDropdownOpen ? 'rotate-180' : ''}`}
               fill="none"
@@ -56,17 +82,14 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
             <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
               {modes.map((mode) => (
                 <button
-                  key={mode}
-                  onClick={() => {
-                    setActiveMode(mode)
-                    setModeDropdownOpen(false)
-                  }}
+                  key={mode.id}
+                  onClick={() => handleSelectMode(mode)}
                   className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                    activeMode === mode ? 'text-cyan-600 font-medium' : 'text-gray-700'
+                    activeMode?.id === mode.id ? 'text-cyan-600 font-medium' : 'text-gray-700'
                   }`}
                 >
-                  <span>{mode}</span>
-                  {activeMode === mode && (
+                  <span>{mode.name}</span>
+                  {activeMode?.id === mode.id && (
                     <svg className="w-4 h-4 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
@@ -85,7 +108,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
 
       {/* Right section */}
       <div className="flex items-center gap-3">
-        {/* Detectable / Undetectable toggle */}
         <button
           onClick={onToggleStealth}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -121,7 +143,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
           </div>
         )}
 
-        {/* Start/Stop Raven button */}
         <button
           onClick={onStartRaven}
           className={`px-5 py-2 rounded-lg text-sm font-semibold transition-colors ${

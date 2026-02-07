@@ -390,7 +390,7 @@ class DatabaseService {
   createMode(mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>): Mode {
     if (!this.db) throw new Error('Database not initialized');
 
-    const id = crypto.randomUUID();
+    const id = globalThis.crypto.randomUUID();
     const now = Date.now();
     const fullMode: Mode = {
       ...mode,
