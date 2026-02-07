@@ -25,6 +25,26 @@ export interface AIResponse {
   timestamp: number;
 }
 
+export interface QuickAction {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: string;
+}
+
+export interface Mode {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  icon: string;
+  color: string;
+  isDefault: boolean;
+  isBuiltin: boolean;
+  quickActions: QuickAction[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -47,6 +67,19 @@ export interface SessionRow {
   started_at: number;
   ended_at: number | null;
   created_at: number;
+}
+
+export interface ModeRow {
+  id: string;
+  name: string;
+  system_prompt: string;
+  icon: string;
+  color: string;
+  is_default: number;
+  is_builtin: number;
+  quick_actions_json: string;
+  created_at: number;
+  updated_at: number;
 }
 
 class DatabaseService {
@@ -115,6 +148,26 @@ class DatabaseService {
           
           CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC);
           CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC);
+        `,
+      },
+      {
+        name: '002_create_modes',
+        sql: `
+          CREATE TABLE IF NOT EXISTS modes (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            system_prompt TEXT NOT NULL,
+            icon TEXT NOT NULL DEFAULT '🎯',
+            color TEXT NOT NULL DEFAULT '#6366f1',
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_builtin INTEGER NOT NULL DEFAULT 0,
+            quick_actions_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+          
+          CREATE INDEX IF NOT EXISTS idx_modes_is_default ON modes(is_default);
+          CREATE INDEX IF NOT EXISTS idx_modes_is_builtin ON modes(is_builtin);
         `,
       },
     ];
@@ -326,6 +379,226 @@ class DatabaseService {
       startedAt: row.started_at,
       endedAt: row.ended_at,
       createdAt: row.created_at,
+    };
+  }
+
+  // ==================== MODE METHODS ====================
+
+  /**
+   * Create a new mode
+   */
+  createMode(mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>): Mode {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const fullMode: Mode = {
+      ...mode,
+      id,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.db
+      .prepare(
+        `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, quick_actions_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        fullMode.id,
+        fullMode.name,
+        fullMode.systemPrompt,
+        fullMode.icon,
+        fullMode.color,
+        fullMode.isDefault ? 1 : 0,
+        fullMode.isBuiltin ? 1 : 0,
+        JSON.stringify(fullMode.quickActions),
+        fullMode.createdAt,
+        fullMode.updatedAt
+      );
+
+    console.log('[Database] Created mode:', fullMode.id, fullMode.name);
+    return fullMode;
+  }
+
+  /**
+   * Get all modes
+   */
+  getAllModes(): Mode[] {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const rows = this.db
+      .prepare('SELECT * FROM modes ORDER BY is_builtin DESC, name ASC')
+      .all() as ModeRow[];
+
+    return rows.map((row) => this.rowToMode(row));
+  }
+
+  /**
+   * Get a mode by ID
+   */
+  getMode(id: string): Mode | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const row = this.db
+      .prepare('SELECT * FROM modes WHERE id = ?')
+      .get(id) as ModeRow | undefined;
+
+    return row ? this.rowToMode(row) : null;
+  }
+
+  /**
+   * Get the active (default) mode
+   */
+  getActiveMode(): Mode | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const row = this.db
+      .prepare('SELECT * FROM modes WHERE is_default = 1 LIMIT 1')
+      .get() as ModeRow | undefined;
+
+    return row ? this.rowToMode(row) : null;
+  }
+
+  /**
+   * Set a mode as active (default)
+   */
+  setActiveMode(id: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    this.db.prepare('UPDATE modes SET is_default = 0').run();
+
+    const result = this.db
+      .prepare('UPDATE modes SET is_default = 1, updated_at = ? WHERE id = ?')
+      .run(Date.now(), id);
+
+    console.log('[Database] Set active mode:', id);
+    return result.changes > 0;
+  }
+
+  /**
+   * Update a mode
+   */
+  updateMode(id: string, updates: Partial<Omit<Mode, 'id' | 'isBuiltin' | 'createdAt'>>): Mode | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const setClauses: string[] = ['updated_at = ?'];
+    const values: any[] = [Date.now()];
+
+    if (updates.name !== undefined) {
+      setClauses.push('name = ?');
+      values.push(updates.name);
+    }
+    if (updates.systemPrompt !== undefined) {
+      setClauses.push('system_prompt = ?');
+      values.push(updates.systemPrompt);
+    }
+    if (updates.icon !== undefined) {
+      setClauses.push('icon = ?');
+      values.push(updates.icon);
+    }
+    if (updates.color !== undefined) {
+      setClauses.push('color = ?');
+      values.push(updates.color);
+    }
+    if (updates.isDefault !== undefined) {
+      if (updates.isDefault) {
+        this.db.prepare('UPDATE modes SET is_default = 0').run();
+      }
+      setClauses.push('is_default = ?');
+      values.push(updates.isDefault ? 1 : 0);
+    }
+    if (updates.quickActions !== undefined) {
+      setClauses.push('quick_actions_json = ?');
+      values.push(JSON.stringify(updates.quickActions));
+    }
+
+    values.push(id);
+    this.db
+      .prepare(`UPDATE modes SET ${setClauses.join(', ')} WHERE id = ?`)
+      .run(...values);
+
+    console.log('[Database] Updated mode:', id);
+    return this.getMode(id);
+  }
+
+  /**
+   * Delete a mode (only non-builtin)
+   */
+  deleteMode(id: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const mode = this.getMode(id);
+    if (!mode || mode.isBuiltin) {
+      console.log('[Database] Cannot delete builtin mode:', id);
+      return false;
+    }
+
+    if (mode.isDefault) {
+      const firstBuiltin = this.db
+        .prepare('SELECT id FROM modes WHERE is_builtin = 1 LIMIT 1')
+        .get() as { id: string } | undefined;
+      if (firstBuiltin) {
+        this.setActiveMode(firstBuiltin.id);
+      }
+    }
+
+    const result = this.db
+      .prepare('DELETE FROM modes WHERE id = ? AND is_builtin = 0')
+      .run(id);
+
+    console.log('[Database] Deleted mode:', id, 'changes:', result.changes);
+    return result.changes > 0;
+  }
+
+  /**
+   * Duplicate a mode
+   */
+  duplicateMode(id: string, newName: string): Mode | null {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const original = this.getMode(id);
+    if (!original) return null;
+
+    return this.createMode({
+      name: newName,
+      systemPrompt: original.systemPrompt,
+      icon: original.icon,
+      color: original.color,
+      isDefault: false,
+      isBuiltin: false,
+      quickActions: original.quickActions,
+    });
+  }
+
+  /**
+   * Get mode count
+   */
+  getModeCount(): number {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM modes')
+      .get() as { count: number };
+
+    return row.count;
+  }
+
+  /**
+   * Convert database row to Mode object
+   */
+  private rowToMode(row: ModeRow): Mode {
+    return {
+      id: row.id,
+      name: row.name,
+      systemPrompt: row.system_prompt,
+      icon: row.icon,
+      color: row.color,
+      isDefault: row.is_default === 1,
+      isBuiltin: row.is_builtin === 1,
+      quickActions: JSON.parse(row.quick_actions_json),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 

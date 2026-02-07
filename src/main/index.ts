@@ -12,8 +12,9 @@ import { getSetting } from './store'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudioNative'
-import { databaseService, type Session } from './services/database'
+import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
+import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -127,6 +128,7 @@ function boot(): void {
 app.whenReady().then(() => {
   // Initialize database
   databaseService.initialize()
+  seedBuiltinModes()
 
   registerIpcHandlers()
   registerSystemAudioHandlers()
@@ -172,6 +174,93 @@ app.whenReady().then(() => {
 
   ipcMain.handle('session:regenerateTitle', async (_event, sessionId: string) => {
     return sessionManager.generateTitle(sessionId)
+  })
+
+  // ==================== MODE IPC HANDLERS ====================
+
+  ipcMain.handle('modes:get-all', async () => {
+    try {
+      return databaseService.getAllModes()
+    } catch (error) {
+      console.error('[IPC] modes:get-all error:', error)
+      return []
+    }
+  })
+
+  ipcMain.handle('modes:get', async (_event, id: string) => {
+    try {
+      return databaseService.getMode(id)
+    } catch (error) {
+      console.error('[IPC] modes:get error:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('modes:create', async (_event, mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      return databaseService.createMode(mode)
+    } catch (error) {
+      console.error('[IPC] modes:create error:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle('modes:update', async (_event, id: string, updates: Partial<Mode>) => {
+    try {
+      return databaseService.updateMode(id, updates)
+    } catch (error) {
+      console.error('[IPC] modes:update error:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('modes:delete', async (_event, id: string) => {
+    try {
+      return databaseService.deleteMode(id)
+    } catch (error) {
+      console.error('[IPC] modes:delete error:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('modes:duplicate', async (_event, id: string, newName: string) => {
+    try {
+      return databaseService.duplicateMode(id, newName)
+    } catch (error) {
+      console.error('[IPC] modes:duplicate error:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('modes:reset-builtin', async (_event, id: string) => {
+    try {
+      const success = resetBuiltinMode(id)
+      if (success) {
+        return databaseService.getMode(id)
+      }
+      return null
+    } catch (error) {
+      console.error('[IPC] modes:reset-builtin error:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('modes:get-active', async () => {
+    try {
+      return databaseService.getActiveMode()
+    } catch (error) {
+      console.error('[IPC] modes:get-active error:', error)
+      return null
+    }
+  })
+
+  ipcMain.handle('modes:set-active', async (_event, id: string) => {
+    try {
+      return databaseService.setActiveMode(id)
+    } catch (error) {
+      console.error('[IPC] modes:set-active error:', error)
+      return false
+    }
   })
 
   app.on('activate', () => {

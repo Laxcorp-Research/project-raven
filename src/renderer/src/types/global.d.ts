@@ -14,6 +14,27 @@ interface AIResponse {
   timestamp: number;
 }
 
+// Mode Types
+export interface QuickAction {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: string;
+}
+
+export interface Mode {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  icon: string;
+  color: string;
+  isDefault: boolean;
+  isBuiltin: boolean;
+  quickActions: QuickAction[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 interface Session {
   id: string;
   title: string;
@@ -80,6 +101,17 @@ declare global {
         regenerateTitle: (id: string) => Promise<string>;
         onListUpdated: (callback: () => void) => () => void;
         onSessionUpdated: (callback: (session: { id: string; title: string; startedAt: number } | null) => void) => () => void;
+      };
+      modes: {
+        getAll: () => Promise<Mode[]>;
+        get: (id: string) => Promise<Mode | null>;
+        create: (mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Mode>;
+        update: (id: string, updates: Partial<Omit<Mode, 'id' | 'isBuiltin' | 'createdAt'>>) => Promise<Mode | null>;
+        delete: (id: string) => Promise<boolean>;
+        duplicate: (id: string, newName: string) => Promise<Mode | null>;
+        resetBuiltin: (id: string) => Promise<Mode | null>;
+        getActive: () => Promise<Mode | null>;
+        setActive: (id: string) => Promise<boolean>;
       };
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;

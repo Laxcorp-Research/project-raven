@@ -94,6 +94,17 @@ contextBridge.exposeInMainWorld('raven', {
       return () => ipcRenderer.removeListener('session:updated', handler)
     },
   },
+  modes: {
+    getAll: () => ipcRenderer.invoke('modes:get-all'),
+    get: (id: string) => ipcRenderer.invoke('modes:get', id),
+    create: (mode: unknown) => ipcRenderer.invoke('modes:create', mode),
+    update: (id: string, updates: unknown) => ipcRenderer.invoke('modes:update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('modes:delete', id),
+    duplicate: (id: string, newName: string) => ipcRenderer.invoke('modes:duplicate', id, newName),
+    resetBuiltin: (id: string) => ipcRenderer.invoke('modes:reset-builtin', id),
+    getActive: () => ipcRenderer.invoke('modes:get-active'),
+    setActive: (id: string) => ipcRenderer.invoke('modes:set-active', id),
+  },
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
