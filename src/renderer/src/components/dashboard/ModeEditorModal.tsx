@@ -7,6 +7,8 @@
 
 import { useState, useEffect, useRef, type DragEvent } from 'react'
 import type { Mode, NotesSection } from '../../types/global'
+import { ConfirmModal } from '../shared/ConfirmModal'
+import { Toast } from '../shared/Toast'
 
 interface ModeEditorModalProps {
   isOpen: boolean
@@ -144,8 +146,12 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
   const [showTemplates, setShowTemplates] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [showToast, setShowToast] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; mode: Mode | null }>({
+    isOpen: false,
+    mode: null,
+  })
+  const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const [formName, setFormName] = useState('')
@@ -216,8 +222,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       const updated = await window.raven.modes.get(selectedMode.id)
       if (updated) setSelectedMode(updated)
 
-      setShowToast(true)
-      setTimeout(() => setShowToast(false), 3000)
+      setToast({ message: 'Mode saved', type: 'success' })
     } catch (err) {
       console.error('Failed to save:', err)
     } finally {
@@ -276,22 +281,39 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!selectedMode) return
+    setDeleteModal({ isOpen: true, mode: selectedMode })
+    setMenuOpen(false)
+  }
 
-    const confirmed = window.confirm(`Delete "${selectedMode.name}"? This cannot be undone.`)
-    if (!confirmed) return
+  async function handleConfirmDelete() {
+    const modeToDelete = deleteModal.mode
+    setDeleteModal({ isOpen: false, mode: null })
+    if (!modeToDelete) return
+
+    setToast({ message: 'Deleting mode...', type: 'loading' })
 
     try {
-      await window.raven.modes.delete(selectedMode.id)
-      await loadModes()
-      setSelectedMode(modes.length > 1 ? modes.find((m) => m.id !== selectedMode.id) || null : null)
-      setMenuOpen(false)
-      if (modes.length <= 1) {
+      await Promise.all([
+        window.raven.modes.delete(modeToDelete.id),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ])
+
+      setToast({ message: 'Deleted mode', type: 'success' })
+
+      const remainingModes = modes.filter((mode) => mode.id !== modeToDelete.id)
+      if (remainingModes.length > 0) {
+        setSelectedMode(remainingModes[0])
+      } else {
+        setSelectedMode(null)
         setShowTemplates(true)
       }
+
+      await loadModes()
     } catch (err) {
       console.error('Failed to delete:', err)
+      setToast({ message: 'Failed to delete mode', type: 'error' })
     }
   }
 
@@ -357,17 +379,8 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      {showToast && (
-        <div className="fixed top-4 right-4 z-[60] flex items-center gap-2 px-4 py-3 bg-white rounded-lg shadow-lg border border-gray-200 animate-slide-in">
-          <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <span className="text-sm font-medium text-gray-900">Mode saved successfully</span>
-        </div>
-      )}
-
-      <div className="relative bg-white rounded-xl shadow-2xl w-[900px] h-[650px] flex overflow-hidden">
-        <div className="w-72 border-r border-gray-200 flex flex-col bg-white">
+      <div className="relative bg-white rounded-xl shadow-2xl w-[95vw] max-w-[900px] h-[85vh] max-h-[650px] min-h-[400px] flex overflow-hidden">
+        <div className="w-64 min-w-[200px] border-r border-gray-200 flex flex-col bg-white">
           <button
             onClick={onClose}
             className="absolute top-3 left-3 p-1 text-gray-400 hover:text-gray-600 z-10"
@@ -387,7 +400,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {isLoading ? (
               <div className="px-4 py-2 text-sm text-gray-500">Loading...</div>
             ) : modes.length === 0 ? (
@@ -434,7 +447,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
               </svg>
-              <span>Raven Modes</span>
+              <span>Templates</span>
             </button>
           </div>
         </div>
@@ -654,6 +667,25 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={deleteModal.isOpen}
+        title={`Delete "${deleteModal.mode?.name}"?`}
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteModal({ isOpen: false, mode: null })}
+        variant="danger"
+      />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onComplete={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

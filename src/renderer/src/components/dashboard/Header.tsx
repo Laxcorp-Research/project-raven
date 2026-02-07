@@ -30,6 +30,12 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    if (!modeEditorOpen) {
+      loadModes()
+    }
+  }, [modeEditorOpen])
+
   async function loadModes() {
     try {
       const [allModes, active] = await Promise.all([
@@ -68,7 +74,11 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                modeDropdownOpen
+                  ? 'text-gray-900 bg-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
             >
               <span>{activeMode?.name || 'Select Mode'}</span>
               <svg
@@ -83,7 +93,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording }: 
 
             {modeDropdownOpen && (
               <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
-                {modes.map((mode) => (
+                {modes.filter((mode) => !mode.isBuiltin).map((mode) => (
                   <button
                     key={mode.id}
                     onClick={() => handleSelectMode(mode)}
