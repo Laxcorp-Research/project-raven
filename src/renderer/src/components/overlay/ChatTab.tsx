@@ -72,7 +72,7 @@ export function ChatTab() {
       {messages.map((msg) => (
         <div
           key={msg.id}
-          className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          className={`flex animate-message-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
         >
           <div
             className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${
@@ -103,10 +103,10 @@ export function ChatTab() {
               <span className="text-xs font-medium text-cyan-400">Raven</span>
             </div>
             {isLoading && !streamingMessage ? (
-              <div className="flex items-center gap-1.5 text-white/50 text-sm">
-                <span className="animate-pulse">●</span>
-                <span className="animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
-                <span className="animate-pulse" style={{ animationDelay: '0.4s' }}>●</span>
+              <div className="flex items-center gap-2 text-white/50 text-sm py-1">
+                <span className="animate-pulse-dot">●</span>
+                <span className="animate-pulse-dot" style={{ animationDelay: '0.15s' }}>●</span>
+                <span className="animate-pulse-dot" style={{ animationDelay: '0.3s' }}>●</span>
               </div>
             ) : (
               <div className="text-sm leading-relaxed whitespace-pre-wrap">

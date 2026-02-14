@@ -4,13 +4,33 @@ import { SessionList } from './SessionList'
 import { Sidebar } from './Sidebar'
 import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
+import { SettingsModal } from './SettingsModal'
+
+interface TranscriptEntry {
+  id: string
+  source: 'mic' | 'system'
+  text: string
+  timestamp: number
+  isFinal: boolean
+}
+
+interface SessionDetailData {
+  id: string
+  title: string
+  transcript: TranscriptEntry[]
+  summary: string | null
+  durationSeconds: number
+  startedAt: number
+  modeId: string | null
+}
 
 export function Dashboard() {
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null)
+  const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     async function loadState() {
@@ -115,8 +135,7 @@ export function Dashboard() {
   }
 
   const handleOpenSettings = () => {
-    // Settings modal comes in Phase E
-    console.log('Settings clicked — coming in Phase E')
+    setSettingsOpen(true)
   }
 
   const handleSessionSelect = async (session: { id: string }) => {
@@ -185,6 +204,11 @@ export function Dashboard() {
           onStop={handleStopRecording}
         />
       )}
+
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   )
 }

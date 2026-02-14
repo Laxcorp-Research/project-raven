@@ -30,7 +30,7 @@ export function ResponsePanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3">
+    <div data-scroll-container className="flex-1 overflow-y-auto p-3">
       <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiResponse}</div>
     </div>
   )

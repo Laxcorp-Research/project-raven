@@ -74,7 +74,7 @@ export function TranscriptTab() {
       {entries.map((entry) => (
         <div
           key={entry.id}
-          className={`flex ${entry.speaker === 'you' ? 'justify-end' : 'justify-start'}`}
+          className={`flex animate-message-in ${entry.speaker === 'you' ? 'justify-end' : 'justify-start'}`}
         >
           <div
             className={`max-w-[80%] rounded-2xl px-3 py-2 ${

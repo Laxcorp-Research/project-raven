@@ -1,76 +1,736 @@
-import { useState, useEffect } from 'react'
-import { OverlayToolbar } from './OverlayToolbar'
-import { ResponsePanel } from './ResponsePanel'
-import { OverlayInput } from './OverlayInput'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
+import { ControllerPill } from './ControllerPill'
+import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
+
+interface ResponseCard {
+  id: string
+  content: string
+  action: string
+  hasScreenshot: boolean
+  screenshotPreviewData?: string
+}
+
+type ResizeEdge = 'left' | 'right' | 'bottom'
+
+interface OverlayBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const OVERLAY_MIN_WIDTH = 540
+const OVERLAY_MIN_HEIGHT = 420
+
+const getActionLabel = (action?: string): string => {
+  switch (action) {
+    case 'assist':
+      return 'Assist'
+    case 'what-should-i-say':
+      return 'What should I say?'
+    case 'follow-up':
+      return 'Follow-up questions'
+    case 'recap':
+      return 'Recap'
+    case 'custom':
+      return 'Question'
+    default:
+      return 'Assist'
+  }
+}
 
 export function OverlayWindow() {
-  const [isExpanded, setIsExpanded] = useState(true)
+  // State
   const [isRecording, setIsRecording] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
   const [stealthEnabled, setStealthEnabled] = useState(true)
+  const [isHoveringPanel, setIsHoveringPanel] = useState(false)
+  const [isHoveringX, setIsHoveringX] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const [responses, setResponses] = useState<ResponseCard[]>([])
+  const [isLoadingResponse, setIsLoadingResponse] = useState(false)
+  const [activeResponseId, setActiveResponseId] = useState<string | null>(null)
+  const [hoveredResizeEdge, setHoveredResizeEdge] = useState<ResizeEdge | null>(null)
+  const [activeResizeEdge, setActiveResizeEdge] = useState<ResizeEdge | null>(null)
+  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
+  const [previewMessageId, setPreviewMessageId] = useState<string | null>(null)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
+  // Refs
+  const audioCaptureRef = useRef<DualAudioCapture | null>(null)
+  const chunkCountRef = useRef(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const hideXTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeResponseIdRef = useRef<string | null>(null)
+  const requestInFlightRef = useRef(false)
+  const responseAreaRef = useRef<HTMLDivElement | null>(null)
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
+  const resizeRafRef = useRef<number | null>(null)
+  const pendingResizeBoundsRef = useRef<OverlayBounds | null>(null)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearHideXTimer = () => {
+    if (hideXTimerRef.current) {
+      clearTimeout(hideXTimerRef.current)
+      hideXTimerRef.current = null
+    }
+  }
+
+  const flushOverlayBounds = useCallback(() => {
+    if (resizeRafRef.current !== null) return
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      resizeRafRef.current = null
+      const bounds = pendingResizeBoundsRef.current
+      if (!bounds) return
+      void window.raven.windowSetOverlayBounds(bounds)
+    })
+  }, [])
+
+  const queueOverlayBounds = useCallback((bounds: OverlayBounds) => {
+    pendingResizeBoundsRef.current = bounds
+    flushOverlayBounds()
+  }, [flushOverlayBounds])
+
+  // Initialize
   useEffect(() => {
-    // Listen for stealth changes from dashboard
-    const unsubStealth = window.raven.onStealthChanged((enabled: boolean) => {
-      setStealthEnabled(enabled)
-    })
+    audioCaptureRef.current = new DualAudioCapture()
 
-    // Listen for recording state changes from main process
-    const unsubRecording = window.raven.onRecordingStateChanged((state) => {
-      setIsRecording(state.isRecording)
-    })
-
-    // Listen for AI suggestion hotkey
-    const unsubAi = window.raven.onHotkeyAiSuggestion(() => {
-      console.log('AI suggestion hotkey triggered')
-    })
-
-    // Load initial stealth state
     window.raven.storeGet('stealthEnabled').then((enabled) => {
       if (typeof enabled === 'boolean') setStealthEnabled(enabled)
     })
 
-    // Load initial recording state
     window.raven.audioGetState().then((state) => {
       setIsRecording(state.isRecording)
+    })
+
+    const unsubStealth = window.raven.onStealthChanged((enabled: boolean) => {
+      setStealthEnabled(enabled)
+    })
+
+    const unsubRecording = window.raven.onRecordingStateChanged((state) => {
+      setIsRecording(state.isRecording)
+      if (!state.isRecording) {
+        setIsStarting(false)
+      }
+    })
+
+    const unsubClaude = window.raven.onClaudeResponse((data) => {
+      if (data.type === 'start') {
+        requestInFlightRef.current = true
+        setIsLoadingResponse(true)
+        const entryId = data.messageId || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+        setActiveResponseId(entryId)
+        activeResponseIdRef.current = entryId
+
+        setResponses((prev) => [
+          ...prev,
+          {
+            id: entryId,
+            content: '',
+            action: data.userMessage?.content?.trim() || getActionLabel(data.userMessage?.action),
+            hasScreenshot: Boolean(data.requestMeta?.includeScreenshot),
+            screenshotPreviewData: data.requestMeta?.screenshotPreviewData
+          }
+        ])
+      } else if (data.type === 'delta') {
+        setIsLoadingResponse(false)
+        const targetId = data.messageId || activeResponseIdRef.current
+        if (!targetId) return
+        setResponses((prev) =>
+          prev.map((entry) =>
+            entry.id === targetId
+              ? { ...entry, content: data.fullText || '' }
+              : entry
+          )
+        )
+      } else if (data.type === 'done') {
+        requestInFlightRef.current = false
+        setIsLoadingResponse(false)
+        const targetId = data.messageId || activeResponseIdRef.current
+        if (targetId) {
+          setResponses((prev) =>
+            prev.map((entry) =>
+              entry.id === targetId
+                ? { ...entry, content: data.fullText || entry.content }
+                : entry
+            )
+          )
+        }
+        setActiveResponseId(null)
+        activeResponseIdRef.current = null
+      } else if (data.type === 'error') {
+        requestInFlightRef.current = false
+        setIsLoadingResponse(false)
+        setResponses((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            content: data.error || 'Something went wrong',
+            action: 'Error',
+            hasScreenshot: false
+          }
+        ])
+        setActiveResponseId(null)
+        activeResponseIdRef.current = null
+      } else if (data.type === 'cleared') {
+        requestInFlightRef.current = false
+        setResponses([])
+        setActiveResponseId(null)
+        activeResponseIdRef.current = null
+        setHoveredMessageId(null)
+        setPreviewMessageId(null)
+      }
+    })
+
+    const unsubAi = window.raven.onHotkeyAiSuggestion(async () => {
+      await handleAssist()
     })
 
     return () => {
       unsubStealth()
       unsubRecording()
+      unsubClaude()
       unsubAi()
+      audioCaptureRef.current?.stop()
+      clearHideXTimer()
+      resizeCleanupRef.current?.()
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current)
+        resizeRafRef.current = null
+      }
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+        copiedResetTimerRef.current = null
+      }
     }
   }, [])
+
+  useEffect(() => {
+    if (!responseAreaRef.current) return
+    responseAreaRef.current.scrollTop = responseAreaRef.current.scrollHeight
+  }, [responses, isLoadingResponse])
+
+  // Handle audio chunks
+  const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
+    chunkCountRef.current++
+    const payload = new Int16Array(chunk).buffer
+    window.raven.audioSendChunk(payload, source)
+  }, [])
+
+  // Toggle recording
+  const handleToggleRecording = useCallback(async () => {
+    if (!audioCaptureRef.current) return
+
+    if (isRecording) {
+      await audioCaptureRef.current.stop()
+      await window.raven.audioStopRecording()
+    } else {
+      setIsStarting(true)
+      setResponses([])
+      setActiveResponseId(null)
+      activeResponseIdRef.current = null
+      await window.raven.claudeClearHistory?.()
+
+      try {
+        await window.raven.audioStartRecording()
+        chunkCountRef.current = 0
+
+        await new Promise(resolve => setTimeout(resolve, 500))
+        const result = await audioCaptureRef.current.start(handleChunk)
+        console.log('[OverlayWindow] Audio capture started:', result)
+
+        await new Promise(resolve => setTimeout(resolve, 2500))
+        setIsStarting(false)
+      } catch (err) {
+        console.error('Failed to start recording:', err)
+        await window.raven.audioStopRecording()
+        setIsStarting(false)
+      }
+    }
+  }, [handleChunk, isRecording])
+
+  useEffect(() => {
+    const unsub = window.raven.onHotkeyToggleRecording(() => {
+      handleToggleRecording()
+    })
+    return () => unsub()
+  }, [handleToggleRecording])
 
   const handleHide = () => {
     window.raven.windowHide()
   }
 
-  const handleQuickAction = (action: string) => {
-    console.log('Quick action:', action)
-    setIsExpanded(true)
+  const handleLogoClick = () => {
+    window.raven.windowShowDashboard?.()
   }
 
-  const handleSendMessage = (message: string) => {
-    console.log('Send message:', message)
-    setIsExpanded(true)
+  const handleAssist = async () => {
+    if (requestInFlightRef.current) return
+    requestInFlightRef.current = true
+
+    const transcript = await window.raven.getTranscript()
+    const activeMode = await window.raven.modes.getActive()
+
+    void window.raven.claudeGetResponse({
+      transcript,
+      action: 'assist',
+      modePrompt: activeMode?.systemPrompt,
+      includeScreenshot: true
+    }).catch(() => {
+      requestInFlightRef.current = false
+    })
   }
+
+  const handleQuickAction = async (action: string) => {
+    if (requestInFlightRef.current) return
+    requestInFlightRef.current = true
+
+    const transcript = await window.raven.getTranscript()
+    const activeMode = await window.raven.modes.getActive()
+
+    void window.raven.claudeGetResponse({
+      transcript,
+      action,
+      modePrompt: activeMode?.systemPrompt,
+      includeScreenshot: false
+    }).catch(() => {
+      requestInFlightRef.current = false
+    })
+  }
+
+  const handleSend = async () => {
+    if (requestInFlightRef.current) return
+
+    const trimmed = inputValue.trim()
+    if (!trimmed) return
+    requestInFlightRef.current = true
+
+    setInputValue('')
+
+    const transcript = await window.raven.getTranscript()
+    const activeMode = await window.raven.modes.getActive()
+
+    void window.raven.claudeGetResponse({
+      transcript,
+      action: 'custom',
+      customPrompt: trimmed,
+      modePrompt: activeMode?.systemPrompt,
+      includeScreenshot: false
+    }).catch(() => {
+      requestInFlightRef.current = false
+    })
+  }
+
+  const handleClear = () => {
+    window.raven.windowHide()
+  }
+
+  const handlePanelMouseEnter = () => {
+    clearHideXTimer()
+    setIsHoveringPanel(true)
+  }
+
+  const handlePanelMouseLeave = () => {
+    clearHideXTimer()
+    hideXTimerRef.current = setTimeout(() => {
+      setIsHoveringPanel(false)
+    }, 220)
+  }
+
+  const handleCopyAction = useCallback(async (entryId: string, text: string) => {
+    if (!text.trim()) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedMessageId(entryId)
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+      copiedResetTimerRef.current = setTimeout(() => {
+        setCopiedMessageId((current) => (current === entryId ? null : current))
+      }, 1200)
+    } catch (error) {
+      console.error('[OverlayWindow] Failed to copy message:', error)
+    }
+  }, [])
+
+  const handleResizeStart = useCallback(async (edge: ResizeEdge, e: ReactMouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    resizeCleanupRef.current?.()
+
+    const startBounds = await window.raven.windowGetOverlayBounds()
+    if (!startBounds) return
+
+    const startScreenX = e.screenX
+    const startScreenY = e.screenY
+    const originalCursor = document.body.style.cursor
+    const originalUserSelect = document.body.style.userSelect
+    document.body.style.cursor = edge === 'bottom' ? 'ns-resize' : 'ew-resize'
+    document.body.style.userSelect = 'none'
+    setActiveResizeEdge(edge)
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.screenX - startScreenX
+      const dy = moveEvent.screenY - startScreenY
+
+      let nextX = startBounds.x
+      let nextY = startBounds.y
+      let nextWidth = startBounds.width
+      let nextHeight = startBounds.height
+
+      if (edge === 'left') {
+        nextWidth = Math.max(startBounds.width - dx, OVERLAY_MIN_WIDTH)
+        nextX = startBounds.x + (startBounds.width - nextWidth)
+      } else if (edge === 'right') {
+        nextWidth = Math.max(startBounds.width + dx, OVERLAY_MIN_WIDTH)
+      } else {
+        nextHeight = Math.max(startBounds.height + dy, OVERLAY_MIN_HEIGHT)
+      }
+
+      queueOverlayBounds({
+        x: nextX,
+        y: nextY,
+        width: nextWidth,
+        height: nextHeight
+      })
+    }
+
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = originalCursor
+      document.body.style.userSelect = originalUserSelect
+      setActiveResizeEdge(null)
+      resizeCleanupRef.current = null
+    }
+
+    const onMouseUp = () => {
+      cleanup()
+    }
+
+    resizeCleanupRef.current = cleanup
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp, { once: true })
+  }, [queueOverlayBounds])
+
+  const hasResponse = responses.length > 0 || isLoadingResponse
+  const isPanelExpanded = hasResponse || isRecording
+  const showResizeRails = responses.length > 0
+  const showX = isHoveringPanel || isHoveringX
 
   return (
-    <div className="flex flex-col h-screen bg-transparent">
-      <div className="flex flex-col h-full m-2 rounded-2xl bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 shadow-2xl overflow-hidden">
-        {/* Pill Toolbar */}
-        <OverlayToolbar
+    <div
+      className="h-full flex flex-col p-4 pb-6 gap-2 bg-transparent min-w-[540px] pointer-events-none"
+      style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+    >
+      {/* Controller Pill - Centered */}
+      <div
+        className="flex justify-center pointer-events-auto"
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+      >
+        <ControllerPill
           stealthEnabled={stealthEnabled}
-          isExpanded={isExpanded}
-          onToggleExpand={() => setIsExpanded((prev) => !prev)}
+          isRecording={isRecording}
+          isStarting={isStarting}
+          onToggleRecording={handleToggleRecording}
           onHide={handleHide}
+          onLogoClick={handleLogoClick}
         />
+      </div>
 
-        {/* Response Panel - collapsible */}
-        {isExpanded && <ResponsePanel />}
+      {/* Main Panel Wrapper */}
+      <div
+        className={`relative pointer-events-auto ${isPanelExpanded ? 'flex-1 min-h-0' : ''}`}
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        onMouseEnter={handlePanelMouseEnter}
+        onMouseLeave={handlePanelMouseLeave}
+      >
+        {/* Resize handles (only after conversation has content) */}
+        {showResizeRails && (
+          <>
+            <div
+              className="absolute top-5 bottom-12 -left-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              onMouseEnter={() => setHoveredResizeEdge('left')}
+              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'left' ? null : prev))}
+              onMouseDown={(e) => {
+                void handleResizeStart('left', e)
+              }}
+            >
+              <span
+                className={`w-[5px] h-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+                  hoveredResizeEdge === 'left' || activeResizeEdge === 'left' ? 'opacity-95' : 'opacity-0'
+                }`}
+              />
+            </div>
+            <div
+              className="absolute top-5 bottom-12 -right-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              onMouseEnter={() => setHoveredResizeEdge('right')}
+              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'right' ? null : prev))}
+              onMouseDown={(e) => {
+                void handleResizeStart('right', e)
+              }}
+            >
+              <span
+                className={`w-[5px] h-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+                  hoveredResizeEdge === 'right' || activeResizeEdge === 'right' ? 'opacity-95' : 'opacity-0'
+                }`}
+              />
+            </div>
+            <div
+              className="absolute -bottom-5 left-1/2 -translate-x-1/2 h-5 w-36 flex items-start justify-center cursor-ns-resize z-20"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              onMouseEnter={() => setHoveredResizeEdge('bottom')}
+              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'bottom' ? null : prev))}
+              onMouseDown={(e) => {
+                void handleResizeStart('bottom', e)
+              }}
+            >
+              <span
+                className={`mt-1 h-[5px] w-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+                  hoveredResizeEdge === 'bottom' || activeResizeEdge === 'bottom' ? 'opacity-95' : 'opacity-0'
+                }`}
+              />
+            </div>
+          </>
+        )}
 
-        {/* Input Bar */}
-        <OverlayInput onSend={handleSendMessage} onQuickAction={handleQuickAction} isRecording={isRecording} />
+        {/* X Button - dedicated hit wrapper for stable hover/click */}
+        {showX && (
+          <div
+            onMouseEnter={() => {
+              clearHideXTimer()
+              setIsHoveringX(true)
+            }}
+            onMouseLeave={() => setIsHoveringX(false)}
+            className="absolute -top-3 -right-3 z-20 w-8 h-8 pointer-events-auto flex items-center justify-center"
+            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          >
+            <button
+              type="button"
+              onClick={handleClear}
+              className="w-7 h-7 flex items-center justify-center rounded-full bg-[#3a3a3a] hover:bg-[#4a4a4a] text-white/70 hover:text-white transition-all"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Panel Container - NO shadow-2xl */}
+        <div className={`bg-[#2a2a2a] rounded-2xl overflow-hidden flex flex-col ${isPanelExpanded ? 'h-full' : ''}`}>
+
+          {/* Response Area */}
+          {hasResponse && (
+            <div ref={responseAreaRef} className="flex-1 min-h-0 overflow-y-auto p-4 pb-2 space-y-4">
+              {responses.map((entry, index) => {
+                const isLatest = index === responses.length - 1
+                const isStreaming = isLoadingResponse && isLatest && activeResponseId === entry.id
+
+                return (
+                  <div key={entry.id}>
+                    <div
+                      className={`flex justify-end ${entry.hasScreenshot ? 'mb-1' : 'mb-3'}`}
+                      onMouseEnter={() => setHoveredMessageId(entry.id)}
+                      onMouseLeave={() => {
+                        setHoveredMessageId((current) => (current === entry.id ? null : current))
+                      }}
+                    >
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleCopyAction(entry.id, entry.action)
+                          }}
+                          className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 ${
+                            hoveredMessageId === entry.id
+                              ? 'opacity-60 text-white/55'
+                              : 'opacity-0 pointer-events-none text-white/40'
+                          } hover:opacity-100 hover:text-white hover:scale-110`}
+                          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                          title={copiedMessageId === entry.id ? 'Copied' : 'Copy'}
+                        >
+                          {copiedMessageId === entry.id ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                              <path
+                                d="M20 7L10 17l-5-5"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <rect x="8.5" y="8.5" width="11" height="11" rx="2.2" fill="currentColor" />
+                              <rect x="4.5" y="4.5" width="11" height="11" rx="2.2" fill="currentColor" opacity="0.55" />
+                            </svg>
+                          )}
+                        </button>
+                        <span className="px-3 py-1 text-sm font-medium text-white rounded-full bg-gradient-to-r from-purple-500 to-blue-500">
+                          {entry.action}
+                        </span>
+                      </div>
+                    </div>
+                    {entry.hasScreenshot && (
+                      <div className="relative flex justify-end mb-3">
+                        <span
+                          className="text-xs text-white/40 inline-flex items-center gap-1"
+                          onMouseEnter={() => setPreviewMessageId(entry.id)}
+                          onMouseLeave={() => {
+                            setPreviewMessageId((current) => (current === entry.id ? null : current))
+                          }}
+                        >
+                          Sent with screenshot
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-white/35">
+                            <path d="M20 5h-3.2l-1.1-1.4A2 2 0 0 0 14.1 3H9.9a2 2 0 0 0-1.6.8L7.2 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm-8 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" />
+                          </svg>
+                        </span>
+                        {previewMessageId === entry.id && entry.screenshotPreviewData && (
+                          <div
+                            className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-white/15 bg-[#1f222b] p-1.5 shadow-2xl shadow-black/45 z-30"
+                            onMouseEnter={() => setPreviewMessageId(entry.id)}
+                            onMouseLeave={() => {
+                              setPreviewMessageId((current) => (current === entry.id ? null : current))
+                            }}
+                          >
+                            <img
+                              src={entry.screenshotPreviewData}
+                              alt="Screenshot preview"
+                              className="w-full h-auto rounded-lg object-cover"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {isStreaming && !entry.content ? (
+                      <div className="flex items-center gap-1.5 text-white/40 py-2">
+                        <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" />
+                        <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                      </div>
+                    ) : (
+                      <div className="text-white/90 text-[15px] leading-relaxed whitespace-pre-wrap">
+                        {entry.content}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {isLoadingResponse && responses.length === 0 && (
+                <div className="flex items-center gap-1.5 text-white/40 py-2">
+                  <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" />
+                  <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick Actions - Only when recording */}
+          {isRecording && (
+            <div className="px-4 py-2.5 flex items-center gap-1.5 text-sm text-white/60 border-t border-white/5">
+              <button
+                onClick={() => handleQuickAction('assist')}
+                className="hover:text-white transition-colors flex items-center gap-1"
+              >
+                <span className="text-white/40">✦</span> Assist
+              </button>
+              <span className="text-white/20">·</span>
+              <button
+                onClick={() => handleQuickAction('what-should-i-say')}
+                className="hover:text-white transition-colors flex items-center gap-1"
+              >
+                <span className="text-white/40">✎</span> What should I say?
+              </button>
+              <span className="text-white/20">·</span>
+              <button
+                onClick={() => handleQuickAction('follow-up')}
+                className="hover:text-white transition-colors flex items-center gap-1"
+              >
+                <span className="text-white/40">📋</span> Follow-up questions
+              </button>
+              <span className="text-white/20">·</span>
+              <button
+                onClick={() => handleQuickAction('recap')}
+                className="hover:text-white transition-colors flex items-center gap-1"
+              >
+                <span className="text-white/40">↻</span> Recap
+              </button>
+            </div>
+          )}
+
+          {/* Input Area */}
+          <div className={`mt-auto px-4 py-2.5 ${isRecording || hasResponse ? 'border-t border-white/5' : ''}`}>
+            {/* Input Row */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 relative">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault()
+                      void handleAssist()
+                      return
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void handleSend()
+                    }
+                  }}
+                  placeholder=""
+                  className="w-full bg-transparent text-white text-[14px] leading-tight focus:outline-none"
+                />
+                {/* Custom placeholder with key caps */}
+                {!inputValue && (
+                  <div className="absolute inset-0 flex items-center text-white/40 text-sm pointer-events-none whitespace-nowrap pr-24">
+                    <span>Ask about your screen or conversation, or</span>
+                    <kbd className="mx-1 px-1.5 py-0.5 bg-white/15 rounded text-[17px] leading-none font-semibold border border-white/20">⌘</kbd>
+                    <kbd className="px-1.5 py-0.5 bg-white/15 rounded text-[17px] leading-none font-semibold border border-white/20">↵</kbd>
+                    <span className="ml-1.5">for Assist</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Send Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSend()
+                }}
+                className="w-7 h-7 flex items-center justify-center rounded-full border border-blue-300/30 bg-gradient-to-b from-blue-500 to-blue-700 shadow-md shadow-blue-900/30 transition-all duration-200 ease-out shrink-0 pointer-events-auto relative z-10"
+                style={{
+                  WebkitAppRegion: 'no-drag'
+                } as CSSProperties}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="white"
+                  className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]"
+                >
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              </button>
+            </div>
+
+          </div>
+        </div>
       </div>
     </div>
   )

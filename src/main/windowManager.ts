@@ -51,11 +51,6 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
 
   dashboardWindow.on('ready-to-show', () => {
     dashboardWindow?.show()
-
-    // DevTools in dev mode
-    if (rendererURL) {
-      dashboardWindow?.webContents.openDevTools({ mode: 'detach' })
-    }
   })
 
   dashboardWindow.on('closed', () => {
@@ -75,27 +70,25 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   const savedBounds = getSetting('overlayBounds')
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
 
-  // Default position: bottom-right corner, 20px from edges
-  const defaultWidth = 480
-  const defaultHeight = 380
+  // Base overlay size for single-line placeholder layout
+  const defaultWidth = 540
+  const defaultHeight = 480
   const defaultX = screenWidth - defaultWidth - 20
   const defaultY = screenHeight - defaultHeight - 20
 
   overlayWindow = new BrowserWindow({
-    width: savedBounds?.width || defaultWidth,
-    height: savedBounds?.height || defaultHeight,
+    width: defaultWidth,
+    height: defaultHeight,
     x: savedBounds?.x ?? defaultX,
     y: savedBounds?.y ?? defaultY,
-    minWidth: 400,
-    minHeight: 300,
-    maxWidth: 800,
-    maxHeight: 600,
+    minWidth: 540,
+    minHeight: 420,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     skipTaskbar: true,
-    resizable: true,
-    hasShadow: true,
+    resizable: false,
+    hasShadow: false,
     show: false,
     title: 'Raven Overlay',
     webPreferences: {
@@ -109,11 +102,7 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   // Keep on top even over full-screen apps
   overlayWindow.setAlwaysOnTop(true, 'floating', 1)
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
-  // macOS vibrancy
-  if (process.platform === 'darwin') {
-    overlayWindow.setVibrancy('dark')
-  }
+  overlayWindow.setMovable(true)
 
   // Save overlay bounds on move/resize
   overlayWindow.on('resized', () => {

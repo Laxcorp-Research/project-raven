@@ -102,6 +102,69 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('window:resize', (_event, width: number, height: number) => {
+    const overlay = getOverlayWindow()
+    if (overlay && !overlay.isDestroyed()) {
+      const minWidth = 540
+      const minHeight = 420
+      const clampedWidth = Math.max(width, minWidth)
+      const clampedHeight = Math.max(height, minHeight)
+
+      const [x, y] = overlay.getPosition()
+      const [currentWidth, currentHeight] = overlay.getSize()
+
+      // Keep bottom-right position stable while resizing
+      const newX = x + (currentWidth - clampedWidth)
+      const newY = y + (currentHeight - clampedHeight)
+
+      overlay.setBounds({
+        x: Math.max(0, newX),
+        y: Math.max(0, newY),
+        width: clampedWidth,
+        height: clampedHeight
+      })
+    }
+    return true
+  })
+
+  ipcMain.handle('window:get-overlay-bounds', () => {
+    const overlay = getOverlayWindow()
+    if (!overlay || overlay.isDestroyed()) return null
+    return overlay.getBounds()
+  })
+
+  ipcMain.handle(
+    'window:set-overlay-bounds',
+    (_event, bounds: { x: number; y: number; width: number; height: number }) => {
+      const overlay = getOverlayWindow()
+      if (!overlay || overlay.isDestroyed()) return false
+
+      const minWidth = 540
+      const minHeight = 420
+
+      const clampedWidth = Math.max(Math.round(bounds.width), minWidth)
+      const clampedHeight = Math.max(Math.round(bounds.height), minHeight)
+
+      overlay.setBounds({
+        x: Math.max(0, Math.round(bounds.x)),
+        y: Math.max(0, Math.round(bounds.y)),
+        width: clampedWidth,
+        height: clampedHeight
+      })
+      return true
+    }
+  )
+
+  ipcMain.handle('window:show-dashboard', () => {
+    const dashboard = getDashboardWindow()
+    if (dashboard && !dashboard.isDestroyed()) {
+      dashboard.show()
+      dashboard.focus()
+      return true
+    }
+    return false
+  })
+
   ipcMain.handle('window:hide-overlay', () => {
     hideOverlay()
     return true

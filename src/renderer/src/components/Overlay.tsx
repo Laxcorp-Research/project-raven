@@ -11,7 +11,7 @@ import { startMicrophoneCapture, stopMicrophoneCapture } from '../hooks/useAudio
 import { startDeepgram, sendAudio, stopDeepgram } from '../hooks/useDeepgram'
 
 export function Overlay() {
-  const { activeTab, isRecording, setRecording, setAiLoading, setAiResponse, setActiveTab } = useAppStore()
+  const { activeTab, isRecording, setAiLoading, setAiResponse, setActiveTab, clearTranscript } = useAppStore()
   const isRecordingRef = useRef(isRecording)
 
   useEffect(() => {
@@ -86,11 +86,37 @@ export function Overlay() {
       }
     })
 
+    // Global hotkey: Clear conversation
+    const unsubClear = window.raven.onHotkeyClearConversation?.(() => {
+      clearTranscript()
+      setAiResponse('')
+      void window.raven.clearTranscript()
+    })
+
+    // Global hotkey: Scroll up
+    const unsubScrollUp = window.raven.onHotkeyScrollUp?.(() => {
+      const container = document.querySelector('[data-scroll-container]')
+      if (container) {
+        container.scrollBy({ top: -150, behavior: 'smooth' })
+      }
+    })
+
+    // Global hotkey: Scroll down
+    const unsubScrollDown = window.raven.onHotkeyScrollDown?.(() => {
+      const container = document.querySelector('[data-scroll-container]')
+      if (container) {
+        container.scrollBy({ top: 150, behavior: 'smooth' })
+      }
+    })
+
     return () => {
       unsubAi()
       unsubRec()
+      unsubClear?.()
+      unsubScrollUp?.()
+      unsubScrollDown?.()
     }
-  }, [setAiLoading, setAiResponse, setActiveTab])
+  }, [setAiLoading, setAiResponse, setActiveTab, clearTranscript])
 
   return (
     <div className="relative flex flex-col h-screen rounded-xl overflow-hidden select-none" style={{ background: 'rgba(17, 24, 39, 0.92)' }}>

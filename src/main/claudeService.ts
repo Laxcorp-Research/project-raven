@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
 
@@ -14,6 +14,12 @@ interface ChatMessage {
 interface ConversationState {
   messages: ChatMessage[];
   lastProcessedTranscriptLength: number;
+}
+
+interface ScreenshotAttachment {
+  mediaType: 'image/png';
+  data: string;
+  previewData: string;
 }
 
 const buildSystemPrompt = (modePrompt?: string): string => {
@@ -129,6 +135,7 @@ export class ClaudeService {
       action: string;
       customPrompt?: string;
       modePrompt?: string;
+      includeScreenshot?: boolean;
     }) => {
       try {
         const Store = (await import('electron-store')).default;
@@ -141,14 +148,19 @@ export class ClaudeService {
         }
 
         if (this.isProcessing) {
-          this.broadcastError('Already processing a request...');
+          console.log('[ClaudeService] Ignoring request while processing is active');
           return;
         }
 
         this.client = new Anthropic({ apiKey });
         this.isProcessing = true;
 
+        const screenshotAttachment = params.includeScreenshot
+          ? await this.captureScreenshotExcludingRaven()
+          : null;
+
         const userMessageContent = this.buildUserMessage(params);
+        const assistantMessageId = this.generateId();
         const userMessage: ChatMessage = {
           id: this.generateId(),
           role: 'user',
@@ -165,13 +177,22 @@ export class ClaudeService {
 
         this.broadcast({
           type: 'start',
+          messageId: assistantMessageId,
           userMessage,
+          requestMeta: {
+            includeScreenshot: Boolean(screenshotAttachment),
+            screenshotPreviewData: screenshotAttachment
+              ? `data:image/png;base64,${screenshotAttachment.previewData}`
+              : undefined,
+          },
         });
 
-        const claudeMessages = this.buildClaudeMessages(params.transcript, userMessageContent);
+        const claudeMessages = this.buildClaudeMessages(
+          userMessageContent,
+          screenshotAttachment
+        );
 
         let fullResponse = '';
-        const assistantMessageId = this.generateId();
 
         const stream = this.client.messages.stream({
           model: 'claude-sonnet-4-20250514',
@@ -252,6 +273,7 @@ export class ClaudeService {
     transcript: string;
     action: string;
     customPrompt?: string;
+    includeScreenshot?: boolean;
   }): string {
     let message = '';
 
@@ -276,11 +298,40 @@ export class ClaudeService {
       message += `REQUEST: ${ACTION_PROMPTS[params.action] || ACTION_PROMPTS.assist}`;
     }
 
+    if (params.includeScreenshot) {
+      message += '\n\nVISUAL CONTEXT: Analyze the attached screenshot for on-screen context.';
+    }
+
     return message;
   }
 
-  private buildClaudeMessages(transcript: string, currentUserMessage: string): Array<{role: 'user' | 'assistant', content: string}> {
-    const messages: Array<{role: 'user' | 'assistant', content: string}> = [];
+  private buildClaudeMessages(
+    currentUserMessage: string,
+    screenshot: ScreenshotAttachment | null
+  ): Array<{
+    role: 'user' | 'assistant';
+    content:
+      | string
+      | Array<
+          | { type: 'text'; text: string }
+          | {
+              type: 'image';
+              source: { type: 'base64'; media_type: string; data: string };
+            }
+        >;
+  }> {
+    const messages: Array<{
+      role: 'user' | 'assistant';
+      content:
+        | string
+        | Array<
+            | { type: 'text'; text: string }
+            | {
+                type: 'image';
+                source: { type: 'base64'; media_type: string; data: string };
+              }
+          >;
+    }> = [];
 
     const recentHistory = this.conversation.messages.slice(-20);
 
@@ -294,22 +345,99 @@ export class ClaudeService {
       });
     }
 
-    messages.push({
-      role: 'user',
-      content: currentUserMessage,
-    });
+    if (screenshot) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: currentUserMessage },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: screenshot.mediaType,
+              data: screenshot.data,
+            },
+          },
+        ],
+      });
+    } else {
+      messages.push({
+        role: 'user',
+        content: currentUserMessage,
+      });
+    }
 
     return messages;
   }
 
   private getActionLabel(action: string): string {
     switch (action) {
-      case 'assist': return '✨ Assist';
-      case 'what-should-i-say': return '💬 What should I say?';
-      case 'follow-up': return '🔄 Follow-up';
-      case 'recap': return '📋 Recap';
-      default: return '✨ Assist';
+      case 'assist': return 'Assist';
+      case 'what-should-i-say': return 'What should I say?';
+      case 'follow-up': return 'Follow-up';
+      case 'recap': return 'Recap';
+      case 'custom': return 'Question';
+      default: return 'Assist';
     }
+  }
+
+  private async captureScreenshotExcludingRaven(): Promise<ScreenshotAttachment | null> {
+    const appWindows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+    const originalContentProtection = new Map<BrowserWindow, boolean>();
+
+    try {
+      // Prevent all Raven windows from appearing in captured frames without changing visibility.
+      for (const win of appWindows) {
+        const currentProtected = typeof win.isContentProtected === 'function'
+          ? win.isContentProtected()
+          : false;
+        originalContentProtection.set(win, currentProtected);
+        win.setContentProtection(true);
+      }
+
+      // Small delay so compositor applies content protection before capture.
+      await this.sleep(45);
+
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const maxCaptureWidth = 1920;
+      const scale = Math.min(1, maxCaptureWidth / Math.max(1, primaryDisplay.size.width));
+      const captureWidth = Math.max(640, Math.floor(primaryDisplay.size.width * scale));
+      const captureHeight = Math.max(360, Math.floor(primaryDisplay.size.height * scale));
+
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: {
+          width: captureWidth,
+          height: captureHeight,
+        },
+      });
+
+      const targetDisplayId = String(primaryDisplay.id);
+      const source = sources.find((candidate) => candidate.display_id === targetDisplayId) || sources[0];
+      if (!source || source.thumbnail.isEmpty()) {
+        console.warn('[ClaudeService] Screenshot capture returned empty thumbnail');
+        return null;
+      }
+
+      return {
+        mediaType: 'image/png',
+        data: source.thumbnail.toPNG().toString('base64'),
+        previewData: source.thumbnail.resize({ width: 320 }).toPNG().toString('base64'),
+      };
+    } catch (error) {
+      console.error('[ClaudeService] Failed to capture screenshot:', error);
+      return null;
+    } finally {
+      for (const win of appWindows) {
+        if (win.isDestroyed()) continue;
+        const previous = originalContentProtection.get(win) ?? false;
+        win.setContentProtection(previous);
+      }
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private generateId(): string {
@@ -324,6 +452,7 @@ export class ClaudeService {
     text?: string;
     fullText?: string;
     error?: string;
+    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
   }): void {
     try {
       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {

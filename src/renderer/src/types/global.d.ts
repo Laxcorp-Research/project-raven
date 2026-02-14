@@ -80,6 +80,10 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       windowToggleOverlay: () => Promise<boolean>;
       windowShowOverlay: () => Promise<boolean>;
+      windowShowDashboard: () => Promise<boolean>;
+      windowResize: (width: number, height: number) => Promise<boolean>;
+      windowGetOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
+      windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>;
       windowHideOverlay: () => Promise<boolean>;
       windowHide: () => Promise<boolean>;
       windowSetStealth: (enabled: boolean) => Promise<boolean>;
@@ -154,6 +158,10 @@ declare global {
         interims?: { mic: string; system: string };
       }) => void) => () => void;
       onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
+      startTestTranscription: (deviceId: string) => Promise<{ success: boolean; error?: string }>;
+      stopTestTranscription: () => Promise<{ success: boolean }>;
+      sendTestAudio: (buffer: ArrayBuffer) => Promise<{ success: boolean }>;
+      onTestTranscriptionUpdate: (callback: (data: { text: string; isFinal: boolean }) => void) => () => void;
       getTranscript: () => Promise<string>;
       clearTranscript: () => Promise<{ success: boolean }>;
       getTranscriptEntries: () => Promise<Array<{
@@ -164,7 +172,13 @@ declare global {
         timestamp: number;
         isFinal: boolean;
       }>>;
-      claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) => Promise<void>;
+      claudeGetResponse: (params: {
+        transcript: string;
+        action: string;
+        customPrompt?: string;
+        modePrompt?: string;
+        includeScreenshot?: boolean;
+      }) => Promise<void>;
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
       claudeClearHistory: () => Promise<{ success: boolean }>;
       onClaudeResponse: (callback: (data: {
@@ -175,11 +189,15 @@ declare global {
         text?: string;
         fullText?: string;
         error?: string;
+        requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;
       sendHotkeyToggleRecording: () => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;
       onHotkeyToggleRecording: (callback: () => void) => () => void;
       onHotkeyAiSuggestion: (callback: () => void) => () => void;
+      onHotkeyClearConversation: (callback: () => void) => () => void;
+      onHotkeyScrollUp: (callback: () => void) => () => void;
+      onHotkeyScrollDown: (callback: () => void) => () => void;
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
     };
   }

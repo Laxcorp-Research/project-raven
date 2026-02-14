@@ -18,6 +18,11 @@ contextBridge.exposeInMainWorld('raven', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   windowToggleOverlay: () => ipcRenderer.invoke('window:toggle-overlay'),
   windowShowOverlay: () => ipcRenderer.invoke('window:show-overlay'),
+  windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
+  windowResize: (width: number, height: number) => ipcRenderer.invoke('window:resize', width, height),
+  windowGetOverlayBounds: () => ipcRenderer.invoke('window:get-overlay-bounds'),
+  windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke('window:set-overlay-bounds', bounds),
   windowHideOverlay: () => ipcRenderer.invoke('window:hide-overlay'),
   windowHide: () => ipcRenderer.invoke('window:hide-overlay'),
   windowSetStealth: (enabled: boolean) => ipcRenderer.invoke('window:set-stealth', enabled),
@@ -170,11 +175,25 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.removeListener('transcription:status', handler)
     }
   },
+  startTestTranscription: (deviceId: string) => ipcRenderer.invoke('transcription:start-test', deviceId),
+  stopTestTranscription: () => ipcRenderer.invoke('transcription:stop-test'),
+  sendTestAudio: (buffer: ArrayBuffer) => ipcRenderer.invoke('transcription:send-test-audio', buffer),
+  onTestTranscriptionUpdate: (callback: (data: { text: string; isFinal: boolean }) => void) => {
+    const handler = (_event: unknown, data: { text: string; isFinal: boolean }) => callback(data)
+    ipcRenderer.on('transcription:test-update', handler)
+    return () => ipcRenderer.removeListener('transcription:test-update', handler)
+  },
   getTranscript: () => ipcRenderer.invoke('audio:get-transcript'),
   clearTranscript: () => ipcRenderer.invoke('audio:clear-transcript'),
   getTranscriptEntries: () => ipcRenderer.invoke('audio:get-transcript-entries'),
   // Claude AI
-  claudeGetResponse: (params: { transcript: string; action: string; customPrompt?: string; modePrompt?: string }) =>
+  claudeGetResponse: (params: {
+    transcript: string;
+    action: string;
+    customPrompt?: string;
+    modePrompt?: string;
+    includeScreenshot?: boolean;
+  }) =>
     ipcRenderer.invoke('claude:get-response', params),
   claudeGetHistory: () => ipcRenderer.invoke('claude:get-history'),
   claudeClearHistory: () => ipcRenderer.invoke('claude:clear-history'),
@@ -186,6 +205,7 @@ contextBridge.exposeInMainWorld('raven', {
     text?: string
     fullText?: string
     error?: string
+    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
   }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as {
       type: 'start' | 'delta' | 'done' | 'error' | 'cleared'
@@ -195,6 +215,7 @@ contextBridge.exposeInMainWorld('raven', {
       text?: string
       fullText?: string
       error?: string
+      requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
     })
     ipcRenderer.on('claude:response', handler)
     return () => { ipcRenderer.removeListener('claude:response', handler) }
@@ -214,6 +235,21 @@ contextBridge.exposeInMainWorld('raven', {
     const handler = () => callback()
     ipcRenderer.on('hotkey:ai-suggestion', handler)
     return () => ipcRenderer.removeListener('hotkey:ai-suggestion', handler)
+  },
+  onHotkeyClearConversation: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('hotkey:clear-conversation', handler)
+    return () => ipcRenderer.removeListener('hotkey:clear-conversation', handler)
+  },
+  onHotkeyScrollUp: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('hotkey:scroll-up', handler)
+    return () => ipcRenderer.removeListener('hotkey:scroll-up', handler)
+  },
+  onHotkeyScrollDown: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('hotkey:scroll-down', handler)
+    return () => ipcRenderer.removeListener('hotkey:scroll-down', handler)
   },
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
