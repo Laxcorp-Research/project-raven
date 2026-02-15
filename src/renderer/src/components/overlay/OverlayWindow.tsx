@@ -13,6 +13,7 @@ interface ResponseCard {
   id: string
   content: string
   action: string
+  badgeVariant: 'quick' | 'custom' | 'system'
   hasScreenshot: boolean
   screenshotPreviewData?: string
 }
@@ -82,6 +83,8 @@ export function OverlayWindow() {
   const pendingResizeBoundsRef = useRef<OverlayBounds | null>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mouseIgnoreRef = useRef<boolean>(false)
+  const logoDragMovedRef = useRef(false)
+  const logoDragCleanupRef = useRef<(() => void) | null>(null)
 
   const clearHideXTimer = () => {
     if (hideXTimerRef.current) {
@@ -171,6 +174,10 @@ export function OverlayWindow() {
             id: entryId,
             content: '',
             action: data.userMessage?.content?.trim() || getActionLabel(data.userMessage?.action),
+            badgeVariant:
+              data.userMessage?.action === 'custom' && Boolean(data.userMessage?.content?.trim())
+                ? 'custom'
+                : 'quick',
             hasScreenshot: Boolean(data.requestMeta?.includeScreenshot),
             screenshotPreviewData: data.requestMeta?.screenshotPreviewData
           }
@@ -210,6 +217,7 @@ export function OverlayWindow() {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             content: data.error || 'Something went wrong',
             action: 'Error',
+            badgeVariant: 'system',
             hasScreenshot: false
           }
         ])
@@ -245,6 +253,7 @@ export function OverlayWindow() {
         clearTimeout(copiedResetTimerRef.current)
         copiedResetTimerRef.current = null
       }
+      logoDragCleanupRef.current?.()
       setOverlayMouseIgnore(false)
     }
   }, [setOverlayMouseIgnore])
@@ -366,8 +375,64 @@ export function OverlayWindow() {
   }
 
   const handleLogoClick = () => {
+    if (logoDragMovedRef.current) {
+      logoDragMovedRef.current = false
+      return
+    }
     window.raven.windowShowDashboard?.()
   }
+
+  const handleLogoMouseDown = useCallback(async (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    setOverlayMouseIgnore(false)
+
+    logoDragCleanupRef.current?.()
+    logoDragMovedRef.current = false
+
+    const startBounds = await window.raven.windowGetOverlayBounds()
+    if (!startBounds) return
+
+    const startX = event.screenX
+    const startY = event.screenY
+    const originalCursor = document.body.style.cursor
+    const originalUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'grabbing'
+    document.body.style.userSelect = 'none'
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.screenX - startX
+      const dy = moveEvent.screenY - startY
+
+      if (!logoDragMovedRef.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+        logoDragMovedRef.current = true
+      }
+
+      queueOverlayBounds({
+        x: startBounds.x + dx,
+        y: startBounds.y + dy,
+        width: startBounds.width,
+        height: startBounds.height
+      })
+    }
+
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = originalCursor
+      document.body.style.userSelect = originalUserSelect
+      logoDragCleanupRef.current = null
+    }
+
+    const onMouseUp = () => {
+      cleanup()
+    }
+
+    logoDragCleanupRef.current = cleanup
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp, { once: true })
+  }, [queueOverlayBounds, setOverlayMouseIgnore])
 
   const handleAssist = async () => {
     if (requestInFlightRef.current) return
@@ -551,6 +616,7 @@ export function OverlayWindow() {
           onToggleRecording={handleToggleRecording}
           onHide={handleHide}
           onLogoClick={handleLogoClick}
+          onLogoMouseDown={handleLogoMouseDown}
         />
       </div>
 
@@ -688,7 +754,13 @@ export function OverlayWindow() {
                             </svg>
                           )}
                         </button>
-                        <span className="px-3 py-1 text-sm font-medium text-white rounded-full bg-gradient-to-r from-purple-500 to-blue-500">
+                        <span
+                          className={`px-3 py-1 text-sm font-medium text-white rounded-full ${
+                            entry.badgeVariant === 'custom'
+                              ? 'bg-gradient-to-b from-blue-500 to-blue-700'
+                              : 'bg-gradient-to-r from-purple-500 to-blue-500'
+                          }`}
+                        >
                           {entry.action}
                         </span>
                       </div>

@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react'
+import { type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import ravenLogo from '../../../../../logo/Raven.svg'
 
 interface ControllerPillProps {
@@ -8,6 +8,7 @@ interface ControllerPillProps {
   onToggleRecording: () => void
   onHide: () => void
   onLogoClick: () => void
+  onLogoMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void
 }
 
 export function ControllerPill({
@@ -16,7 +17,8 @@ export function ControllerPill({
   isStarting,
   onToggleRecording,
   onHide,
-  onLogoClick
+  onLogoClick,
+  onLogoMouseDown
 }: ControllerPillProps) {
   return (
     <div 
@@ -29,8 +31,9 @@ export function ControllerPill({
       {/* Logo */}
       <button
         onClick={onLogoClick}
+        onMouseDown={onLogoMouseDown}
         className="w-8 h-8 flex items-center justify-center"
-        style={{ WebkitAppRegion: 'drag' } as CSSProperties}
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         title="Open Dashboard"
       >
         <img
