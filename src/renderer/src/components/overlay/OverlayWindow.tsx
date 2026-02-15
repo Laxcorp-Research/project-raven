@@ -699,8 +699,12 @@ export function OverlayWindow() {
                 {!inputValue && (
                   <div className="absolute inset-0 flex items-center text-white/40 text-sm pointer-events-none whitespace-nowrap pr-24">
                     <span>Ask about your screen or conversation, or</span>
-                    <kbd className="mx-1 px-1.5 py-0.5 bg-white/15 rounded text-[17px] leading-none font-semibold border border-white/20">⌘</kbd>
-                    <kbd className="px-1.5 py-0.5 bg-white/15 rounded text-[17px] leading-none font-semibold border border-white/20">↵</kbd>
+                    <kbd className="mx-1 inline-flex h-5 min-w-[20px] items-center justify-center px-0.5 bg-white/15 rounded border border-white/20 text-[18px] leading-none font-medium text-white/70">
+                      <span className="leading-none">⌘</span>
+                    </kbd>
+                    <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center px-0.5 bg-white/15 rounded border border-white/20 text-[18px] leading-none font-medium text-white/70">
+                      <span className="-translate-y-[0.5px] leading-none">↵</span>
+                    </kbd>
                     <span className="ml-1.5">for Assist</span>
                   </div>
                 )}

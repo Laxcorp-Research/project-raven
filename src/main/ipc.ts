@@ -18,7 +18,8 @@ import {
   hideOverlay,
   setStealthMode,
   getDashboardWindow,
-  getOverlayWindow
+  getOverlayWindow,
+  clampOverlayBoundsToDisplay
 } from './windowManager'
 
 export function registerIpcHandlers(): void {
@@ -117,12 +118,13 @@ export function registerIpcHandlers(): void {
       const newX = x + (currentWidth - clampedWidth)
       const newY = y + (currentHeight - clampedHeight)
 
-      overlay.setBounds({
-        x: Math.max(0, newX),
-        y: Math.max(0, newY),
+      const clampedBounds = clampOverlayBoundsToDisplay({
+        x: newX,
+        y: newY,
         width: clampedWidth,
         height: clampedHeight
       })
+      overlay.setBounds(clampedBounds)
     }
     return true
   })
@@ -145,12 +147,13 @@ export function registerIpcHandlers(): void {
       const clampedWidth = Math.max(Math.round(bounds.width), minWidth)
       const clampedHeight = Math.max(Math.round(bounds.height), minHeight)
 
-      overlay.setBounds({
-        x: Math.max(0, Math.round(bounds.x)),
-        y: Math.max(0, Math.round(bounds.y)),
+      const clampedBounds = clampOverlayBoundsToDisplay({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
         width: clampedWidth,
         height: clampedHeight
       })
+      overlay.setBounds(clampedBounds)
       return true
     }
   )

@@ -8,6 +8,38 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
 
+interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function areBoundsEqual(a: WindowBounds, b: WindowBounds): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+export function clampOverlayBoundsToDisplay(bounds: WindowBounds): WindowBounds {
+  const display = screen.getDisplayMatching(bounds)
+  const workArea = display.workArea
+
+  const clampedWidth = Math.min(bounds.width, workArea.width)
+  const clampedHeight = Math.min(bounds.height, workArea.height)
+
+  const maxX = workArea.x + workArea.width - clampedWidth
+  const maxY = workArea.y + workArea.height - clampedHeight
+
+  const clampedX = Math.min(Math.max(bounds.x, workArea.x), maxX)
+  const clampedY = Math.min(Math.max(bounds.y, workArea.y), maxY)
+
+  return {
+    x: Math.round(clampedX),
+    y: Math.round(clampedY),
+    width: Math.round(clampedWidth),
+    height: Math.round(clampedHeight)
+  }
+}
+
 export function getDashboardWindow(): BrowserWindow | null {
   return dashboardWindow
 }
@@ -107,13 +139,25 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   // Save overlay bounds on move/resize
   overlayWindow.on('resized', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      saveSetting('overlayBounds', overlayWindow.getBounds())
+      const current = overlayWindow.getBounds()
+      const clamped = clampOverlayBoundsToDisplay(current)
+      if (!areBoundsEqual(current, clamped)) {
+        overlayWindow.setBounds(clamped)
+        return
+      }
+      saveSetting('overlayBounds', clamped)
     }
   })
 
   overlayWindow.on('moved', () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      saveSetting('overlayBounds', overlayWindow.getBounds())
+      const current = overlayWindow.getBounds()
+      const clamped = clampOverlayBoundsToDisplay(current)
+      if (!areBoundsEqual(current, clamped)) {
+        overlayWindow.setBounds(clamped)
+        return
+      }
+      saveSetting('overlayBounds', clamped)
     }
   })
 

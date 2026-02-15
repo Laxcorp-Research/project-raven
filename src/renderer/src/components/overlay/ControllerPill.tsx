@@ -1,4 +1,5 @@
 import { type CSSProperties } from 'react'
+import ravenLogo from '../../../../../logo/Raven.svg'
 
 interface ControllerPillProps {
   stealthEnabled: boolean
@@ -28,36 +29,16 @@ export function ControllerPill({
       {/* Logo */}
       <button
         onClick={onLogoClick}
-        className="w-8 h-8 flex items-center justify-center rounded-full border border-white/10 bg-gradient-to-b from-[#303647] to-[#191e2a] hover:from-[#394054] hover:to-[#242b3a] transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95"
-        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        className="w-8 h-8 flex items-center justify-center"
+        style={{ WebkitAppRegion: 'drag' } as CSSProperties}
         title="Open Dashboard"
       >
-        <svg 
-          width="16" 
-          height="16" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="white" 
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={stealthEnabled ? 'opacity-90' : 'opacity-50'}
-        >
-          {stealthEnabled ? (
-            <>
-              {/* Stealth ON - crossed cursor style */}
-              <circle cx="12" cy="12" r="10" strokeWidth="1.5" />
-              <path d="M5 5l14 14" strokeWidth="2" />
-              <path d="M9 12l-1 4 4-1" strokeWidth="1.5" />
-            </>
-          ) : (
-            <>
-              {/* Stealth OFF */}
-              <path d="M3 12l4 8 2-4 4-2-8-4z" />
-              <path d="M21 3l-8.5 8.5" />
-            </>
-          )}
-        </svg>
+        <img
+          src={ravenLogo}
+          alt="Raven"
+          className={`w-8 h-8 object-contain ${stealthEnabled ? 'opacity-95' : 'opacity-60'}`}
+          draggable={false}
+        />
       </button>
 
       {/* Hide Button */}
