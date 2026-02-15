@@ -140,6 +140,17 @@ declare global {
         getActive: () => Promise<Mode | null>;
         setActive: (id: string) => Promise<boolean>;
       };
+      context: {
+        selectFile: () => Promise<{ filePath: string; fileName: string; fileSize: number } | null>;
+        uploadFile: (modeId: string, filePath: string, fileName: string, fileSize: number) => Promise<{
+          success: boolean;
+          file?: { id: string; modeId: string; fileName: string; fileSize: number; fileType: string; chunkCount: number; createdAt: number };
+          error?: string;
+        }>;
+        getFiles: (modeId: string) => Promise<Array<{ id: string; modeId: string; fileName: string; fileSize: number; fileType: string; chunkCount: number; createdAt: number }>>;
+        deleteFile: (fileId: string) => Promise<boolean>;
+        onUploadProgress: (callback: (data: { stage: string; current: number; total: number }) => void) => () => void;
+      };
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
       audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;
@@ -180,6 +191,7 @@ declare global {
         action: string;
         customPrompt?: string;
         modePrompt?: string;
+        modeId?: string;
         includeScreenshot?: boolean;
       }) => Promise<void>;
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;

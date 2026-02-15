@@ -507,7 +507,7 @@ src/renderer/src/assets/
   - Stealth mode still works ✅
 
 ================================================================================
-PHASE G: Backend + Paid Tier (Optional) ⏳ FUTURE
+PHASE G: Backend + Paid Tier 🔲 PENDING
 ================================================================================
 (Deferred - Free tier is complete without backend)
 

@@ -95,11 +95,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-cyan-50 text-cyan-700'
+                    ? 'bg-blue-50 text-blue-700'
                     : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                 }`}
               >
-                <span className={activeTab === tab.id ? 'text-cyan-600' : 'text-gray-400'}>
+                <span className={activeTab === tab.id ? 'text-blue-600' : 'text-gray-400'}>
                   {tab.icon}
                 </span>
                 {tab.label}
@@ -274,7 +274,7 @@ function ApiKeysTab() {
               e.preventDefault()
               window.raven.openExternal('https://console.deepgram.com/')
             }}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
+            className="text-xs text-blue-600 hover:text-blue-700"
           >
             Get API Key &rarr;
           </a>
@@ -294,7 +294,7 @@ function ApiKeysTab() {
                 ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                 : deepgramStatus === 'valid'
                 ? 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                : 'border-gray-300 focus:border-cyan-500 focus:ring-cyan-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
             } focus:outline-none focus:ring-1`}
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -331,7 +331,7 @@ function ApiKeysTab() {
               e.preventDefault()
               window.raven.openExternal('https://console.anthropic.com/')
             }}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
+            className="text-xs text-blue-600 hover:text-blue-700"
           >
             Get API Key &rarr;
           </a>
@@ -351,7 +351,7 @@ function ApiKeysTab() {
                 ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
                 : anthropicStatus === 'valid'
                 ? 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                : 'border-gray-300 focus:border-cyan-500 focus:ring-cyan-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
             } focus:outline-none focus:ring-1`}
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -391,7 +391,7 @@ function ApiKeysTab() {
         <button
           onClick={handleSave}
           disabled={isSaving || !canSave}
-          className="px-4 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isSaving ? 'Validating...' : hasChanges ? 'Save & Validate' : 'Saved ✓'}
         </button>
@@ -684,14 +684,14 @@ function AudioTab() {
                   key={mic.deviceId}
                   onClick={() => handleMicChange(mic.deviceId)}
                   className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-50 ${
-                    mic.deviceId === selectedMic ? 'text-cyan-600 bg-cyan-50' : 'text-gray-700'
+                    mic.deviceId === selectedMic ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
                   }`}
                 >
                   <span className="truncate">
                     {mic.deviceId === 'default' ? `Default - ${mic.label || 'System Microphone'}` : mic.label || 'Unknown Microphone'}
                   </span>
                   {mic.deviceId === selectedMic && (
-                    <svg className="w-4 h-4 text-cyan-600 flex-shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-blue-600 flex-shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -710,7 +710,7 @@ function AudioTab() {
               onClick={() => {
                 void startMicTest()
               }}
-              className="px-4 py-2 bg-cyan-500 text-white text-sm font-medium rounded-lg hover:bg-cyan-600 transition-colors"
+              className="px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition-colors"
             >
               Test Microphone
             </button>
@@ -719,7 +719,7 @@ function AudioTab() {
               <span className="px-4 py-2 bg-gray-200 text-gray-600 text-sm font-medium rounded-lg">
                 Testing...
               </span>
-              <span className="text-xs font-semibold text-cyan-700 bg-cyan-100 px-2 py-1 rounded-md">
+              <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded-md">
                 {testTimeRemaining}s
               </span>
               {/* Waveform Bars */}
@@ -730,7 +730,7 @@ function AudioTab() {
                     ref={(el) => {
                       if (el) barsRef.current[i] = el
                     }}
-                    className="flex-1 min-w-[2px] bg-cyan-500/80 rounded-sm transition-[height] duration-[60ms]"
+                    className="flex-1 min-w-[2px] bg-blue-500/80 rounded-sm transition-[height] duration-[60ms]"
                     style={{ height: '15%' }}
                   />
                 ))}
@@ -773,7 +773,7 @@ function AudioTab() {
           <button
             onClick={handleSystemAudioToggle}
             className={`relative w-11 h-6 rounded-full transition-colors ${
-              captureSystemAudio ? 'bg-cyan-500' : 'bg-gray-300'
+              captureSystemAudio ? 'bg-blue-500' : 'bg-gray-300'
             }`}
           >
             <span
@@ -936,12 +936,12 @@ function LanguageTab() {
                   key={lang.value}
                   onClick={() => handleTranscriptionLangChange(lang.value)}
                   className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-50 ${
-                    lang.value === transcriptionLang ? 'text-cyan-600 bg-cyan-50' : 'text-gray-700'
+                    lang.value === transcriptionLang ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
                   }`}
                 >
                   <span>{lang.label}</span>
                   {lang.value === transcriptionLang && (
-                    <svg className="w-4 h-4 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -991,12 +991,12 @@ function LanguageTab() {
                   key={lang.value}
                   onClick={() => handleOutputLangChange(lang.value)}
                   className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-50 ${
-                    lang.value === outputLang ? 'text-cyan-600 bg-cyan-50' : 'text-gray-700'
+                    lang.value === outputLang ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
                   }`}
                 >
                   <span>{lang.label}</span>
                   {lang.value === outputLang && (
-                    <svg className="w-4 h-4 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -1173,7 +1173,7 @@ function AboutTab() {
     <div className="space-y-6 max-w-xl">
       {/* App Info */}
       <div className="text-center py-6">
-        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
+        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
           <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
           </svg>
@@ -1230,7 +1230,7 @@ function AboutTab() {
           className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-left"
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-cyan-500 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>

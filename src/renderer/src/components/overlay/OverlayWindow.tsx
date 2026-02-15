@@ -483,6 +483,7 @@ export function OverlayWindow() {
       transcript,
       action: 'assist',
       modePrompt: activeMode?.systemPrompt,
+      modeId: activeMode?.id,
       includeScreenshot: true
     }).catch(() => {
       requestInFlightRef.current = false
@@ -501,6 +502,7 @@ export function OverlayWindow() {
       transcript,
       action,
       modePrompt: activeMode?.systemPrompt,
+      modeId: activeMode?.id,
       includeScreenshot: false
     }).catch(() => {
       requestInFlightRef.current = false
@@ -525,6 +527,7 @@ export function OverlayWindow() {
       action: 'custom',
       customPrompt: trimmed,
       modePrompt: activeMode?.systemPrompt,
+      modeId: activeMode?.id,
       includeScreenshot: false
     }).catch(() => {
       requestInFlightRef.current = false
@@ -641,7 +644,7 @@ export function OverlayWindow() {
       style={{
         WebkitAppRegion: 'no-drag',
         rowGap: '10px',
-        paddingTop: '2.75rem'
+        paddingTop: stealthEnabled ? '3.4rem' : '2.75rem'
       } as CSSProperties}
     >
       {/* Controller Pill - Centered */}
@@ -1005,7 +1008,7 @@ export function OverlayWindow() {
                 />
                 {/* Custom placeholder with key caps */}
                 {!inputValue && (
-                  <div className="absolute inset-0 flex items-center text-white/40 text-sm pointer-events-none whitespace-nowrap pr-2">
+                  <div className="absolute inset-0 flex items-center text-white/60 text-sm pointer-events-none whitespace-nowrap pr-2">
                     <span>Ask about your screen or conversation, or</span>
                     <kbd className="mx-1 inline-flex h-5 min-w-[20px] items-center justify-center px-0.5 bg-white/15 rounded border border-white/20 text-[18px] leading-none font-medium text-white/70">
                       <span className="leading-none">⌘</span>

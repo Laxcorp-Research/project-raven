@@ -120,6 +120,19 @@ contextBridge.exposeInMainWorld('raven', {
     getActive: () => ipcRenderer.invoke('modes:get-active'),
     setActive: (id: string) => ipcRenderer.invoke('modes:set-active', id),
   },
+  // ---- Context / RAG ----
+  context: {
+    selectFile: () => ipcRenderer.invoke('context:select-file'),
+    uploadFile: (modeId: string, filePath: string, fileName: string, fileSize: number) =>
+      ipcRenderer.invoke('context:upload-file', modeId, filePath, fileName, fileSize),
+    getFiles: (modeId: string) => ipcRenderer.invoke('context:get-files', modeId),
+    deleteFile: (fileId: string) => ipcRenderer.invoke('context:delete-file', fileId),
+    onUploadProgress: (callback: (data: { stage: string; current: number; total: number }) => void) => {
+      const handler = (_event: unknown, data: { stage: string; current: number; total: number }) => callback(data)
+      ipcRenderer.on('context:upload-progress', handler)
+      return () => ipcRenderer.removeListener('context:upload-progress', handler)
+    },
+  },
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
@@ -197,6 +210,7 @@ contextBridge.exposeInMainWorld('raven', {
     action: string;
     customPrompt?: string;
     modePrompt?: string;
+    modeId?: string;
     includeScreenshot?: boolean;
   }) =>
     ipcRenderer.invoke('claude:get-response', params),

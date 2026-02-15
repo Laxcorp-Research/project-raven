@@ -7,7 +7,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     <div className="w-16 bg-gray-50 border-r border-gray-200 flex flex-col items-center py-4 gap-2">
       {/* Sessions (home) */}
       <button
-        className="w-10 h-10 flex items-center justify-center rounded-lg bg-cyan-50 text-cyan-600"
+        className="w-10 h-10 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600"
         title="Sessions"
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

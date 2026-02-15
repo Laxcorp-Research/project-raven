@@ -22,7 +22,7 @@ interface ScreenshotAttachment {
   previewData: string;
 }
 
-const buildSystemPrompt = (modePrompt?: string): string => {
+const buildSystemPrompt = (modePrompt?: string, ragChunks?: Array<{ chunkText: string; fileName: string; score: number }>): string => {
   let prompt = `You are Raven, an AI assistant helping during a live meeting, interview, or call.
 
 CRITICAL CONTEXT RULES:
@@ -43,6 +43,13 @@ RESPONSE GUIDELINES:
 
   if (modePrompt) {
     prompt += `\n\nADDITIONAL CONTEXT FROM USER'S ACTIVE MODE:\n${modePrompt}`;
+  }
+
+  if (ragChunks && ragChunks.length > 0) {
+    prompt += `\n\nREFERENCE DOCUMENTS (uploaded by user as context — use these to inform your responses):\n`;
+    ragChunks.forEach((chunk, i) => {
+      prompt += `\n[${i + 1}] (from "${chunk.fileName}"):\n${chunk.chunkText}\n`;
+    });
   }
 
   return prompt;
@@ -135,6 +142,7 @@ export class ClaudeService {
       action: string;
       customPrompt?: string;
       modePrompt?: string;
+      modeId?: string;
       includeScreenshot?: boolean;
     }) => {
       try {
@@ -192,12 +200,23 @@ export class ClaudeService {
           screenshotAttachment
         );
 
+        let ragChunks: Array<{ chunkText: string; fileName: string; score: number }> = [];
+        if (params.modeId) {
+          try {
+            const { retrieveRelevantChunks } = await import('./services/ragService');
+            const queryText = params.customPrompt || params.transcript.slice(-500) || params.action;
+            ragChunks = await retrieveRelevantChunks(params.modeId, queryText, 5);
+          } catch (err) {
+            console.error('[ClaudeService] RAG retrieval failed (non-fatal):', err);
+          }
+        }
+
         let fullResponse = '';
 
         const stream = this.client.messages.stream({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1024,
-          system: buildSystemPrompt(params.modePrompt),
+          system: buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined),
           messages: claudeMessages,
         });
 

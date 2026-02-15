@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, type DragEvent } from 'react'
 import type { Mode, NotesSection } from '../../types/global'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
+import { Briefcase, TrendingUp, ClipboardList, Target, BookOpen, ArrowRight } from 'lucide-react'
 
 interface ModeEditorModalProps {
   isOpen: boolean
@@ -157,6 +158,9 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
   const [formName, setFormName] = useState('')
   const [formPrompt, setFormPrompt] = useState('')
   const [formNotesTemplate, setFormNotesTemplate] = useState<NotesSection[] | null>(null)
+  const [contextFiles, setContextFiles] = useState<Array<{ id: string; fileName: string; fileSize: number; fileType: string; chunkCount: number }>>([])
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ stage: string; current: number; total: number } | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
 
   useEffect(() => {
@@ -171,8 +175,67 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setFormName(selectedMode.name)
       setFormPrompt(selectedMode.systemPrompt)
       setFormNotesTemplate(selectedMode.notesTemplate ? [...selectedMode.notesTemplate] : null)
+      loadContextFiles(selectedMode.id)
+    } else {
+      setContextFiles([])
     }
   }, [selectedMode])
+
+  async function loadContextFiles(modeId: string) {
+    try {
+      const files = await window.raven.context.getFiles(modeId)
+      setContextFiles(files)
+    } catch {
+      setContextFiles([])
+    }
+  }
+
+  async function handleUploadContextFile() {
+    if (!selectedMode || isUploading) return
+    try {
+      const selected = await window.raven.context.selectFile()
+      if (!selected) return
+
+      if (selected.fileSize > 10 * 1024 * 1024) {
+        alert('File size must be under 10MB')
+        return
+      }
+
+      setIsUploading(true)
+      setUploadProgress({ stage: 'parsing', current: 0, total: 1 })
+
+      const unsub = window.raven.context.onUploadProgress((data) => {
+        setUploadProgress(data)
+      })
+
+      const result = await window.raven.context.uploadFile(
+        selectedMode.id,
+        selected.filePath,
+        selected.fileName,
+        selected.fileSize
+      )
+
+      unsub()
+      setIsUploading(false)
+      setUploadProgress(null)
+
+      if (result.success) {
+        await loadContextFiles(selectedMode.id)
+      } else {
+        alert(result.error || 'Upload failed')
+      }
+    } catch (err: any) {
+      setIsUploading(false)
+      setUploadProgress(null)
+      alert(err.message || 'Upload failed')
+    }
+  }
+
+  async function handleDeleteContextFile(fileId: string) {
+    if (!selectedMode) return
+    await window.raven.context.deleteFile(fileId)
+    await loadContextFiles(selectedMode.id)
+  }
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -425,7 +488,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                     </svg>
                     <span className="flex-1 truncate">{mode.name}</span>
                     {mode.id === activeMode?.id && (
-                      <svg className="w-4 h-4 text-cyan-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-4 h-4 text-blue-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
                     )}
@@ -458,30 +521,39 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
               <h2 className="text-2xl font-semibold text-gray-900 mb-2">Raven Modes</h2>
               <p className="text-gray-500 mb-6">Get started by selecting a template or start from an empty mode.</p>
 
-              <div className="border-t border-gray-200 pt-6 space-y-3">
-                {TEMPLATES.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleCreateFromTemplate(template)}
-                    className="w-full flex items-center gap-4 p-4 rounded-xl hover:bg-gray-50 transition-colors text-left group"
-                  >
-                    <div
-                      className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0"
-                      style={{ backgroundColor: `${template.color}15` }}
+              <div className="border-t border-gray-200 pt-5 space-y-2">
+                {TEMPLATES.map((template) => {
+                  const IconMap: Record<string, typeof Briefcase> = {
+                    'tpl-interview': Briefcase,
+                    'tpl-sales': TrendingUp,
+                    'tpl-meeting': ClipboardList,
+                    'tpl-job-search': Target,
+                    'tpl-lecture': BookOpen,
+                  }
+                  const Icon = IconMap[template.id] || Briefcase
+
+                  return (
+                    <button
+                      key={template.id}
+                      onClick={() => handleCreateFromTemplate(template)}
+                      className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-gray-50 transition-colors text-left group"
                     >
-                      {template.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{template.name}</span>
-                        <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${template.color}12` }}
+                      >
+                        <Icon size={20} style={{ color: template.color }} />
                       </div>
-                      <p className="text-sm text-gray-500 truncate">{template.description}</p>
-                    </div>
-                  </button>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">{template.name}</span>
+                          <ArrowRight size={14} className="text-gray-400 transition-transform duration-200 group-hover:translate-x-0.5" />
+                        </div>
+                        <p className="text-sm text-gray-500 truncate">{template.description}</p>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           ) : selectedMode ? (
@@ -497,7 +569,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
                 <div className="flex items-center gap-2 shrink-0">
                   {isActive ? (
-                    <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-cyan-600">
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600">
                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
@@ -552,15 +624,24 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                       value={formPrompt}
                       onChange={(e) => setFormPrompt(e.target.value)}
                       rows={10}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                       placeholder="Instructions for the AI when this mode is active..."
                     />
                     <div className="flex items-center justify-between mt-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                        </svg>
-                      </button>
+                      <div className="relative group">
+                        <button
+                          onClick={handleUploadContextFile}
+                          disabled={isUploading}
+                          className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                        </button>
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                          Upload files as context
+                        </div>
+                      </div>
                       <button
                         onClick={handleSave}
                         disabled={isSaving}
@@ -569,6 +650,49 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                         {isSaving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
+
+                    {/* Upload progress */}
+                    {isUploading && uploadProgress && (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <span>
+                          {uploadProgress.stage === 'parsing' && 'Parsing file...'}
+                          {uploadProgress.stage === 'chunking' && 'Splitting into chunks...'}
+                          {uploadProgress.stage === 'embedding' && `Embedding chunks (${uploadProgress.current}/${uploadProgress.total})...`}
+                          {uploadProgress.stage === 'storing' && `Storing (${uploadProgress.current}/${uploadProgress.total})...`}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Uploaded context files */}
+                    {contextFiles.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {contextFiles.map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg group"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                              <span className="text-[10px] font-semibold text-gray-500 uppercase">
+                                {file.fileType.includes('pdf') ? 'PDF' : file.fileType.includes('docx') || file.fileType.includes('word') ? 'DOC' : file.fileName.split('.').pop()?.toUpperCase() || 'TXT'}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-900 truncate">{file.fileName}</p>
+                              <p className="text-xs text-gray-400">{file.chunkCount} chunks · {(file.fileSize / 1024).toFixed(0)}KB</p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteContextFile(file.id)}
+                              className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 

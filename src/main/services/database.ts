@@ -207,6 +207,37 @@ class DatabaseService {
         name: '005_add_session_messages',
         run: migration005,
       },
+      {
+        name: '006_add_context_chunks',
+        sql: `
+          CREATE TABLE IF NOT EXISTS mode_context_files (
+            id TEXT PRIMARY KEY,
+            mode_id TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            file_type TEXT NOT NULL DEFAULT 'text/plain',
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (mode_id) REFERENCES modes(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_context_files_mode ON mode_context_files(mode_id);
+
+          CREATE TABLE IF NOT EXISTS mode_context_chunks (
+            id TEXT PRIMARY KEY,
+            mode_id TEXT NOT NULL,
+            file_id TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            chunk_text TEXT NOT NULL,
+            embedding_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (mode_id) REFERENCES modes(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_id) REFERENCES mode_context_files(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_context_chunks_mode ON mode_context_chunks(mode_id);
+          CREATE INDEX IF NOT EXISTS idx_context_chunks_file ON mode_context_chunks(file_id);
+        `,
+      },
     ];
 
     const applied = this.db
@@ -697,6 +728,110 @@ class DatabaseService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  // ==================== CONTEXT FILE / RAG METHODS ====================
+
+  insertContextFile(params: {
+    id: string;
+    modeId: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    chunkCount: number;
+  }): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare(
+      `INSERT INTO mode_context_files (id, mode_id, file_name, file_size, file_type, chunk_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(params.id, params.modeId, params.fileName, params.fileSize, params.fileType, params.chunkCount, Date.now());
+  }
+
+  insertContextChunk(params: {
+    id: string;
+    modeId: string;
+    fileId: string;
+    fileName: string;
+    chunkIndex: number;
+    chunkText: string;
+    embeddingJson: string;
+  }): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare(
+      `INSERT INTO mode_context_chunks (id, mode_id, file_id, file_name, chunk_index, chunk_text, embedding_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(params.id, params.modeId, params.fileId, params.fileName, params.chunkIndex, params.chunkText, params.embeddingJson, Date.now());
+  }
+
+  getContextFiles(modeId: string): Array<{
+    id: string;
+    modeId: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    chunkCount: number;
+    createdAt: number;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db.prepare(
+      'SELECT * FROM mode_context_files WHERE mode_id = ? ORDER BY created_at DESC'
+    ).all(modeId) as Array<{
+      id: string;
+      mode_id: string;
+      file_name: string;
+      file_size: number;
+      file_type: string;
+      chunk_count: number;
+      created_at: number;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      modeId: r.mode_id,
+      fileName: r.file_name,
+      fileSize: r.file_size,
+      fileType: r.file_type,
+      chunkCount: r.chunk_count,
+      createdAt: r.created_at,
+    }));
+  }
+
+  getContextChunks(modeId: string): Array<{
+    id: string;
+    chunkIndex: number;
+    chunkText: string;
+    embeddingJson: string;
+    fileName: string;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db.prepare(
+      'SELECT id, chunk_index, chunk_text, embedding_json, file_name FROM mode_context_chunks WHERE mode_id = ? ORDER BY file_name, chunk_index'
+    ).all(modeId) as Array<{
+      id: string;
+      chunk_index: number;
+      chunk_text: string;
+      embedding_json: string;
+      file_name: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      chunkIndex: r.chunk_index,
+      chunkText: r.chunk_text,
+      embeddingJson: r.embedding_json,
+      fileName: r.file_name,
+    }));
+  }
+
+  deleteContextFile(fileId: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare('DELETE FROM mode_context_chunks WHERE file_id = ?').run(fileId);
+    const result = this.db.prepare('DELETE FROM mode_context_files WHERE id = ?').run(fileId);
+    return result.changes > 0;
+  }
+
+  deleteAllContextForMode(modeId: string): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare('DELETE FROM mode_context_chunks WHERE mode_id = ?').run(modeId);
+    this.db.prepare('DELETE FROM mode_context_files WHERE mode_id = ?').run(modeId);
   }
 
   /**

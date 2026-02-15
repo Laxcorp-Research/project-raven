@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Header } from './Header'
 import { SessionList } from './SessionList'
-import { Sidebar } from './Sidebar'
 import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
 import { SettingsModal } from './SettingsModal'
+import { SearchResultsView } from './SearchResultsView'
 
 interface TranscriptEntry {
   id: string
@@ -31,6 +31,8 @@ export function Dashboard() {
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadState() {
@@ -65,7 +67,14 @@ export function Dashboard() {
       if (state.isRecording) {
         syncActiveSession()
       } else {
-        setActiveSession(null)
+        setActiveSession((prev) => {
+          if (prev?.id) {
+            window.raven.sessions.get(prev.id).then((fullSession) => {
+              if (fullSession) setSelectedSession(fullSession)
+            }).catch(() => {})
+          }
+          return null
+        })
       }
     })
 
@@ -153,6 +162,16 @@ export function Dashboard() {
     setSelectedSession(null)
   }
 
+  const handleSearchSubmit = useCallback((query: string) => {
+    setActiveSearchQuery(query)
+    setSelectedSession(null)
+  }, [])
+
+  const handleSearchBack = useCallback(() => {
+    setActiveSearchQuery(null)
+    setSearchQuery('')
+  }, [])
+
   const handleUpdateTitle = async (sessionId: string, newTitle: string) => {
     try {
       await window.raven.sessions.updateTitle(sessionId, newTitle)
@@ -163,38 +182,44 @@ export function Dashboard() {
   }
 
   return (
-    <div className="flex h-screen bg-white">
-      <Sidebar onOpenSettings={handleOpenSettings} />
+    <div className="flex flex-col h-screen bg-white">
+      <Header
+        stealth={stealth}
+        onToggleStealth={handleToggleStealth}
+        onStartRaven={handleStartRaven}
+        isRecording={isRecording}
+        onOpenSettings={handleOpenSettings}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onSearchSubmit={handleSearchSubmit}
+        onSessionSelect={handleSessionSelect}
+      />
 
-      <div className="flex-1 flex flex-col">
-        {!selectedSession && (
-          <Header
-            stealth={stealth}
-            onToggleStealth={handleToggleStealth}
-            onStartRaven={handleStartRaven}
-            isRecording={isRecording}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {selectedSession ? (
+          <SessionDetail
+            session={selectedSession}
+            onBack={handleBackToList}
+            onUpdateTitle={handleUpdateTitle}
+          />
+        ) : activeSearchQuery ? (
+          <SearchResultsView
+            query={activeSearchQuery}
+            onBack={handleSearchBack}
+            onSessionSelect={handleSessionSelect}
+          />
+        ) : (
+          <SessionList
+            onSessionSelect={handleSessionSelect}
+            activeSessionId={activeSession?.id || null}
+            searchQuery={searchQuery}
+            activeSession={
+              activeSession
+                ? { ...activeSession, durationSeconds: recordingDuration }
+                : null
+            }
           />
         )}
-
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {selectedSession ? (
-            <SessionDetail
-              session={selectedSession}
-              onBack={handleBackToList}
-              onUpdateTitle={handleUpdateTitle}
-            />
-          ) : (
-            <SessionList
-              onSessionSelect={handleSessionSelect}
-              activeSessionId={activeSession?.id || null}
-              activeSession={
-                activeSession
-                  ? { ...activeSession, durationSeconds: recordingDuration }
-                  : null
-              }
-            />
-          )}
-        </div>
       </div>
 
       {activeSession && (

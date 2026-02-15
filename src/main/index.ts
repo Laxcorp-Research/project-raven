@@ -399,6 +399,62 @@ app.whenReady().then(() => {
     }
   })
 
+  // ---- Context / RAG ----
+
+  ipcMain.handle('context:upload-file', async (event, modeId: string, filePath: string, fileName: string, fileSize: number) => {
+    try {
+      const { uploadContextFile } = await import('./services/ragService')
+      const sender = event.sender
+      const result = await uploadContextFile(modeId, filePath, fileName, fileSize, (stage, current, total) => {
+        sender.send('context:upload-progress', { stage, current, total })
+      })
+      return { success: true, file: result }
+    } catch (error: any) {
+      console.error('[IPC] context:upload-file error:', error)
+      return { success: false, error: error.message || 'Upload failed' }
+    }
+  })
+
+  ipcMain.handle('context:get-files', async (_event, modeId: string) => {
+    try {
+      const { getContextFiles } = await import('./services/ragService')
+      return getContextFiles(modeId)
+    } catch (error) {
+      console.error('[IPC] context:get-files error:', error)
+      return []
+    }
+  })
+
+  ipcMain.handle('context:delete-file', async (_event, fileId: string) => {
+    try {
+      const { deleteContextFile } = await import('./services/ragService')
+      return deleteContextFile(fileId)
+    } catch (error) {
+      console.error('[IPC] context:delete-file error:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('context:select-file', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'docx'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const filePath = result.filePaths[0]
+    const pathMod = await import('path')
+    const fsMod = await import('fs')
+    const stats = fsMod.statSync(filePath)
+    return {
+      filePath,
+      fileName: pathMod.basename(filePath),
+      fileSize: stats.size
+    }
+  })
+
   // Test transcription (doesn't create sessions)
   ipcMain.handle('transcription:start-test', async (event, deviceId: string) => {
     const apiKey = getSetting('deepgramApiKey') as string

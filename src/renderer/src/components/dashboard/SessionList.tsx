@@ -99,9 +99,10 @@ interface SessionListProps {
   onSessionSelect?: (session: Session) => void
   activeSessionId?: string | null
   activeSession?: ActiveSessionInfo | null
+  searchQuery?: string
 }
 
-export function SessionList({ onSessionSelect, activeSessionId, activeSession }: SessionListProps) {
+export function SessionList({ onSessionSelect, activeSessionId, activeSession, searchQuery = '' }: SessionListProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -260,14 +261,20 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
       })()
     : sessions
 
-  const groupedSessions = groupSessionsByDate(mergedSessions, activeId)
+  const filteredSessions = searchQuery.trim()
+    ? mergedSessions.filter((s) =>
+        s.title.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      )
+    : mergedSessions
+
+  const groupedSessions = groupSessionsByDate(filteredSessions, activeId)
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="max-w-[900px] mx-auto w-full px-6 min-w-[500px]">
         {Array.from(groupedSessions.entries()).map(([dateGroup, groupSessions]) => (
           <div key={dateGroup} className="mb-2">
-            <div className="py-3 px-4 -mx-4 text-sm font-medium text-gray-500">
+            <div className="sticky top-0 py-2.5 px-4 -mx-4 text-xs font-medium text-gray-400 bg-white z-10">
               {dateGroup}
             </div>
 
@@ -293,7 +300,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1 mr-6">
                     {isActive && (
-                      <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
                     )}
 
                     <span
@@ -312,7 +319,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                         }
                       }}
                       onMouseLeave={() => setTooltipState(null)}
-                      className={`truncate max-w-[500px] ${
+                      className={`truncate max-w-[500px] text-sm ${
                         regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
                       }`}
                     >
@@ -321,13 +328,13 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession }:
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm text-gray-600 tabular-nums bg-gray-200/70 px-2.5 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 tabular-nums bg-gray-100 px-2 py-0.5 rounded-full">
                       {formatDuration(session.duration)}
                     </span>
 
                     <div className="w-[65px] relative h-6 flex items-center justify-end overflow-hidden">
                       <span
-                        className={`text-sm text-gray-500 tabular-nums absolute right-0 transition-all duration-200 ease-out ${
+                        className={`text-xs text-gray-400 tabular-nums absolute right-0 transition-all duration-200 ease-out ${
                           hoveredId === session.id || menuState.sessionId === session.id
                             ? 'opacity-0 -translate-x-3'
                             : 'opacity-100 translate-x-0'

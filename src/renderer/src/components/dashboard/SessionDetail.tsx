@@ -257,7 +257,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                 onBlur={handleTitleBlur}
                 onKeyDown={handleTitleKeyDown}
                 suppressContentEditableWarning
-                className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent rounded-lg break-words px-2 py-1 -mx-2 tracking-normal outline-none"
+                className="text-2xl font-semibold text-gray-900 cursor-text border border-transparent rounded-lg break-words px-2 py-1 -mx-2 tracking-normal outline-none"
                 style={{
                   lineHeight: '1.2',
                   fontKerning: 'auto',
@@ -268,7 +268,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
             ) : (
               <h1
                 onClick={handleTitleClick}
-                className="text-3xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words tracking-normal"
+                className="text-2xl font-semibold text-gray-900 cursor-text border border-transparent hover:border-gray-300 rounded-lg px-2 py-1 -mx-2 transition-colors break-words tracking-normal"
                 style={{
                   lineHeight: '1.2',
                   fontKerning: 'auto',
@@ -395,7 +395,7 @@ function SummaryTab({ summary, hasTranscript }: { summary: string | null; hasTra
             <ul className="space-y-2.5">
               {section.items.map((item, i) => (
                 <li key={i} className="flex items-start gap-3">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 mt-2 flex-shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
                   <span className="text-gray-700 leading-relaxed">
                     {renderBoldText(item)}
                   </span>
@@ -424,7 +424,7 @@ function TranscriptTab({ transcript }: { transcript: TranscriptEntry[] }) {
         <div key={index}>
           <div className="flex items-center gap-2 mb-1">
             <span className={`text-sm font-medium ${
-              utterance.speaker === 'You' ? 'text-cyan-600' : 'text-gray-500'
+              utterance.speaker === 'You' ? 'text-blue-600' : 'text-gray-500'
             }`}>
               {utterance.speaker}
             </span>
@@ -532,7 +532,7 @@ function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: 
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
