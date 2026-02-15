@@ -18,11 +18,14 @@ contextBridge.exposeInMainWorld('raven', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   windowToggleOverlay: () => ipcRenderer.invoke('window:toggle-overlay'),
   windowShowOverlay: () => ipcRenderer.invoke('window:show-overlay'),
+  windowAutoSizeOverlay: (mode: 'compact' | 'expanded') =>
+    ipcRenderer.invoke('window:auto-size-overlay', mode),
   windowSetIgnoreMouseEvents: (ignore: boolean) =>
     ipcRenderer.invoke('window:set-ignore-mouse-events', ignore),
   windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
   windowResize: (width: number, height: number) => ipcRenderer.invoke('window:resize', width, height),
   windowGetOverlayBounds: () => ipcRenderer.invoke('window:get-overlay-bounds'),
+  windowGetCursorPoint: () => ipcRenderer.invoke('window:get-cursor-point'),
   windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('window:set-overlay-bounds', bounds),
   windowHideOverlay: () => ipcRenderer.invoke('window:hide-overlay'),

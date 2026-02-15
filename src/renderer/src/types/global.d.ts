@@ -80,10 +80,12 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       windowToggleOverlay: () => Promise<boolean>;
       windowShowOverlay: () => Promise<boolean>;
+      windowAutoSizeOverlay: (mode: 'compact' | 'expanded') => Promise<boolean>;
       windowSetIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
       windowShowDashboard: () => Promise<boolean>;
       windowResize: (width: number, height: number) => Promise<boolean>;
       windowGetOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
+      windowGetCursorPoint: () => Promise<{ x: number; y: number }>;
       windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>;
       windowHideOverlay: () => Promise<boolean>;
       windowHide: () => Promise<boolean>;

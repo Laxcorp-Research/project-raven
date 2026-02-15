@@ -103,8 +103,8 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
 
   // Base overlay size for single-line placeholder layout
-  const defaultWidth = 540
-  const defaultHeight = 480
+  const defaultWidth = 500
+  const defaultHeight = 176
   const defaultX = screenWidth - defaultWidth - 20
   const defaultY = screenHeight - defaultHeight - 20
 
@@ -113,8 +113,8 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     height: defaultHeight,
     x: savedBounds?.x ?? defaultX,
     y: savedBounds?.y ?? defaultY,
-    minWidth: 540,
-    minHeight: 420,
+    minWidth: 500,
+    minHeight: 170,
     frame: false,
     transparent: true,
     alwaysOnTop: true,

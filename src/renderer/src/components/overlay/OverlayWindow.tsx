@@ -26,8 +26,9 @@ interface OverlayBounds {
   height: number
 }
 
-const OVERLAY_MIN_WIDTH = 540
-const OVERLAY_MIN_HEIGHT = 420
+const OVERLAY_MIN_WIDTH = 500
+const OVERLAY_COMPACT_MIN_HEIGHT = 170
+const OVERLAY_EXPANDED_MIN_HEIGHT = 500
 
 const getActionLabel = (action?: string): string => {
   switch (action) {
@@ -73,6 +74,9 @@ export function OverlayWindow() {
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
   const pillWrapperRef = useRef<HTMLDivElement | null>(null)
   const panelWrapperRef = useRef<HTMLDivElement | null>(null)
+  const leftRailRef = useRef<HTMLDivElement | null>(null)
+  const rightRailRef = useRef<HTMLDivElement | null>(null)
+  const bottomRailRef = useRef<HTMLDivElement | null>(null)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
   const resizeRafRef = useRef<number | null>(null)
   const pendingResizeBoundsRef = useRef<OverlayBounds | null>(null)
@@ -106,6 +110,29 @@ export function OverlayWindow() {
     mouseIgnoreRef.current = ignore
     void window.raven.windowSetIgnoreMouseEvents(ignore)
   }, [])
+
+  const isInside = useCallback((rect: DOMRect, x: number, y: number): boolean => {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+  }, [])
+
+  const isOverInteractiveUi = useCallback((x: number, y: number): boolean => {
+    const pillRect = pillWrapperRef.current?.getBoundingClientRect()
+    if (pillRect && isInside(pillRect, x, y)) return true
+
+    const panelRect = panelWrapperRef.current?.getBoundingClientRect()
+    if (panelRect && isInside(panelRect, x, y)) return true
+
+    const leftRailRect = leftRailRef.current?.getBoundingClientRect()
+    if (leftRailRect && isInside(leftRailRect, x, y)) return true
+
+    const rightRailRect = rightRailRef.current?.getBoundingClientRect()
+    if (rightRailRect && isInside(rightRailRect, x, y)) return true
+
+    const bottomRailRect = bottomRailRef.current?.getBoundingClientRect()
+    if (bottomRailRect && isInside(bottomRailRect, x, y)) return true
+
+    return false
+  }, [isInside])
 
   // Initialize
   useEffect(() => {
@@ -223,19 +250,6 @@ export function OverlayWindow() {
   }, [setOverlayMouseIgnore])
 
   useEffect(() => {
-    const isInside = (rect: DOMRect, x: number, y: number): boolean =>
-      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-
-    const isOverInteractiveUi = (x: number, y: number): boolean => {
-      const pillRect = pillWrapperRef.current?.getBoundingClientRect()
-      if (pillRect && isInside(pillRect, x, y)) return true
-
-      const panelRect = panelWrapperRef.current?.getBoundingClientRect()
-      if (panelRect && isInside(panelRect, x, y)) return true
-
-      return false
-    }
-
     // Default to pass-through so only visible UI captures input.
     setOverlayMouseIgnore(true)
 
@@ -255,12 +269,50 @@ export function OverlayWindow() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [setOverlayMouseIgnore])
+  }, [isOverInteractiveUi, setOverlayMouseIgnore])
+
+  useEffect(() => {
+    let cancelled = false
+    let inFlight = false
+
+    const syncMouseCapture = async () => {
+      if (cancelled || inFlight) return
+      inFlight = true
+      try {
+        const [cursorPoint, overlayBounds] = await Promise.all([
+          window.raven.windowGetCursorPoint(),
+          window.raven.windowGetOverlayBounds()
+        ])
+        if (cancelled || !overlayBounds) return
+
+        const clientX = cursorPoint.x - overlayBounds.x
+        const clientY = cursorPoint.y - overlayBounds.y
+        const shouldCapture = isOverInteractiveUi(clientX, clientY)
+        setOverlayMouseIgnore(!shouldCapture)
+      } catch {
+        // Ignore transient IPC failures; next poll will recover.
+      } finally {
+        inFlight = false
+      }
+    }
+
+    void syncMouseCapture()
+    const intervalId = window.setInterval(() => {
+      void syncMouseCapture()
+    }, 40)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [isOverInteractiveUi, setOverlayMouseIgnore])
 
   useEffect(() => {
     if (!responseAreaRef.current) return
     responseAreaRef.current.scrollTop = responseAreaRef.current.scrollHeight
   }, [responses, isLoadingResponse])
+
+  const hasResponse = responses.length > 0 || isLoadingResponse
 
   // Handle audio chunks
   const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
@@ -381,11 +433,13 @@ export function OverlayWindow() {
 
   const handlePanelMouseEnter = () => {
     clearHideXTimer()
+    setOverlayMouseIgnore(false)
     setIsHoveringPanel(true)
   }
 
   const handlePanelMouseLeave = () => {
     clearHideXTimer()
+    setOverlayMouseIgnore(true)
     hideXTimerRef.current = setTimeout(() => {
       setIsHoveringPanel(false)
     }, 220)
@@ -439,7 +493,7 @@ export function OverlayWindow() {
       } else if (edge === 'right') {
         nextWidth = Math.max(startBounds.width + dx, OVERLAY_MIN_WIDTH)
       } else {
-        nextHeight = Math.max(startBounds.height + dy, OVERLAY_MIN_HEIGHT)
+        nextHeight = Math.max(startBounds.height + dy, hasResponse ? OVERLAY_EXPANDED_MIN_HEIGHT : OVERLAY_COMPACT_MIN_HEIGHT)
       }
 
       queueOverlayBounds({
@@ -466,23 +520,29 @@ export function OverlayWindow() {
     resizeCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp, { once: true })
-  }, [queueOverlayBounds])
+  }, [hasResponse, queueOverlayBounds])
 
-  const hasResponse = responses.length > 0 || isLoadingResponse
-  const isPanelExpanded = hasResponse || isRecording
-  const showResizeRails = responses.length > 0
+  const isPanelExpanded = hasResponse
+  const showBottomResizeRail = hasResponse
   const showX = isHoveringPanel || isHoveringX
+
+  useEffect(() => {
+    void window.raven.windowAutoSizeOverlay(hasResponse ? 'expanded' : 'compact')
+  }, [hasResponse])
 
   return (
     <div
-      className="h-full flex flex-col p-4 pb-6 gap-2 bg-transparent min-w-[540px] pointer-events-none"
+      className="h-full flex flex-col p-4 pb-6 gap-2 bg-transparent min-w-[500px] pointer-events-none"
       style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
     >
       {/* Controller Pill - Centered */}
       <div
         ref={pillWrapperRef}
         className="w-fit self-center pointer-events-auto"
-        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        style={{ WebkitAppRegion: 'drag' } as CSSProperties}
+        onMouseEnter={() => setOverlayMouseIgnore(false)}
+        onMouseMove={() => setOverlayMouseIgnore(false)}
+        onMouseLeave={() => setOverlayMouseIgnore(true)}
       >
         <ControllerPill
           stealthEnabled={stealthEnabled}
@@ -502,55 +562,56 @@ export function OverlayWindow() {
         onMouseEnter={handlePanelMouseEnter}
         onMouseLeave={handlePanelMouseLeave}
       >
-        {/* Resize handles (only after conversation has content) */}
-        {showResizeRails && (
-          <>
-            <div
-              className="absolute top-5 bottom-12 -left-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              onMouseEnter={() => setHoveredResizeEdge('left')}
-              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'left' ? null : prev))}
-              onMouseDown={(e) => {
-                void handleResizeStart('left', e)
-              }}
-            >
-              <span
-                className={`w-[5px] h-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
-                  hoveredResizeEdge === 'left' || activeResizeEdge === 'left' ? 'opacity-95' : 'opacity-0'
-                }`}
-              />
-            </div>
-            <div
-              className="absolute top-5 bottom-12 -right-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              onMouseEnter={() => setHoveredResizeEdge('right')}
-              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'right' ? null : prev))}
-              onMouseDown={(e) => {
-                void handleResizeStart('right', e)
-              }}
-            >
-              <span
-                className={`w-[5px] h-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
-                  hoveredResizeEdge === 'right' || activeResizeEdge === 'right' ? 'opacity-95' : 'opacity-0'
-                }`}
-              />
-            </div>
-            <div
-              className="absolute -bottom-5 left-1/2 -translate-x-1/2 h-5 w-36 flex items-start justify-center cursor-ns-resize z-20"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              onMouseEnter={() => setHoveredResizeEdge('bottom')}
-              onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'bottom' ? null : prev))}
-              onMouseDown={(e) => {
-                void handleResizeStart('bottom', e)
-              }}
-            >
-              <span
-                className={`mt-1 h-[5px] w-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
-                  hoveredResizeEdge === 'bottom' || activeResizeEdge === 'bottom' ? 'opacity-95' : 'opacity-0'
-                }`}
-              />
-            </div>
-          </>
+        {/* Resize handles (side handles always available; bottom shown only with content) */}
+        <div
+          ref={leftRailRef}
+          className="absolute inset-y-0 -left-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
+          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          onMouseEnter={() => setHoveredResizeEdge('left')}
+          onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'left' ? null : prev))}
+          onMouseDown={(e) => {
+            void handleResizeStart('left', e)
+          }}
+        >
+          <span
+            className={`w-[5px] ${isPanelExpanded ? 'h-14' : 'h-8'} rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+              hoveredResizeEdge === 'left' || activeResizeEdge === 'left' ? 'opacity-95' : 'opacity-0'
+            }`}
+          />
+        </div>
+        <div
+          ref={rightRailRef}
+          className="absolute inset-y-0 -right-3 w-3 flex items-center justify-center cursor-ew-resize z-20"
+          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          onMouseEnter={() => setHoveredResizeEdge('right')}
+          onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'right' ? null : prev))}
+          onMouseDown={(e) => {
+            void handleResizeStart('right', e)
+          }}
+        >
+          <span
+            className={`w-[5px] ${isPanelExpanded ? 'h-14' : 'h-8'} rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+              hoveredResizeEdge === 'right' || activeResizeEdge === 'right' ? 'opacity-95' : 'opacity-0'
+            }`}
+          />
+        </div>
+        {showBottomResizeRail && (
+          <div
+            ref={bottomRailRef}
+            className="absolute -bottom-5 left-1/2 -translate-x-1/2 h-5 w-36 flex items-start justify-center cursor-ns-resize z-20"
+            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            onMouseEnter={() => setHoveredResizeEdge('bottom')}
+            onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'bottom' ? null : prev))}
+            onMouseDown={(e) => {
+              void handleResizeStart('bottom', e)
+            }}
+          >
+            <span
+              className={`mt-1 h-[5px] w-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
+                hoveredResizeEdge === 'bottom' || activeResizeEdge === 'bottom' ? 'opacity-95' : 'opacity-0'
+              }`}
+            />
+          </div>
         )}
 
         {/* X Button - dedicated hit wrapper for stable hover/click */}
@@ -694,37 +755,50 @@ export function OverlayWindow() {
                 onClick={() => handleQuickAction('assist')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <span className="text-white/40">✦</span> Assist
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
+                  <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" fill="currentColor" />
+                </svg>
+                Assist
               </button>
               <span className="text-white/20">·</span>
               <button
                 onClick={() => handleQuickAction('what-should-i-say')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <span className="text-white/40">✎</span> What should I say?
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
+                  <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                What should I say?
               </button>
               <span className="text-white/20">·</span>
               <button
                 onClick={() => handleQuickAction('follow-up')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <span className="text-white/40">📋</span> Follow-up questions
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
+                  <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+                  <path d="M8 10h8M8 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                Follow-up questions
               </button>
               <span className="text-white/20">·</span>
               <button
                 onClick={() => handleQuickAction('recap')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <span className="text-white/40">↻</span> Recap
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
+                  <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Recap
               </button>
             </div>
           )}
 
           {/* Input Area */}
-          <div className={`mt-auto px-4 py-2.5 ${isRecording || hasResponse ? 'border-t border-white/5' : ''}`}>
+          <div className={`mt-auto px-4 py-3 ${isRecording || hasResponse ? 'border-t border-white/5' : ''}`}>
             {/* Input Row */}
             <div className="flex items-center gap-3">
-              <div className="flex-1 relative">
+              <div className="flex-1 min-w-0 relative">
                 <input
                   ref={inputRef}
                   type="text"
@@ -746,7 +820,7 @@ export function OverlayWindow() {
                 />
                 {/* Custom placeholder with key caps */}
                 {!inputValue && (
-                  <div className="absolute inset-0 flex items-center text-white/40 text-sm pointer-events-none whitespace-nowrap pr-24">
+                  <div className="absolute inset-0 flex items-center text-white/40 text-sm pointer-events-none whitespace-nowrap pr-2">
                     <span>Ask about your screen or conversation, or</span>
                     <kbd className="mx-1 inline-flex h-5 min-w-[20px] items-center justify-center px-0.5 bg-white/15 rounded border border-white/20 text-[18px] leading-none font-medium text-white/70">
                       <span className="leading-none">⌘</span>

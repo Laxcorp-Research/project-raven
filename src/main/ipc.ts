@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, screen } from 'electron'
 import {
   getAllSettings,
   getSetting,
@@ -23,6 +23,13 @@ import {
 } from './windowManager'
 
 export function registerIpcHandlers(): void {
+  const OVERLAY_MIN_WIDTH = 500
+  const OVERLAY_COMPACT_MIN_HEIGHT = 170
+  const OVERLAY_COMPACT_TARGET_HEIGHT = 176
+  const OVERLAY_EXPANDED_MIN_HEIGHT = 500
+
+  let overlayActiveMinHeight = OVERLAY_COMPACT_MIN_HEIGHT
+
   ipcMain.handle('store:get-all', () => {
     return getAllSettings()
   })
@@ -103,6 +110,47 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('window:auto-size-overlay', (_event, mode: 'compact' | 'expanded') => {
+    const overlay = getOverlayWindow()
+    if (!overlay || overlay.isDestroyed()) return false
+
+    const bounds = overlay.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const workArea = display.workArea
+
+    overlayActiveMinHeight = mode === 'expanded'
+      ? OVERLAY_EXPANDED_MIN_HEIGHT
+      : OVERLAY_COMPACT_MIN_HEIGHT
+
+    const targetHeight = mode === 'compact'
+      ? OVERLAY_COMPACT_TARGET_HEIGHT
+      : Math.max(bounds.height, OVERLAY_EXPANDED_MIN_HEIGHT)
+
+    if (targetHeight === bounds.height) return true
+
+    let nextY = bounds.y
+    const delta = targetHeight - bounds.height
+
+    if (delta > 0) {
+      const availableBottom = workArea.y + workArea.height - (bounds.y + bounds.height)
+      if (availableBottom < delta) {
+        nextY = bounds.y - (delta - availableBottom)
+      }
+    } else {
+      // On shrink, keep bottom/input anchor stable.
+      nextY = bounds.y + Math.abs(delta)
+    }
+
+    const clamped = clampOverlayBoundsToDisplay({
+      x: bounds.x,
+      y: nextY,
+      width: bounds.width,
+      height: targetHeight
+    })
+    overlay.setBounds(clamped)
+    return true
+  })
+
   ipcMain.handle('window:set-ignore-mouse-events', (_event, ignore: boolean) => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return false
@@ -113,10 +161,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('window:resize', (_event, width: number, height: number) => {
     const overlay = getOverlayWindow()
     if (overlay && !overlay.isDestroyed()) {
-      const minWidth = 540
-      const minHeight = 420
-      const clampedWidth = Math.max(width, minWidth)
-      const clampedHeight = Math.max(height, minHeight)
+      const clampedWidth = Math.max(width, OVERLAY_MIN_WIDTH)
+      const clampedHeight = Math.max(height, overlayActiveMinHeight)
 
       const [x, y] = overlay.getPosition()
       const [currentWidth, currentHeight] = overlay.getSize()
@@ -142,17 +188,18 @@ export function registerIpcHandlers(): void {
     return overlay.getBounds()
   })
 
+  ipcMain.handle('window:get-cursor-point', () => {
+    return screen.getCursorScreenPoint()
+  })
+
   ipcMain.handle(
     'window:set-overlay-bounds',
     (_event, bounds: { x: number; y: number; width: number; height: number }) => {
       const overlay = getOverlayWindow()
       if (!overlay || overlay.isDestroyed()) return false
 
-      const minWidth = 540
-      const minHeight = 420
-
-      const clampedWidth = Math.max(Math.round(bounds.width), minWidth)
-      const clampedHeight = Math.max(Math.round(bounds.height), minHeight)
+      const clampedWidth = Math.max(Math.round(bounds.width), OVERLAY_MIN_WIDTH)
+      const clampedHeight = Math.max(Math.round(bounds.height), overlayActiveMinHeight)
 
       const clampedBounds = clampOverlayBoundsToDisplay({
         x: Math.round(bounds.x),

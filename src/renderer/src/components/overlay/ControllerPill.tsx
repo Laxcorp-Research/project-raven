@@ -88,7 +88,7 @@ export function ControllerPill({
             />
           </svg>
         ) : isRecording ? (
-          <div className="w-2 h-2 bg-white rounded-sm" />
+          <div className="w-2.5 h-2.5 bg-white rounded-[2px]" />
         ) : (
           <svg width="17" height="17" viewBox="0 0 24 24" className="text-white/95">
             <path
