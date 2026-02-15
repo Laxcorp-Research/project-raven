@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('raven', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   windowToggleOverlay: () => ipcRenderer.invoke('window:toggle-overlay'),
   windowShowOverlay: () => ipcRenderer.invoke('window:show-overlay'),
+  windowSetIgnoreMouseEvents: (ignore: boolean) =>
+    ipcRenderer.invoke('window:set-ignore-mouse-events', ignore),
   windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
   windowResize: (width: number, height: number) => ipcRenderer.invoke('window:resize', width, height),
   windowGetOverlayBounds: () => ipcRenderer.invoke('window:get-overlay-bounds'),

@@ -103,6 +103,13 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('window:set-ignore-mouse-events', (_event, ignore: boolean) => {
+    const overlay = getOverlayWindow()
+    if (!overlay || overlay.isDestroyed()) return false
+    overlay.setIgnoreMouseEvents(ignore, { forward: true })
+    return true
+  })
+
   ipcMain.handle('window:resize', (_event, width: number, height: number) => {
     const overlay = getOverlayWindow()
     if (overlay && !overlay.isDestroyed()) {

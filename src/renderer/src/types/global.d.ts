@@ -80,6 +80,7 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       windowToggleOverlay: () => Promise<boolean>;
       windowShowOverlay: () => Promise<boolean>;
+      windowSetIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
       windowShowDashboard: () => Promise<boolean>;
       windowResize: (width: number, height: number) => Promise<boolean>;
       windowGetOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;

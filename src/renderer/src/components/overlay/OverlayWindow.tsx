@@ -71,10 +71,13 @@ export function OverlayWindow() {
   const activeResponseIdRef = useRef<string | null>(null)
   const requestInFlightRef = useRef(false)
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
+  const pillWrapperRef = useRef<HTMLDivElement | null>(null)
+  const panelWrapperRef = useRef<HTMLDivElement | null>(null)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
   const resizeRafRef = useRef<number | null>(null)
   const pendingResizeBoundsRef = useRef<OverlayBounds | null>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mouseIgnoreRef = useRef<boolean>(false)
 
   const clearHideXTimer = () => {
     if (hideXTimerRef.current) {
@@ -97,6 +100,12 @@ export function OverlayWindow() {
     pendingResizeBoundsRef.current = bounds
     flushOverlayBounds()
   }, [flushOverlayBounds])
+
+  const setOverlayMouseIgnore = useCallback((ignore: boolean) => {
+    if (mouseIgnoreRef.current === ignore) return
+    mouseIgnoreRef.current = ignore
+    void window.raven.windowSetIgnoreMouseEvents(ignore)
+  }, [])
 
   // Initialize
   useEffect(() => {
@@ -209,8 +218,44 @@ export function OverlayWindow() {
         clearTimeout(copiedResetTimerRef.current)
         copiedResetTimerRef.current = null
       }
+      setOverlayMouseIgnore(false)
     }
-  }, [])
+  }, [setOverlayMouseIgnore])
+
+  useEffect(() => {
+    const isInside = (rect: DOMRect, x: number, y: number): boolean =>
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+
+    const isOverInteractiveUi = (x: number, y: number): boolean => {
+      const pillRect = pillWrapperRef.current?.getBoundingClientRect()
+      if (pillRect && isInside(pillRect, x, y)) return true
+
+      const panelRect = panelWrapperRef.current?.getBoundingClientRect()
+      if (panelRect && isInside(panelRect, x, y)) return true
+
+      return false
+    }
+
+    // Default to pass-through so only visible UI captures input.
+    setOverlayMouseIgnore(true)
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const shouldCapture = isOverInteractiveUi(event.clientX, event.clientY)
+      setOverlayMouseIgnore(!shouldCapture)
+    }
+
+    const handleWindowBlur = () => {
+      setOverlayMouseIgnore(true)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
+  }, [setOverlayMouseIgnore])
 
   useEffect(() => {
     if (!responseAreaRef.current) return
@@ -264,6 +309,7 @@ export function OverlayWindow() {
   }, [handleToggleRecording])
 
   const handleHide = () => {
+    setOverlayMouseIgnore(true)
     window.raven.windowHide()
   }
 
@@ -329,6 +375,7 @@ export function OverlayWindow() {
   }
 
   const handleClear = () => {
+    setOverlayMouseIgnore(true)
     window.raven.windowHide()
   }
 
@@ -433,7 +480,8 @@ export function OverlayWindow() {
     >
       {/* Controller Pill - Centered */}
       <div
-        className="flex justify-center pointer-events-auto"
+        ref={pillWrapperRef}
+        className="w-fit self-center pointer-events-auto"
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
         <ControllerPill
@@ -448,6 +496,7 @@ export function OverlayWindow() {
 
       {/* Main Panel Wrapper */}
       <div
+        ref={panelWrapperRef}
         className={`relative pointer-events-auto ${isPanelExpanded ? 'flex-1 min-h-0' : ''}`}
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         onMouseEnter={handlePanelMouseEnter}
