@@ -6,6 +6,8 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent
 } from 'react'
+import Markdown from 'react-markdown'
+import { Sparkles, Wand2, MessageSquareText, RotateCcw } from 'lucide-react'
 import { ControllerPill } from './ControllerPill'
 import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
 
@@ -27,8 +29,8 @@ interface OverlayBounds {
   height: number
 }
 
-const OVERLAY_MIN_WIDTH = 500
-const OVERLAY_COMPACT_MIN_HEIGHT = 170
+const OVERLAY_MIN_WIDTH = 520
+const OVERLAY_COMPACT_MIN_HEIGHT = 210
 const OVERLAY_EXPANDED_MIN_HEIGHT = 500
 
 const getActionLabel = (action?: string): string => {
@@ -64,6 +66,9 @@ export function OverlayWindow() {
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
   const [previewMessageId, setPreviewMessageId] = useState<string | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [hoveredResponseId, setHoveredResponseId] = useState<string | null>(null)
+  const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
   const audioCaptureRef = useRef<DualAudioCapture | null>(null)
@@ -318,8 +323,29 @@ export function OverlayWindow() {
 
   useEffect(() => {
     if (!responseAreaRef.current) return
-    responseAreaRef.current.scrollTop = responseAreaRef.current.scrollHeight
-  }, [responses, isLoadingResponse])
+    if (isAtBottom) {
+      responseAreaRef.current.scrollTop = responseAreaRef.current.scrollHeight
+    }
+  }, [responses, isLoadingResponse, isAtBottom])
+
+  const handleResponseScroll = useCallback(() => {
+    const el = responseAreaRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30
+    setIsAtBottom(atBottom)
+
+    el.classList.add('is-scrolling')
+    if (scrollHideTimerRef.current) clearTimeout(scrollHideTimerRef.current)
+    scrollHideTimerRef.current = setTimeout(() => {
+      el.classList.remove('is-scrolling')
+    }, 1200)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    if (!responseAreaRef.current) return
+    responseAreaRef.current.scrollTo({ top: responseAreaRef.current.scrollHeight, behavior: 'smooth' })
+    setIsAtBottom(true)
+  }, [])
 
   const hasResponse = responses.length > 0 || isLoadingResponse
 
@@ -374,6 +400,16 @@ export function OverlayWindow() {
     window.raven.windowHide()
   }
 
+  const handleToggleStealth = useCallback(async () => {
+    const next = !stealthEnabled
+    setStealthEnabled(next)
+    try {
+      await window.raven.windowSetStealth(next)
+    } catch {
+      setStealthEnabled(!next)
+    }
+  }, [stealthEnabled])
+
   const handleLogoClick = () => {
     if (logoDragMovedRef.current) {
       logoDragMovedRef.current = false
@@ -398,7 +434,7 @@ export function OverlayWindow() {
     const startY = event.screenY
     const originalCursor = document.body.style.cursor
     const originalUserSelect = document.body.style.userSelect
-    document.body.style.cursor = 'grabbing'
+    document.body.style.setProperty('cursor', 'default', 'important')
     document.body.style.userSelect = 'none'
 
     const onMouseMove = (moveEvent: MouseEvent) => {
@@ -420,7 +456,8 @@ export function OverlayWindow() {
     const cleanup = () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = originalCursor
+      document.body.style.removeProperty('cursor')
+      if (originalCursor) document.body.style.cursor = originalCursor
       document.body.style.userSelect = originalUserSelect
       logoDragCleanupRef.current = null
     }
@@ -437,6 +474,7 @@ export function OverlayWindow() {
   const handleAssist = async () => {
     if (requestInFlightRef.current) return
     requestInFlightRef.current = true
+    setIsAtBottom(true)
 
     const transcript = await window.raven.getTranscript()
     const activeMode = await window.raven.modes.getActive()
@@ -454,6 +492,7 @@ export function OverlayWindow() {
   const handleQuickAction = async (action: string) => {
     if (requestInFlightRef.current) return
     requestInFlightRef.current = true
+    setIsAtBottom(true)
 
     const transcript = await window.raven.getTranscript()
     const activeMode = await window.raven.modes.getActive()
@@ -474,6 +513,7 @@ export function OverlayWindow() {
     const trimmed = inputValue.trim()
     if (!trimmed) return
     requestInFlightRef.current = true
+    setIsAtBottom(true)
 
     setInputValue('')
 
@@ -597,14 +637,21 @@ export function OverlayWindow() {
 
   return (
     <div
-      className="h-full flex flex-col p-4 pb-6 gap-2 bg-transparent min-w-[500px] pointer-events-none"
-      style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+      className="h-full flex flex-col p-4 pb-6 bg-transparent min-w-[520px] pointer-events-none"
+      style={{
+        WebkitAppRegion: 'no-drag',
+        rowGap: '10px',
+        paddingTop: '2.75rem'
+      } as CSSProperties}
     >
       {/* Controller Pill - Centered */}
       <div
         ref={pillWrapperRef}
-        className="w-fit self-center pointer-events-auto"
-        style={{ WebkitAppRegion: 'drag' } as CSSProperties}
+        className="relative z-[70] w-fit self-center pointer-events-auto"
+        style={{
+          WebkitAppRegion: 'drag',
+          transform: stealthEnabled ? 'translateY(-10px)' : 'translateY(0)'
+        } as CSSProperties}
         onMouseEnter={() => setOverlayMouseIgnore(false)}
         onMouseMove={() => setOverlayMouseIgnore(false)}
         onMouseLeave={() => setOverlayMouseIgnore(true)}
@@ -614,6 +661,7 @@ export function OverlayWindow() {
           isRecording={isRecording}
           isStarting={isStarting}
           onToggleRecording={handleToggleRecording}
+          onToggleStealth={handleToggleStealth}
           onHide={handleHide}
           onLogoClick={handleLogoClick}
           onLogoMouseDown={handleLogoMouseDown}
@@ -628,6 +676,30 @@ export function OverlayWindow() {
         onMouseEnter={handlePanelMouseEnter}
         onMouseLeave={handlePanelMouseLeave}
       >
+        {stealthEnabled && (
+          <div
+            className="absolute -inset-[10px] pointer-events-none z-[2] p-[0.6px]"
+            aria-hidden="true"
+          >
+            <svg className="w-full h-full overflow-visible">
+              <rect
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                rx="16"
+                ry="16"
+                fill="none"
+                stroke="rgba(118, 126, 142, 0.92)"
+                strokeWidth="1.4"
+                strokeDasharray="14 9"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          </div>
+        )}
+
         {/* Resize handles (side handles always available; bottom shown only with content) */}
         <div
           ref={leftRailRef}
@@ -704,12 +776,13 @@ export function OverlayWindow() {
           </div>
         )}
 
-        {/* Panel Container - NO shadow-2xl */}
-        <div className={`bg-[#2a2a2a] rounded-2xl overflow-hidden flex flex-col ${isPanelExpanded ? 'h-full' : ''}`}>
+        {/* Panel Container */}
+        <div className={`relative z-[1] bg-[#141822]/70 backdrop-blur-3xl border-[1.5px] border-white/20 rounded-2xl overflow-hidden flex flex-col ${isPanelExpanded ? 'h-full' : ''}`}>
 
           {/* Response Area */}
           {hasResponse && (
-            <div ref={responseAreaRef} className="flex-1 min-h-0 overflow-y-auto p-4 pb-2 space-y-4">
+            <div className="relative flex-1 min-h-0">
+            <div ref={responseAreaRef} onScroll={handleResponseScroll} className="overlay-scroll h-full overflow-y-auto px-4 pt-4 pb-4 space-y-4" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)' }}>
               {responses.map((entry, index) => {
                 const isLatest = index === responses.length - 1
                 const isStreaming = isLoadingResponse && isLatest && activeResponseId === entry.id
@@ -755,7 +828,7 @@ export function OverlayWindow() {
                           )}
                         </button>
                         <span
-                          className={`px-3 py-1 text-sm font-medium text-white rounded-full ${
+                          className={`px-3 py-1 text-sm font-medium text-white rounded-2xl rounded-br-md ${
                             entry.badgeVariant === 'custom'
                               ? 'bg-gradient-to-b from-blue-500 to-blue-700'
                               : 'bg-gradient-to-r from-purple-500 to-blue-500'
@@ -797,16 +870,49 @@ export function OverlayWindow() {
                       </div>
                     )}
 
+                    <div
+                      onMouseEnter={() => setHoveredResponseId(entry.id)}
+                      onMouseLeave={() => setHoveredResponseId((c) => (c === entry.id ? null : c))}
+                    >
                     {isStreaming && !entry.content ? (
                       <div className="flex items-center gap-1.5 text-white/40 py-2">
                         <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" />
                         <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
                       </div>
                     ) : (
-                      <div className="text-white/90 text-[15px] leading-relaxed whitespace-pre-wrap">
-                        {entry.content}
+                      <div className="text-white/90 text-[14px] leading-[1.85] pr-[18px] overlay-markdown">
+                        <Markdown>{entry.content}</Markdown>
                       </div>
                     )}
+                    {entry.content && !isStreaming && (
+                      <div className="mt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleCopyAction(`resp-${entry.id}`, entry.content)
+                          }}
+                          className={`w-7 h-7 rounded-md flex items-center justify-center transition-all duration-150 ${
+                            hoveredResponseId === entry.id
+                              ? 'opacity-60 text-white/55'
+                              : 'opacity-0 pointer-events-none text-white/40'
+                          } hover:opacity-100 hover:text-white hover:scale-110`}
+                          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                          title={copiedMessageId === `resp-${entry.id}` ? 'Copied' : 'Copy'}
+                        >
+                          {copiedMessageId === `resp-${entry.id}` ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                              <path d="M20 7L10 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <rect x="8.5" y="8.5" width="11" height="11" rx="2.2" fill="currentColor" />
+                              <rect x="4.5" y="4.5" width="11" height="11" rx="2.2" fill="currentColor" opacity="0.55" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                    </div>
                   </div>
                 )
               })}
@@ -818,56 +924,63 @@ export function OverlayWindow() {
                 </div>
               )}
             </div>
+
+
+            {/* Scroll to bottom arrow */}
+            {!isAtBottom && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className="absolute bottom-4 right-3 w-7 h-7 rounded-full border border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] hover:from-[#3f465a] hover:to-[#2a3142] flex items-center justify-center text-white/80 hover:text-white transition-all z-[4]"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            )}
+            </div>
           )}
 
           {/* Quick Actions - Only when recording */}
           {isRecording && (
-            <div className="px-4 py-2.5 flex items-center gap-1.5 text-sm text-white/60 border-t border-white/5">
+            <div className="px-4 py-2.5 flex items-center gap-2 text-xs text-white/75 border-t border-white/15">
               <button
                 onClick={() => handleQuickAction('assist')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
-                  <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z" fill="currentColor" />
-                </svg>
+                <Sparkles size={14} className="text-white/70" />
                 Assist
               </button>
-              <span className="text-white/20">·</span>
+              <span className="text-white/50 text-lg leading-none">•</span>
               <button
                 onClick={() => handleQuickAction('what-should-i-say')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
-                  <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <Wand2 size={14} className="text-white/70" />
                 What should I say?
               </button>
-              <span className="text-white/20">·</span>
+              <span className="text-white/50 text-lg leading-none">•</span>
               <button
                 onClick={() => handleQuickAction('follow-up')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
-                  <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
-                  <path d="M8 10h8M8 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                <MessageSquareText size={14} className="text-white/70" />
                 Follow-up questions
               </button>
-              <span className="text-white/20">·</span>
+              <span className="text-white/50 text-lg leading-none">•</span>
               <button
                 onClick={() => handleQuickAction('recap')}
                 className="hover:text-white transition-colors flex items-center gap-1"
               >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-white/40">
-                  <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <RotateCcw size={14} className="text-white/70" />
                 Recap
               </button>
             </div>
           )}
 
           {/* Input Area */}
-          <div className={`mt-auto px-4 py-3 ${isRecording || hasResponse ? 'border-t border-white/5' : ''}`}>
+          <div className={`mt-auto px-4 py-3 ${isRecording || hasResponse ? 'border-t border-white/15' : ''}`}>
             {/* Input Row */}
             <div className="flex items-center gap-3">
               <div className="flex-1 min-w-0 relative">

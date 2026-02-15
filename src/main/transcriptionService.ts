@@ -248,7 +248,15 @@ export class TranscriptionService {
     }
 
     try {
-      state.ws.send(Buffer.from(buffer));
+      const buf = Buffer.from(buffer);
+      // Diagnostic: log first few sends to check if audio data is non-zero
+      state.sendCount = (state.sendCount || 0) + 1;
+      if (state.sendCount <= 5 || state.sendCount % 200 === 0) {
+        const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.min(10, buf.byteLength / 2));
+        const maxVal = samples.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+        console.log(`[Transcription] ${source} send #${state.sendCount}: ${buf.byteLength} bytes, first10max=${maxVal}, first5=[${Array.from(samples).slice(0, 5)}]`);
+      }
+      state.ws.send(buf);
     } catch (err) {
       console.error(`[Transcription] ${source} send error:`, err);
     }

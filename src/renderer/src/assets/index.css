@@ -1,10 +1,10 @@
 @import 'tailwindcss';
 
-button {
+button:not(.cursor-default) {
   cursor: pointer;
 }
 
-[role="button"] {
+[role="button"]:not(.cursor-default) {
   cursor: pointer;
 }
 
@@ -17,16 +17,32 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0);
   border-radius: 3px;
+  transition: background 0.3s;
+}
+*:hover > ::-webkit-scrollbar-thumb,
+*:active > ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
 }
 ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.overlay-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0);
+}
+.overlay-scroll:hover::-webkit-scrollbar-thumb,
+.overlay-scroll.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+.overlay-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
@@ -146,4 +162,83 @@ html, body, #root {
 
 .animate-fade-in {
   animation: fade-in 0.15s ease-out;
+}
+
+/* Overlay markdown rendering */
+.overlay-markdown p {
+  margin-bottom: 0.9em;
+}
+.overlay-markdown p:last-child {
+  margin-bottom: 0;
+}
+.overlay-markdown strong {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+.overlay-markdown em {
+  font-style: italic;
+}
+.overlay-markdown code {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 0.85em;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.overlay-markdown pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0.75em 0;
+  overflow-x: auto;
+}
+.overlay-markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.78em;
+  line-height: 1.35;
+}
+.overlay-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.4em;
+  margin: 0.6em 0;
+}
+.overlay-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.4em;
+  margin: 0.6em 0;
+}
+.overlay-markdown li {
+  margin-bottom: 0.4em;
+  display: list-item;
+}
+.overlay-markdown li::marker {
+  color: rgba(255, 255, 255, 0.5);
+}
+.overlay-markdown h1,
+.overlay-markdown h2,
+.overlay-markdown h3 {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin-top: 0.9em;
+  margin-bottom: 0.4em;
+}
+.overlay-markdown h1 { font-size: 1.15em; }
+.overlay-markdown h2 { font-size: 1.08em; }
+.overlay-markdown h3 { font-size: 1.02em; }
+.overlay-markdown blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.2);
+  padding-left: 12px;
+  margin: 0.6em 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+.overlay-markdown a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+.overlay-markdown hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0.8em 0;
 }
