@@ -1,4 +1,26 @@
 import Store from 'electron-store';
+import { safeStorage, app } from 'electron';
+import { createHash } from 'crypto';
+import { hostname, userInfo } from 'os';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
+
+function getEncryptionKey(): string {
+  // Derive a per-machine key from OS-level identifiers.
+  // This is obfuscation (not true security) since the derivation is deterministic,
+  // but it prevents trivial decryption by someone who just reads the source code.
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      const marker = safeStorage.encryptString('raven-key-seed');
+      return createHash('sha256').update(marker).digest('hex').slice(0, 32);
+    }
+  } catch {
+    // safeStorage not available (e.g. app not ready yet or no keychain)
+  }
+  // Fallback: derive from machine-specific data
+  const machineId = `${hostname()}-${userInfo().username}-raven-v1`;
+  return createHash('sha256').update(machineId).digest('hex').slice(0, 32);
+}
 
 export interface LocalSettings {
   // Plan mode
@@ -31,35 +53,67 @@ export interface LocalSettings {
   // Active mode
   activeModeId: string | null;
 
+  // User profile
+  displayName: string;
+  profilePicturePath: string;
+
   // Auth (pro tier only)
   accessToken: string | null;
   refreshToken: string | null;
 }
 
-const store = new Store<LocalSettings>({
-  name: 'raven-config',
-  defaults: {
-    mode: 'free',
-    deepgramApiKey: '',
-    anthropicApiKey: '',
-    apiKeysConfigured: false,
-    onboardingComplete: false,
-    dashboardBounds: null,
-    overlayBounds: null,
-    stealthEnabled: true,
-    theme: 'system',
-    openOnLogin: false,
-    transcriptionLanguage: 'en',
-    outputLanguage: 'en',
-    aiProvider: 'anthropic',
-    aiModel: 'claude-sonnet-4-20250514',
-    openaiApiKey: '',
-    activeModeId: null,
-    accessToken: null,
-    refreshToken: null,
-  },
-  encryptionKey: 'raven-local-encryption-key-v1',
-});
+const STORE_DEFAULTS: LocalSettings = {
+  mode: 'free',
+  deepgramApiKey: '',
+  anthropicApiKey: '',
+  apiKeysConfigured: false,
+  onboardingComplete: false,
+  dashboardBounds: null,
+  overlayBounds: null,
+  stealthEnabled: true,
+  theme: 'system',
+  openOnLogin: false,
+  transcriptionLanguage: 'en',
+  outputLanguage: 'en',
+  aiProvider: 'anthropic',
+  aiModel: 'claude-sonnet-4-20250514',
+  openaiApiKey: '',
+  activeModeId: null,
+  displayName: '',
+  profilePicturePath: '',
+  accessToken: null,
+  refreshToken: null,
+};
+
+function createStore(): Store<LocalSettings> {
+  const encryptionKey = getEncryptionKey();
+  try {
+    const s = new Store<LocalSettings>({
+      name: 'raven-config',
+      defaults: STORE_DEFAULTS,
+      encryptionKey,
+    });
+    // Verify we can read (triggers decryption)
+    s.get('mode');
+    return s;
+  } catch {
+    // Decryption failed (e.g. encryption key changed).
+    // Delete the corrupted config file and start fresh.
+    try {
+      const configPath = join(app.getPath('userData'), 'raven-config.json');
+      if (existsSync(configPath)) unlinkSync(configPath);
+    } catch {
+      // ignore - file may not exist or be locked
+    }
+    return new Store<LocalSettings>({
+      name: 'raven-config',
+      defaults: STORE_DEFAULTS,
+      encryptionKey,
+    });
+  }
+}
+
+const store = createStore();
 
 // ---- Getters ----
 
@@ -85,6 +139,8 @@ export function getAllSettings(): LocalSettings {
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),
     activeModeId: store.get('activeModeId'),
+    displayName: store.get('displayName'),
+    profilePicturePath: store.get('profilePicturePath'),
     accessToken: store.get('accessToken'),
     refreshToken: store.get('refreshToken'),
   };

@@ -1,12 +1,36 @@
 {
   "name": "project-raven",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Open-source AI meeting assistant with real-time transcription and intelligent suggestions, invisible to screen sharing.",
+  "author": "Laxcorp Research <hello@laxcorpresearch.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/Laxcorp-Research/project-raven",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Laxcorp-Research/project-raven.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Laxcorp-Research/project-raven/issues"
+  },
+  "keywords": [
+    "meeting-assistant",
+    "ai",
+    "transcription",
+    "electron",
+    "deepgram",
+    "anthropic",
+    "openai",
+    "screen-sharing",
+    "real-time"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -57,7 +81,8 @@
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-plugin-electron": "^0.28.6",
-    "vite-plugin-electron-renderer": "^0.14.5"
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^4.0.18"
   },
   "main": "dist/main/index.js"
 }

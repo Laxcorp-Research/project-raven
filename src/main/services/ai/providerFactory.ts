@@ -1,6 +1,9 @@
 import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
+import { createLogger } from '../../logger';
+
+const log = createLogger('AI');
 
 let cachedProvider: AIProvider | null = null;
 let cachedConfigKey = '';
@@ -27,7 +30,7 @@ export function getProvider(config: AIProviderConfig): AIProvider {
   }
 
   cachedConfigKey = key;
-  console.log(`[AIProvider] Created ${config.provider} provider with model ${config.model}`);
+  log.info(`Created ${config.provider} provider with model ${config.model}`);
   return cachedProvider;
 }
 

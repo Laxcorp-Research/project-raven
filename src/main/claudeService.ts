@@ -2,7 +2,11 @@ import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
 import { getProviderFromStore } from './services/ai/providerFactory';
+import { getSetting } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
+import { createLogger } from './logger';
+
+const log = createLogger('Claude');
 
 interface ChatMessage {
   id: string;
@@ -41,6 +45,11 @@ RESPONSE GUIDELINES:
 - For meetings: Summarize key points, suggest action items
 - When suggesting what to say, use quotes: "Say this: ..."
 - Use markdown formatting when helpful (bold key phrases, bullet points for lists)`;
+
+  const userName = getSetting('displayName');
+  if (userName) {
+    prompt += `\n\nUSER INFO: The user's name is ${userName}. In the transcript, their speech is labeled as "${userName}". Other participants are labeled as "Them".`;
+  }
 
   if (modePrompt) {
     prompt += `\n\nADDITIONAL CONTEXT FROM USER'S ACTIVE MODE:\n${modePrompt}`;
@@ -105,7 +114,7 @@ Title:`;
 
     return title.length > 50 ? title.slice(0, 47) + '...' : title;
   } catch (error) {
-    console.error('[AIService] Title generation failed:', error);
+    log.error('Title generation failed:', error);
     throw error;
   }
 }
@@ -140,7 +149,7 @@ export class ClaudeService {
         const provider = await getProviderFromStore();
 
         if (this.isProcessing) {
-          console.log('[AIService] Ignoring request while processing is active');
+          log.debug('Ignoring request while processing is active');
           return;
         }
 
@@ -187,7 +196,7 @@ export class ClaudeService {
             const queryText = params.customPrompt || params.transcript.slice(-500) || params.action;
             ragChunks = await retrieveRelevantChunks(params.modeId, queryText, 5);
           } catch (err) {
-            console.error('[AIService] RAG retrieval failed (non-fatal):', err);
+            log.error('RAG retrieval failed (non-fatal):', err);
           }
         }
 
@@ -249,12 +258,11 @@ export class ClaudeService {
 
         this.isProcessing = false;
 
-      } catch (error: any) {
+      } catch (error: unknown) {
         this.isProcessing = false;
-        let errorMsg = 'Failed to get AI response.';
-        if (error?.message) errorMsg = error.message;
-        console.error('[AIService] Error:', error);
-        this.broadcastError(errorMsg);
+        const msg = error instanceof Error ? error.message : String(error);
+        log.error('Error:', error);
+        this.broadcastError(msg || 'Failed to get AI response.');
       }
     });
 
@@ -386,7 +394,7 @@ export class ClaudeService {
       const targetDisplayId = String(primaryDisplay.id);
       const source = sources.find((candidate) => candidate.display_id === targetDisplayId) || sources[0];
       if (!source || source.thumbnail.isEmpty()) {
-        console.warn('[AIService] Screenshot capture returned empty thumbnail');
+        log.warn('Screenshot capture returned empty thumbnail');
         return null;
       }
 
@@ -396,7 +404,7 @@ export class ClaudeService {
         previewData: source.thumbnail.resize({ width: 320 }).toPNG().toString('base64'),
       };
     } catch (error) {
-      console.error('[AIService] Failed to capture screenshot:', error);
+      log.error('Failed to capture screenshot:', error);
       return null;
     } finally {
       for (const win of appWindows) {
@@ -430,7 +438,7 @@ export class ClaudeService {
         this.overlayWindow.webContents.send('claude:response', data);
       }
     } catch (err) {
-      console.error('[AIService] Broadcast error:', err);
+      log.error('Broadcast error:', err);
     }
   }
 

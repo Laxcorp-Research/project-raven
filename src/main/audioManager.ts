@@ -9,6 +9,9 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { getSetting } from './store'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
+import { createLogger } from './logger'
+
+const log = createLogger('Audio')
 
 export class AudioManager {
   private isRecording = false
@@ -32,20 +35,20 @@ export class AudioManager {
   private registerIpcHandlers(): void {
     // Recording state management
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
-      console.log('[AudioManager] Starting recording...')
+      log.info('Starting recording...')
       const deepgramKey = getSetting('deepgramApiKey')
 
       if (deepgramKey) {
         this.transcriptionService.setApiKey(deepgramKey)
         this.transcriptionService.clearTranscript()
-        console.log('[AudioManager] Starting transcription service...')
+        log.debug('Starting transcription service...')
         const result = await this.transcriptionService.start()
-        console.log('[AudioManager] Transcription service result:', result)
+        log.debug('Transcription service result:', result)
         if (!result.success) {
-          console.error('[AudioManager] Transcription failed to start:', result.error)
+          log.error('Transcription failed to start:', result.error)
         }
       } else {
-        console.warn('[AudioManager] No Deepgram API key — transcription disabled')
+        log.warn('No Deepgram API key — transcription disabled')
       }
 
       // Start a new session
@@ -55,8 +58,8 @@ export class AudioManager {
       this.chunkCount = 0
       this.recordingStartTime = Date.now()
       this.broadcastRecordingState(true)
-      console.log(
-        '[AudioManager] Recording started',
+      log.info(
+        'Recording started',
         deviceId ? `device: ${deviceId}` : '(default)'
       )
       return { success: true }
@@ -68,7 +71,7 @@ export class AudioManager {
       // End the session
       const session = sessionManager.endSession()
       if (session) {
-        console.log('[AudioManager] Session saved with', session.transcript.length, 'entries')
+        log.info('Session saved with', session.transcript.length, 'entries')
       }
 
       this.isRecording = false
@@ -80,8 +83,8 @@ export class AudioManager {
         this.dashboardWindow.show()
         this.dashboardWindow.focus()
       }
-      console.log(
-        `[AudioManager] Recording stopped. Chunks received: ${this.chunkCount}, Duration: ${Math.round(
+      log.info(
+        `Recording stopped. Chunks received: ${this.chunkCount}, Duration: ${Math.round(
           duration / 1000
         )}s`
       )
@@ -94,14 +97,14 @@ export class AudioManager {
       this.chunkCount++
 
       if (this.chunkCount <= 3) {
-        console.log(
-          `[AudioManager] Received chunk from ${source}, size: ${buffer.byteLength}`
+        log.debug(
+          `Received chunk from ${source}, size: ${buffer.byteLength}`
         )
       }
 
       if (this.chunkCount % 50 === 0) {
-        console.log(
-          `[AudioManager] Received ${this.chunkCount} chunks (source: ${source}, size: ${buffer.byteLength})`
+        log.debug(
+          `Received ${this.chunkCount} chunks (source: ${source}, size: ${buffer.byteLength})`
         )
       }
 
@@ -137,7 +140,7 @@ export class AudioManager {
         this.dashboardWindow.webContents.send('audio:recording-state-changed', payload)
       }
     } catch (err) {
-      console.error('[AudioManager] Failed to send to dashboard:', err)
+      log.error('Failed to send to dashboard:', err)
     }
 
     try {
@@ -145,7 +148,7 @@ export class AudioManager {
         this.overlayWindow.webContents.send('audio:recording-state-changed', payload)
       }
     } catch (err) {
-      console.error('[AudioManager] Failed to send to overlay:', err)
+      log.error('Failed to send to overlay:', err)
     }
   }
 

@@ -13,9 +13,14 @@ export function TranscriptTab() {
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [interims, setInterims] = useState<{ mic: string; system: string }>({ mic: '', system: '' });
   const [isRecording, setIsRecording] = useState(false);
+  const [displayName, setDisplayName] = useState('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    window.raven.storeGet('displayName').then((name) => {
+      setDisplayName((name as string) || '');
+    });
+
     window.raven.getTranscriptEntries?.().then((e: TranscriptEntry[]) => {
       if (e) setEntries(e);
     });
@@ -24,7 +29,7 @@ export function TranscriptTab() {
       setIsRecording(state.isRecording);
     });
 
-    const unsubTranscript = window.raven.onTranscriptUpdate((data: any) => {
+    const unsubTranscript = window.raven.onTranscriptUpdate((data) => {
       if (data.entries) {
         setEntries(data.entries);
       }
@@ -62,6 +67,8 @@ export function TranscriptTab() {
     );
   }
 
+  const userName = displayName || 'You';
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
       {isRecording && (
@@ -84,7 +91,7 @@ export function TranscriptTab() {
             }`}
           >
             <div className="text-xs text-white/50 mb-0.5">
-              {entry.speaker === 'you' ? 'You' : 'Them'}
+              {entry.speaker === 'you' ? userName : 'Them'}
             </div>
             <div className="text-sm leading-relaxed">{entry.text}</div>
           </div>
@@ -103,7 +110,7 @@ export function TranscriptTab() {
       {interims.mic && (
         <div className="flex justify-end">
           <div className="max-w-[80%] rounded-2xl rounded-br-md px-3 py-2 bg-cyan-600/40 text-white/70 border border-cyan-500/30">
-            <div className="text-xs text-white/40 mb-0.5">You</div>
+            <div className="text-xs text-white/40 mb-0.5">{userName}</div>
             <div className="text-sm leading-relaxed italic">{interims.mic}</div>
           </div>
         </div>

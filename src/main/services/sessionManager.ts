@@ -9,6 +9,10 @@ import { databaseService, type Session, type TranscriptEntry, type AIResponse } 
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
+import { getSetting } from '../store';
+import { createLogger } from '../logger';
+
+const log = createLogger('SessionManager');
 
 class SessionManager {
   private activeSession: Session | null = null;
@@ -29,7 +33,7 @@ class SessionManager {
    */
   startSession(modeId: string | null = null): Session {
     if (this.activeSession) {
-      console.log('[SessionManager] Warning: Starting new session while one is active');
+      log.warn('Starting new session while one is active');
       this.endSession();
     }
 
@@ -51,7 +55,7 @@ class SessionManager {
 
     this.startAutoSave();
 
-    console.log('[SessionManager] Session started:', this.activeSession.id);
+    log.info('Session started:', this.activeSession.id);
     this.broadcastSessionUpdate();
 
     return this.activeSession;
@@ -62,7 +66,7 @@ class SessionManager {
    */
   addTranscriptEntry(entry: TranscriptEntry): void {
     if (!this.activeSession) {
-      console.log('[SessionManager] Warning: No active session for transcript entry');
+      log.warn('No active session for transcript entry');
       return;
     }
 
@@ -90,7 +94,7 @@ class SessionManager {
    */
   addAIResponse(response: AIResponse): void {
     if (!this.activeSession) {
-      console.log('[SessionManager] Warning: No active session for AI response');
+      log.warn('No active session for AI response');
       return;
     }
 
@@ -102,7 +106,7 @@ class SessionManager {
    */
   addSessionMessage(role: 'user' | 'assistant', content: string): void {
     if (!this.activeSession) {
-      console.log('[SessionManager] Warning: No active session for message');
+      log.warn('No active session for message');
       return;
     }
 
@@ -114,7 +118,7 @@ class SessionManager {
    */
   endSession(): Session | null {
     if (!this.activeSession) {
-      console.log('[SessionManager] Warning: No active session to end');
+      log.warn('No active session to end');
       return null;
     }
 
@@ -141,10 +145,11 @@ class SessionManager {
 
     const sessionId = this.activeSession.id;
     const modeId = this.activeSession.modeId;
+    const displayName = getSetting('displayName') || 'You';
     const transcriptText = finalTranscript
-      .map((e) => `${e.source === 'mic' ? 'You' : 'Them'}: ${e.text}`)
+      .map((e) => `${e.source === 'mic' ? displayName : 'Them'}: ${e.text}`)
       .join('\n');
-    console.log('[SessionManager] Session ended:', sessionId, 'duration:', durationSeconds, 's');
+    log.info('Session ended:', sessionId, 'duration:', durationSeconds, 's');
 
     this.activeSession = null;
     this.broadcastSessionUpdate();
@@ -163,10 +168,10 @@ class SessionManager {
           this.dashboardWindow?.webContents.send('sessions:list-updated');
         })
         .catch((err) => {
-          console.error('[SessionManager] Async summary generation failed:', err);
+          log.error('Async summary generation failed:', err);
         });
     } else {
-      console.warn('[SessionManager] No Anthropic API key — summary disabled');
+      log.warn('No Anthropic API key — summary disabled');
     }
 
     return endedSession;
@@ -178,13 +183,14 @@ class SessionManager {
   async generateTitle(sessionId: string): Promise<string> {
     const session = databaseService.getSession(sessionId);
     if (!session) {
-      console.log('[SessionManager] Cannot generate title: session not found');
+      log.warn('Cannot generate title: session not found');
       return 'Untitled Session';
     }
 
+    const titleDisplayName = getSetting('displayName') || 'You';
     const transcriptText = session.transcript
       .filter((e) => e.isFinal)
-      .map((e) => `${e.source === 'mic' ? 'You' : 'Them'}: ${e.text}`)
+      .map((e) => `${e.source === 'mic' ? titleDisplayName : 'Them'}: ${e.text}`)
       .join('\n');
 
     if (!transcriptText.trim()) {
@@ -202,13 +208,13 @@ class SessionManager {
       const title = await generateSessionTitle(anthropicApiKey, transcriptText);
 
       databaseService.updateSession(sessionId, { title });
-      console.log('[SessionManager] Generated title:', title);
+      log.info('Generated title:', title);
 
       this.dashboardWindow?.webContents.send('sessions:list-updated');
 
       return title;
     } catch (error) {
-      console.error('[SessionManager] Failed to generate title:', error);
+      log.error('Failed to generate title:', error);
       const fallback = this.generateFallbackTitle(session.startedAt);
       databaseService.updateSession(sessionId, { title: fallback });
       return fallback;
@@ -260,7 +266,7 @@ class SessionManager {
       durationSeconds,
     });
 
-    console.log('[SessionManager] Auto-saved session:', this.activeSession.id);
+    log.debug('Auto-saved session:', this.activeSession.id);
   }
 
   /**
@@ -301,14 +307,14 @@ class SessionManager {
   recoverSession(): Session | null {
     const inProgress = databaseService.getInProgressSession();
     if (inProgress) {
-      console.log('[SessionManager] Found in-progress session:', inProgress.id);
+      log.info('Found in-progress session:', inProgress.id);
       const durationSeconds = Math.floor((Date.now() - inProgress.startedAt) / 1000);
       databaseService.updateSession(inProgress.id, {
         endedAt: Date.now(),
         durationSeconds,
         title: inProgress.title === 'Untitled Session' ? 'Recovered Session' : inProgress.title,
       });
-      console.log('[SessionManager] Recovered and closed crashed session');
+      log.info('Recovered and closed crashed session');
       return inProgress;
     }
     return null;

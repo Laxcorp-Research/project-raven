@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 
-type SettingsTab = 'api-keys' | 'audio' | 'language' | 'hotkeys' | 'about'
+type SettingsTab = 'profile' | 'api-keys' | 'audio' | 'language' | 'hotkeys' | 'about'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -13,6 +13,15 @@ interface SettingsModalProps {
 }
 
 const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+      </svg>
+    ),
+  },
   {
     id: 'api-keys',
     label: 'API Keys',
@@ -61,7 +70,7 @@ const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
 ]
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('api-keys')
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -124,6 +133,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
+            {activeTab === 'profile' && <ProfileTab />}
             {activeTab === 'api-keys' && <ApiKeysTab />}
             {activeTab === 'audio' && <AudioTab />}
             {activeTab === 'language' && <LanguageTab />}
@@ -131,6 +141,160 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeTab === 'about' && <AboutTab />}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ProfileTab() {
+  const [displayName, setDisplayName] = useState('')
+  const [savedName, setSavedName] = useState('')
+  const [profilePicData, setProfilePicData] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    loadProfile()
+  }, [])
+
+  async function loadProfile() {
+    const name = (await window.raven.storeGet('displayName')) as string
+    const picPath = (await window.raven.storeGet('profilePicturePath')) as string
+    setDisplayName(name || '')
+    setSavedName(name || '')
+    if (picPath) {
+      const data = await window.raven.profileGetPictureData(picPath)
+      setProfilePicData(data)
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    await window.raven.storeSet('displayName', displayName.trim())
+    setSavedName(displayName.trim())
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function handleSelectPicture() {
+    const path = await window.raven.profileSelectPicture()
+    if (path) {
+      const data = await window.raven.profileGetPictureData(path)
+      setProfilePicData(data)
+    }
+  }
+
+  async function handleRemovePicture() {
+    await window.raven.profileRemovePicture()
+    setProfilePicData(null)
+  }
+
+  function getInitials(name: string): string {
+    if (!name.trim()) return ''
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return parts[0][0].toUpperCase()
+  }
+
+  const hasChanges = displayName.trim() !== savedName
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 mb-1">Profile Picture</h4>
+        <p className="text-sm text-gray-500 mb-4">
+          Shown in the dashboard header and next to your messages in transcripts.
+        </p>
+
+        <div className="flex items-center gap-5">
+          <div className="relative group">
+            {profilePicData ? (
+              <img
+                src={profilePicData}
+                alt="Profile"
+                className="w-20 h-20 rounded-full object-cover border-2 border-gray-200"
+              />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-semibold border-2 border-gray-200">
+                {getInitials(displayName) || (
+                  <svg className="w-8 h-8 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                  </svg>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleSelectPicture}
+              className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+            >
+              {profilePicData ? 'Change Picture' : 'Upload Picture'}
+            </button>
+            {profilePicData && (
+              <button
+                onClick={handleRemovePicture}
+                className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 mb-3">Display Name</h4>
+
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Enter your name"
+            className="flex-1 max-w-xs px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && hasChanges) handleSave()
+            }}
+          />
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              hasChanges
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <h4 className="text-sm font-semibold text-gray-700 mb-2">Where your profile is used</h4>
+        <ul className="text-sm text-gray-500 space-y-1.5">
+          <li className="flex items-center gap-2">
+            <span className="w-1 h-1 bg-gray-400 rounded-full" />
+            Dashboard header avatar
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-1 h-1 bg-gray-400 rounded-full" />
+            Transcript speaker labels
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-1 h-1 bg-gray-400 rounded-full" />
+            Session exports and copied text
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="w-1 h-1 bg-gray-400 rounded-full" />
+            AI suggestions context
+          </li>
+        </ul>
       </div>
     </div>
   )
@@ -1046,14 +1210,14 @@ function LanguageTab() {
         Select the languages for your meetings.
       </p>
 
-      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center">
+      <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center shrink-0">
             <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 01-3.827-5.802" />
             </svg>
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-medium text-gray-900">Transcription language</div>
             <div className="text-xs text-gray-500">The language you speak in meetings</div>
           </div>
@@ -1101,14 +1265,14 @@ function LanguageTab() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center">
+      <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center shrink-0">
             <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
             </svg>
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-medium text-gray-900">Output language</div>
             <div className="text-xs text-gray-500">Language for AI responses and meeting notes</div>
           </div>
@@ -1312,112 +1476,94 @@ function HotkeysTab() {
 }
 
 function AboutTab() {
-  const appVersion = '0.1.0' // TODO: Get from package.json via IPC
+  const [appVersion, setAppVersion] = useState('...')
+
+  useEffect(() => {
+    window.raven.getAppVersion().then((v) => setAppVersion(v))
+  }, [])
 
   const handleOpenLink = (url: string) => {
     window.raven.openExternal?.(url)
   }
 
   return (
-    <div className="space-y-6 max-w-xl">
-      {/* App Info */}
-      <div className="text-center py-6">
-        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-          <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-          </svg>
+    <div className="space-y-6">
+      {/* Hero card */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.15),transparent_60%)]" />
+        <div className="relative flex items-center gap-4">
+          <img
+            src={new URL('../../../../../logo/Raven.svg', import.meta.url).href}
+            alt="Raven"
+            className="w-14 h-14 drop-shadow-lg"
+            draggable={false}
+          />
+          <div>
+            <h2 className="text-lg font-bold text-white">Raven</h2>
+            <p className="text-sm text-white/50 mt-0.5">v{appVersion}</p>
+          </div>
         </div>
-        <h2 className="text-xl font-bold text-gray-900">Project Raven</h2>
-        <p className="text-sm text-gray-500 mt-1">Version {appVersion}</p>
-        <p className="text-xs text-gray-400 mt-2">AI-powered meeting assistant</p>
+        <p className="relative mt-4 text-sm text-white/60 leading-relaxed">
+          Real-time transcription and AI suggestions for your meetings while being invisible to screen sharing.
+        </p>
+        <div className="relative mt-4 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/20">
+            <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+            MIT License
+          </span>
+        </div>
       </div>
 
-      {/* Links */}
-      <div className="space-y-2">
+      {/* Links - compact grid */}
+      <div className="grid grid-cols-3 gap-2">
         <button
           onClick={() => handleOpenLink('https://github.com/Laxcorp-Research/project-raven')}
-          className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-left"
+          className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-              </svg>
-            </div>
-            <div>
-              <div className="text-sm font-medium text-gray-900">GitHub Repository</div>
-              <div className="text-xs text-gray-500">Star us on GitHub</div>
-            </div>
+          <div className="w-9 h-9 bg-gray-900 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <svg className="w-4.5 h-4.5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
           </div>
-          <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
+          <div className="text-xs font-medium text-gray-700">GitHub</div>
         </button>
 
         <button
           onClick={() => handleOpenLink('https://github.com/Laxcorp-Research/project-raven/issues')}
-          className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-left"
+          className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-sm font-medium text-gray-900">Report a Bug</div>
-              <div className="text-xs text-gray-500">Found an issue? Let us know</div>
-            </div>
+          <div className="w-9 h-9 bg-amber-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12h.01M12 16h.01M12 8h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
-          <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
+          <div className="text-xs font-medium text-gray-700">Issues</div>
         </button>
 
         <button
           onClick={() => handleOpenLink('https://github.com/Laxcorp-Research/project-raven/discussions')}
-          className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors text-left"
+          className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
         >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-sm font-medium text-gray-900">Community</div>
-              <div className="text-xs text-gray-500">Join the discussion</div>
-            </div>
+          <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
           </div>
-          <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
+          <div className="text-xs font-medium text-gray-700">Discussions</div>
         </button>
       </div>
 
-      {/* Credits */}
-      <div className="pt-4 border-t border-gray-200">
-        <h4 className="text-sm font-medium text-gray-900 mb-3">Powered by</h4>
-        <div className="flex flex-wrap gap-2">
-          <span className="px-3 py-1.5 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
-            Deepgram Nova-3
-          </span>
-          <span className="px-3 py-1.5 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
-            Claude AI
-          </span>
-          <span className="px-3 py-1.5 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
-            Electron
-          </span>
-          <span className="px-3 py-1.5 bg-gray-100 rounded-full text-xs font-medium text-gray-600">
-            React
-          </span>
-        </div>
-      </div>
-
-      {/* Legal */}
-      <div className="pt-4 border-t border-gray-200 text-center">
-        <p className="text-xs text-gray-400">
-          © 2025 Laxcorp Research. Open source under MIT license.
+      {/* Footer */}
+      <div className="pt-4 border-t border-gray-100">
+        <p className="text-xs text-gray-400 text-center">
+          Made by{' '}
+          <button
+            onClick={() => handleOpenLink('https://laxcorpresearch.com')}
+            className="text-blue-500 hover:text-blue-700 font-medium transition-colors"
+          >
+            Laxcorp Research
+          </button>
+          {' '}· Open source under MIT license
         </p>
       </div>
     </div>

@@ -78,6 +78,10 @@ declare global {
       resetAll: () => Promise<boolean>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;
+      getAppVersion: () => Promise<string>;
+      profileSelectPicture: () => Promise<string | null>;
+      profileGetPictureData: (filePath: string) => Promise<string | null>;
+      profileRemovePicture: () => Promise<boolean>;
       windowToggleOverlay: () => Promise<boolean>;
       windowShowOverlay: () => Promise<boolean>;
       windowAutoSizeOverlay: (mode: 'compact' | 'expanded') => Promise<boolean>;

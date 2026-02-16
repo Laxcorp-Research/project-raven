@@ -88,8 +88,9 @@ export function InputBar() {
       } else {
         setAiResponse(`❌ ${result.error}`)
       }
-    } catch (error: any) {
-      setAiResponse(`❌ Failed to get AI suggestion: ${error.message}`)
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      setAiResponse(`❌ Failed to get AI suggestion: ${msg}`)
     }
     setAiLoading(false)
   }

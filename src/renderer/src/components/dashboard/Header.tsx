@@ -37,6 +37,15 @@ function highlightMatch(text: string, query: string): ReactNode {
   )
 }
 
+function getInitials(name: string): string {
+  if (!name.trim()) return ''
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  return parts[0][0].toUpperCase()
+}
+
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false)
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
@@ -46,12 +55,32 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [modes, setModes] = useState<Mode[]>([])
   const [activeMode, setActiveMode] = useState<Mode | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [profilePicData, setProfilePicData] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadModes()
+    loadProfile()
+  }, [])
+
+  async function loadProfile() {
+    const name = (await window.raven.storeGet('displayName')) as string
+    const picPath = (await window.raven.storeGet('profilePicturePath')) as string
+    setDisplayName(name || '')
+    if (picPath) {
+      const data = await window.raven.profileGetPictureData(picPath)
+      setProfilePicData(data)
+    } else {
+      setProfilePicData(null)
+    }
+  }
+
+  useEffect(() => {
+    const interval = setInterval(loadProfile, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -125,7 +154,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   return (
     <>
       <header className="relative z-50 flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white backdrop-blur-md">
-        {/* Left section - Logo only */}
+        {/* Left section - Logo */}
         <div className="flex items-center">
           <img
             src={ravenFullLogo}
@@ -185,19 +214,46 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
           )}
 
           {/* User avatar + dropdown */}
-          <div className="relative" ref={userMenuRef}>
+          <div className="relative flex items-center" ref={userMenuRef}>
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold cursor-pointer hover:opacity-90 transition-opacity"
+              className="w-8 h-8 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ring-1 ring-gray-200 hover:ring-2 hover:ring-blue-300 hover:shadow-md hover:scale-105 active:scale-95"
             >
-              R
+              {profilePicData ? (
+                <img src={profilePicData} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
+                  {getInitials(displayName) || (
+                    <svg className="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                  )}
+                </div>
+              )}
             </button>
 
             {userMenuOpen && (
               <div className="absolute top-full right-0 mt-2 w-60 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden z-50">
-                <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200">
-                  <p className="text-sm font-semibold text-gray-900">Raven User</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Local account</p>
+                <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 ring-1 ring-gray-200">
+                    {profilePicData ? (
+                      <img src={profilePicData} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
+                        {getInitials(displayName) || (
+                          <svg className="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                          </svg>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {displayName || 'Raven User'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">Local account</p>
+                  </div>
                 </div>
 
                 <div className="py-1.5">

@@ -8,6 +8,9 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_pro
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
+import { createLogger } from './logger'
+
+const log = createLogger('SystemAudio')
 
 type AudioChunk = {
   data: Buffer
@@ -79,15 +82,15 @@ function loadWindowsModule(): WindowsAudioModule | null {
 
   try {
     windowsModule = require(devPath) as WindowsAudioModule
-    console.log('[SystemAudioNative] Windows module loaded (dev)')
+    log.info('Windows module loaded (dev)')
     return windowsModule
   } catch (err) {
     try {
       windowsModule = require(packagedPath) as WindowsAudioModule
-      console.log('[SystemAudioNative] Windows module loaded (packaged)')
+      log.info('Windows module loaded (packaged)')
       return windowsModule
     } catch (err2) {
-      console.error('[SystemAudioNative] Failed to load Windows module:', err2)
+      log.error('Failed to load Windows module:', err2)
       return null
     }
   }
@@ -96,7 +99,7 @@ function loadWindowsModule(): WindowsAudioModule | null {
 function runHelperSync(args: string[]): boolean {
   const binaryPath = getBinaryPath()
   if (!binaryPath) {
-    console.error('[SystemAudioNative] audiocapture binary not found')
+    log.error('audiocapture binary not found')
     return false
   }
 
@@ -105,7 +108,7 @@ function runHelperSync(args: string[]): boolean {
   })
 
   if (result.stderr && result.stderr.length > 0) {
-    console.error(`[SystemAudioNative] audiocapture stderr: ${result.stderr.toString()}`)
+    log.error(`audiocapture stderr: ${result.stderr.toString()}`)
   }
 
   return result.status === 0
@@ -132,7 +135,7 @@ function broadcastSystemChunk(chunk: AudioChunk): void {
       overlayWindow.webContents.send('system-audio:chunk', payload)
     }
   } catch (err) {
-    console.error('[SystemAudioNative] Failed to send to overlay:', err)
+    log.error('Failed to send to overlay:', err)
   }
 
   try {
@@ -140,7 +143,7 @@ function broadcastSystemChunk(chunk: AudioChunk): void {
       dashboardWindow.webContents.send('system-audio:chunk', payload)
     }
   } catch (err) {
-    console.error('[SystemAudioNative] Failed to send to dashboard:', err)
+    log.error('Failed to send to dashboard:', err)
   }
 }
 
@@ -157,7 +160,7 @@ function broadcastNativeMicChunk(chunk: AudioChunk): void {
       overlayWindow.webContents.send('native-mic:chunk', payload)
     }
   } catch (err) {
-    console.error('[SystemAudioNative] Failed to send native mic to overlay:', err)
+    log.error('Failed to send native mic to overlay:', err)
   }
 
   try {
@@ -165,7 +168,7 @@ function broadcastNativeMicChunk(chunk: AudioChunk): void {
       dashboardWindow.webContents.send('native-mic:chunk', payload)
     }
   } catch (err) {
-    console.error('[SystemAudioNative] Failed to send native mic to dashboard:', err)
+    log.error('Failed to send native mic to dashboard:', err)
   }
 }
 
@@ -205,13 +208,13 @@ export function registerSystemAudioHandlers(): void {
 
 function startMacCapture(): boolean {
   if (captureProcess) {
-    console.warn('[SystemAudioNative] audiocapture already running')
+    log.warn('audiocapture already running')
     return true
   }
 
   const binaryPath = getBinaryPath()
   if (!binaryPath) {
-    console.error('[SystemAudioNative] audiocapture binary not found')
+    log.error('audiocapture binary not found')
     return false
   }
 
@@ -238,8 +241,8 @@ function startMacCapture(): boolean {
       if (sourceByte === 0x00) {
         systemChunkCount++
         if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
-          console.log(
-            `[SystemAudioNative] System chunk #${systemChunkCount}, bytes: ${audioData.length}`
+          log.debug(
+            `System chunk #${systemChunkCount}, bytes: ${audioData.length}`
           )
         }
 
@@ -252,8 +255,8 @@ function startMacCapture(): boolean {
       } else {
         micChunkCount++
         if (micChunkCount <= 5 || micChunkCount % 100 === 0) {
-          console.log(
-            `[SystemAudioNative] Mic chunk #${micChunkCount}, bytes: ${audioData.length}`
+          log.debug(
+            `Mic chunk #${micChunkCount}, bytes: ${audioData.length}`
           )
         }
 
@@ -270,19 +273,19 @@ function startMacCapture(): boolean {
   captureProcess.stderr.on('data', (data: Buffer) => {
     const message = data.toString().trim()
     if (message.length > 0) {
-      console.error(`[SystemAudioNative] audiocapture: ${message}`)
+      log.error(`audiocapture: ${message}`)
     }
   })
 
   captureProcess.on('exit', (code, signal) => {
-    console.warn(
-      `[SystemAudioNative] audiocapture exited (code=${code}, signal=${signal})`
+    log.warn(
+      `audiocapture exited (code=${code}, signal=${signal})`
     )
     captureProcess = null
   })
 
   captureProcess.on('error', (err) => {
-    console.error('[SystemAudioNative] audiocapture error:', err)
+    log.error('audiocapture error:', err)
     captureProcess = null
   })
 
@@ -293,8 +296,8 @@ function stopMacCapture(): boolean {
   if (!captureProcess) return false
   captureProcess.kill('SIGTERM')
   captureProcess = null
-  console.log(
-    `[SystemAudioNative] Capture stopped. System: ${systemChunkCount}, Mic: ${micChunkCount}`
+  log.info(
+    `Capture stopped. System: ${systemChunkCount}, Mic: ${micChunkCount}`
   )
   return true
 }
@@ -306,8 +309,8 @@ function startWindowsCapture(): boolean {
   return mod.startSystemAudioCapture((chunk) => {
     systemChunkCount++
     if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
-      console.log(
-        `[SystemAudioNative] Chunk #${systemChunkCount}, bytes: ${chunk.data.length}`
+      log.debug(
+        `Chunk #${systemChunkCount}, bytes: ${chunk.data.length}`
       )
     }
 
@@ -324,6 +327,6 @@ function stopWindowsCapture(): boolean {
   const mod = loadWindowsModule()
   if (!mod) return false
   const stopped = mod.stopSystemAudioCapture()
-  console.log(`[SystemAudioNative] Capture stopped. Total chunks: ${systemChunkCount}`)
+  log.info(`Capture stopped. Total chunks: ${systemChunkCount}`)
   return stopped
 }

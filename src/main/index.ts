@@ -17,6 +17,10 @@ import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
+import { createLogger } from './logger'
+
+const log = createLogger('Raven')
+const ipcLog = createLogger('IPC')
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
@@ -42,7 +46,7 @@ ipcMain.handle('desktop:get-sources', async () => {
       displayId: source.display_id
     }))
   } catch (err) {
-    console.error('[Desktop] Failed to get sources:', err)
+    log.error('Failed to get desktop sources:', err)
     return []
   }
 })
@@ -135,7 +139,7 @@ function registerGlobalHotkeys(
     }
   })
 
-  console.log('[Raven] Hotkeys registered:', {
+  log.info('Hotkeys registered:', {
     visibility: visibilityRegistered,
     aiSuggestion: aiRegistered,
     recording: recordingRegistered,
@@ -184,8 +188,8 @@ function moveOverlayWindow(
 function boot(): void {
   const rendererURL = process.env.VITE_DEV_SERVER_URL || null
 
-  console.log('[Raven] Preload path:', preloadPath)
-  console.log('[Raven] Renderer URL:', rendererURL)
+  log.debug('Preload path:', preloadPath)
+  log.debug('Renderer URL:', rendererURL)
 
   // Create both windows
   const dashboard = createDashboardWindow(preloadPath, rendererURL)
@@ -295,9 +299,10 @@ app.whenReady().then(() => {
     const anthropicApiKey = getSetting('anthropicApiKey') as string
     if (!anthropicApiKey) return false
 
+    const regenDisplayName = getSetting('displayName') || 'You'
     const transcriptText = session.transcript
       .filter((e) => e.isFinal)
-      .map((e) => `${e.source === 'mic' ? 'You' : 'Them'}: ${e.text}`)
+      .map((e) => `${e.source === 'mic' ? regenDisplayName : 'Them'}: ${e.text}`)
       .join('\n')
 
     const result = await generateSessionSummary(transcriptText, session.modeId, anthropicApiKey)
@@ -318,7 +323,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.getAllModes()
     } catch (error) {
-      console.error('[IPC] modes:get-all error:', error)
+      ipcLog.error('modes:get-all error:', error)
       return []
     }
   })
@@ -327,7 +332,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.getMode(id)
     } catch (error) {
-      console.error('[IPC] modes:get error:', error)
+      ipcLog.error('modes:get error:', error)
       return null
     }
   })
@@ -336,7 +341,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.createMode(mode)
     } catch (error) {
-      console.error('[IPC] modes:create error:', error)
+      ipcLog.error('modes:create error:', error)
       throw error
     }
   })
@@ -345,7 +350,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.updateMode(id, updates)
     } catch (error) {
-      console.error('[IPC] modes:update error:', error)
+      ipcLog.error('modes:update error:', error)
       return null
     }
   })
@@ -354,7 +359,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.deleteMode(id)
     } catch (error) {
-      console.error('[IPC] modes:delete error:', error)
+      ipcLog.error('modes:delete error:', error)
       return false
     }
   })
@@ -363,7 +368,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.duplicateMode(id, newName)
     } catch (error) {
-      console.error('[IPC] modes:duplicate error:', error)
+      ipcLog.error('modes:duplicate error:', error)
       return null
     }
   })
@@ -376,7 +381,7 @@ app.whenReady().then(() => {
       }
       return null
     } catch (error) {
-      console.error('[IPC] modes:reset-builtin error:', error)
+      ipcLog.error('modes:reset-builtin error:', error)
       return null
     }
   })
@@ -385,7 +390,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.getActiveMode()
     } catch (error) {
-      console.error('[IPC] modes:get-active error:', error)
+      ipcLog.error('modes:get-active error:', error)
       return null
     }
   })
@@ -394,7 +399,7 @@ app.whenReady().then(() => {
     try {
       return databaseService.setActiveMode(id)
     } catch (error) {
-      console.error('[IPC] modes:set-active error:', error)
+      ipcLog.error('modes:set-active error:', error)
       return false
     }
   })
@@ -409,9 +414,10 @@ app.whenReady().then(() => {
         sender.send('context:upload-progress', { stage, current, total })
       })
       return { success: true, file: result }
-    } catch (error: any) {
-      console.error('[IPC] context:upload-file error:', error)
-      return { success: false, error: error.message || 'Upload failed' }
+    } catch (error: unknown) {
+      ipcLog.error('context:upload-file error:', error)
+      const msg = error instanceof Error ? error.message : 'Upload failed'
+      return { success: false, error: msg }
     }
   })
 
@@ -420,7 +426,7 @@ app.whenReady().then(() => {
       const { getContextFiles } = await import('./services/ragService')
       return getContextFiles(modeId)
     } catch (error) {
-      console.error('[IPC] context:get-files error:', error)
+      ipcLog.error('context:get-files error:', error)
       return []
     }
   })
@@ -430,9 +436,62 @@ app.whenReady().then(() => {
       const { deleteContextFile } = await import('./services/ragService')
       return deleteContextFile(fileId)
     } catch (error) {
-      console.error('[IPC] context:delete-file error:', error)
+      ipcLog.error('context:delete-file error:', error)
       return false
     }
+  })
+
+  ipcMain.handle('profile:select-picture', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const sourcePath = result.filePaths[0]
+    const pathMod = await import('path')
+    const fsMod = await import('fs')
+
+    const appDataPath = app.getPath('userData')
+    const profileDir = pathMod.join(appDataPath, 'profile')
+    if (!fsMod.existsSync(profileDir)) {
+      fsMod.mkdirSync(profileDir, { recursive: true })
+    }
+
+    const ext = pathMod.extname(sourcePath)
+    const destPath = pathMod.join(profileDir, `avatar${ext}`)
+    fsMod.copyFileSync(sourcePath, destPath)
+
+    const { saveSetting } = await import('./store')
+    saveSetting('profilePicturePath', destPath)
+
+    return destPath
+  })
+
+  ipcMain.handle('profile:get-picture-data', async (_event, filePath: string) => {
+    if (!filePath) return null
+    const fsMod = await import('fs')
+    const pathMod = await import('path')
+    if (!fsMod.existsSync(filePath)) return null
+    const data = fsMod.readFileSync(filePath)
+    const ext = pathMod.extname(filePath).toLowerCase().replace('.', '')
+    const mime = ext === 'jpg' ? 'jpeg' : ext
+    return `data:image/${mime};base64,${data.toString('base64')}`
+  })
+
+  ipcMain.handle('profile:remove-picture', async () => {
+    const { getSetting: getSettingLocal, saveSetting: saveSettingLocal } = await import('./store')
+    const currentPath = getSettingLocal('profilePicturePath')
+    if (currentPath) {
+      const fsMod = await import('fs')
+      if (fsMod.existsSync(currentPath)) {
+        fsMod.unlinkSync(currentPath)
+      }
+    }
+    saveSettingLocal('profilePicturePath', '')
+    return true
   })
 
   ipcMain.handle('context:select-file', async () => {
@@ -492,7 +551,7 @@ app.whenReady().then(() => {
       })
 
       testTranscriptionWs.onopen = () => {
-        console.log('[Test Transcription] Connected', deviceId ? `device: ${deviceId}` : '(default)')
+        ipcLog.info('Test transcription connected', deviceId ? `device: ${deviceId}` : '(default)')
         const keepAlive = setInterval(() => {
           if (testTranscriptionWs?.readyState === 1) {
             testTranscriptionWs.send(JSON.stringify({ type: 'KeepAlive' }))
@@ -518,16 +577,16 @@ app.whenReady().then(() => {
             })
           }
         } catch (err) {
-          console.error('[Test Transcription] Parse error:', err)
+          ipcLog.error('Test transcription parse error:', err)
         }
       }
 
       testTranscriptionWs.onerror = (err: { message?: string }) => {
-        console.error('[Test Transcription] Error:', err.message || err)
+        ipcLog.error('Test transcription error:', err.message || err)
       }
 
       testTranscriptionWs.onclose = () => {
-        console.log('[Test Transcription] Closed')
+        ipcLog.debug('Test transcription closed')
         if (testTranscriptionCleanup) {
           testTranscriptionCleanup()
           testTranscriptionCleanup = null
@@ -537,7 +596,7 @@ app.whenReady().then(() => {
 
       return { success: true }
     } catch (error) {
-      console.error('[Test Transcription] Failed to start:', error)
+      ipcLog.error('Test transcription failed to start:', error)
       return { success: false, error: String(error) }
     }
   })
@@ -548,7 +607,7 @@ app.whenReady().then(() => {
         testTranscriptionWs.send(JSON.stringify({ type: 'CloseStream' }))
         testTranscriptionWs.close()
       } catch (err) {
-        console.error('[Test Transcription] Close error:', err)
+        ipcLog.error('Test transcription close error:', err)
       }
       testTranscriptionWs = null
     }
@@ -565,7 +624,7 @@ app.whenReady().then(() => {
       try {
         testTranscriptionWs.send(Buffer.from(buffer))
       } catch (err) {
-        console.error('[Test Transcription] Send error:', err)
+        ipcLog.error('Test transcription send error:', err)
       }
     }
     return { success: true }
@@ -581,7 +640,7 @@ app.on('before-quit', () => {
     try {
       testTranscriptionWs.close()
     } catch (err) {
-      console.error('[Test Transcription] Close on quit error:', err)
+      ipcLog.error('Test transcription close on quit error:', err)
     }
     testTranscriptionWs = null
   }

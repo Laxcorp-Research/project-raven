@@ -4,6 +4,9 @@
  */
 
 import { databaseService } from './database';
+import { createLogger } from '../logger';
+
+const log = createLogger('BuiltinModes');
 
 export interface BuiltinModeDefinition {
   id: string;
@@ -130,7 +133,7 @@ Guidelines:
  * Templates now create modes on-demand, not pre-seeded
  */
 export function seedBuiltinModes(): void {
-  console.log('[BuiltinModes] Templates available on-demand, no seeding needed');
+  log.debug('Templates available on-demand, no seeding needed');
 }
 
 /**
@@ -139,7 +142,7 @@ export function seedBuiltinModes(): void {
 export function resetBuiltinMode(id: string): boolean {
   const modeDef = BUILTIN_MODES.find((m) => m.id === id);
   if (!modeDef) {
-    console.log('[BuiltinModes] Mode not found for reset:', id);
+    log.warn('Mode not found for reset:', id);
     return false;
   }
 
@@ -151,7 +154,7 @@ export function resetBuiltinMode(id: string): boolean {
     quickActions: modeDef.quickActions,
   });
 
-  console.log('[BuiltinModes] Reset mode to defaults:', modeDef.name);
+  log.info('Reset mode to defaults:', modeDef.name);
   return true;
 }
 

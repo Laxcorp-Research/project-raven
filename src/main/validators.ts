@@ -34,17 +34,21 @@ export async function validateAnthropicKey(apiKey: string): Promise<{ valid: boo
     })
 
     return { valid: true }
-  } catch (err: any) {
-    if (err?.status === 401) {
+  } catch (err: unknown) {
+    const status = err != null && typeof err === 'object' && 'status' in err
+      ? (err as { status: number }).status
+      : undefined;
+    if (status === 401) {
       return { valid: false, error: 'Invalid Anthropic API key.' }
     }
-    if (err?.status === 403) {
+    if (status === 403) {
       return { valid: false, error: 'Anthropic key does not have permission. Check your plan.' }
     }
-    if (err?.message?.includes('fetch')) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('fetch')) {
       return { valid: false, error: 'Could not reach Anthropic. Check your internet connection.' }
     }
-    return { valid: false, error: `Anthropic error: ${err?.message || 'Unknown error'}` }
+    return { valid: false, error: `Anthropic error: ${msg || 'Unknown error'}` }
   }
 }
 

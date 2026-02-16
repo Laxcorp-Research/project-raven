@@ -1,8 +1,13 @@
 import { readFileSync } from 'fs';
 import { extname } from 'path';
 import { databaseService } from './database';
+import { createLogger } from '../logger';
 
+const log = createLogger('RAG');
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let pipeline: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let embeddingModel: any = null;
 
 async function getEmbeddingPipeline() {
@@ -13,9 +18,9 @@ async function getEmbeddingPipeline() {
     pipeline = transformers.pipeline;
   }
 
-  console.log('[RAG] Loading embedding model (first time may download ~30MB)...');
+  log.info('Loading embedding model (first time may download ~30MB)...');
   embeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-  console.log('[RAG] Embedding model loaded');
+  log.info('Embedding model loaded');
   return embeddingModel;
 }
 
@@ -176,7 +181,7 @@ export async function uploadContextFile(
     onProgress?.('storing', i + 1, chunks.length);
   }
 
-  console.log(`[RAG] Stored ${chunks.length} chunks for file "${fileName}" in mode ${modeId}`);
+  log.info(`Stored ${chunks.length} chunks for file "${fileName}" in mode ${modeId}`);
 
   return {
     id: fileId,

@@ -8,6 +8,9 @@ import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { up as migration005 } from './migrations/005_add_session_messages';
+import { createLogger } from '../logger';
+
+const log = createLogger('Database');
 
 // Types
 export interface TranscriptEntry {
@@ -124,7 +127,7 @@ class DatabaseService {
   initialize(): void {
     if (this.db) return;
 
-    console.log('[Database] Initializing at:', this.dbPath);
+    log.info('Initializing at:', this.dbPath);
 
     this.db = new Database(this.dbPath);
 
@@ -134,7 +137,7 @@ class DatabaseService {
     // Run migrations
     this.migrate();
 
-    console.log('[Database] Initialized successfully');
+    log.info('Initialized successfully');
   }
 
   /**
@@ -243,11 +246,11 @@ class DatabaseService {
     const applied = this.db
       .prepare('SELECT name FROM migrations')
       .all()
-      .map((row: any) => row.name);
+      .map((row: { name: string }) => row.name);
 
     for (const migration of migrations) {
       if (!applied.includes(migration.name)) {
-        console.log('[Database] Running migration:', migration.name);
+        log.info('Running migration:', migration.name);
         if (migration.sql) {
           this.db.exec(migration.sql);
         } else if (migration.run) {
@@ -259,7 +262,7 @@ class DatabaseService {
       }
     }
 
-    console.log('[Database] Migrations up to v' + LATEST_VERSION);
+    log.debug('Migrations up to v' + LATEST_VERSION);
   }
 
   /**
@@ -289,7 +292,7 @@ class DatabaseService {
         fullSession.createdAt
       );
 
-    console.log('[Database] Created session:', fullSession.id);
+    log.debug('Created session:', fullSession.id);
     return fullSession;
   }
 
@@ -300,7 +303,7 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const setClauses: string[] = [];
-    const values: any[] = [];
+    const values: (string | number | null)[] = [];
 
     if (updates.title !== undefined) {
       setClauses.push('title = ?');
@@ -338,7 +341,7 @@ class DatabaseService {
       .prepare(`UPDATE sessions SET ${setClauses.join(', ')} WHERE id = ?`)
       .run(...values);
 
-    console.log('[Database] Updated session:', id);
+    log.debug('Updated session:', id);
   }
 
   /**
@@ -412,7 +415,7 @@ class DatabaseService {
       .prepare('DELETE FROM sessions WHERE id = ?')
       .run(id);
 
-    console.log('[Database] Deleted session:', id, 'changes:', result.changes);
+    log.debug('Deleted session:', id, 'changes:', result.changes);
     return result.changes > 0;
   }
 
@@ -539,7 +542,7 @@ class DatabaseService {
         fullMode.updatedAt
       );
 
-    console.log('[Database] Created mode:', fullMode.id, fullMode.name);
+    log.debug('Created mode:', fullMode.id, fullMode.name);
     return fullMode;
   }
 
@@ -594,7 +597,7 @@ class DatabaseService {
       .prepare('UPDATE modes SET is_default = 1, updated_at = ? WHERE id = ?')
       .run(Date.now(), id);
 
-    console.log('[Database] Set active mode:', id);
+    log.debug('Set active mode:', id);
     return result.changes > 0;
   }
 
@@ -605,7 +608,7 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const setClauses: string[] = ['updated_at = ?'];
-    const values: any[] = [Date.now()];
+    const values: (string | number | null)[] = [Date.now()];
 
     if (updates.name !== undefined) {
       setClauses.push('name = ?');
@@ -644,7 +647,7 @@ class DatabaseService {
       .prepare(`UPDATE modes SET ${setClauses.join(', ')} WHERE id = ?`)
       .run(...values);
 
-    console.log('[Database] Updated mode:', id);
+    log.debug('Updated mode:', id);
     return this.getMode(id);
   }
 
@@ -656,7 +659,7 @@ class DatabaseService {
 
     const mode = this.getMode(id);
     if (!mode || mode.isBuiltin) {
-      console.log('[Database] Cannot delete builtin mode:', id);
+      log.warn('Cannot delete builtin mode:', id);
       return false;
     }
 
@@ -673,7 +676,7 @@ class DatabaseService {
       .prepare('DELETE FROM modes WHERE id = ? AND is_builtin = 0')
       .run(id);
 
-    console.log('[Database] Deleted mode:', id, 'changes:', result.changes);
+    log.debug('Deleted mode:', id, 'changes:', result.changes);
     return result.changes > 0;
   }
 
@@ -841,7 +844,7 @@ class DatabaseService {
     if (this.db) {
       this.db.close();
       this.db = null;
-      console.log('[Database] Closed');
+      log.info('Closed');
     }
   }
 }

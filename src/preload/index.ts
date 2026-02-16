@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld('raven', {
   validateApiKeys: (deepgramKey: string, anthropicKey: string) =>
     ipcRenderer.invoke('validate-api-keys', deepgramKey, anthropicKey),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+  profileSelectPicture: () => ipcRenderer.invoke('profile:select-picture'),
+  profileGetPictureData: (filePath: string) => ipcRenderer.invoke('profile:get-picture-data', filePath),
+  profileRemovePicture: () => ipcRenderer.invoke('profile:remove-picture'),
   windowToggleOverlay: () => ipcRenderer.invoke('window:toggle-overlay'),
   windowShowOverlay: () => ipcRenderer.invoke('window:show-overlay'),
   windowAutoSizeOverlay: (mode: 'compact' | 'expanded') =>

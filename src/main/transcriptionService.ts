@@ -7,6 +7,10 @@
 import { BrowserWindow } from 'electron';
 import type WebSocket from 'ws';
 import { sessionManager } from './services/sessionManager';
+import { getSetting } from './store';
+import { createLogger } from './logger';
+
+const log = createLogger('Transcription');
 
 const DEEPGRAM_WS_BASE = 'wss://api.deepgram.com/v1/listen';
 
@@ -47,19 +51,19 @@ export class TranscriptionService {
 
   async start(): Promise<{ success: boolean; error?: string }> {
     if (!this.apiKey) {
-      console.error('[Transcription] No Deepgram API key!');
+      log.error('No Deepgram API key!');
       return { success: false, error: 'No Deepgram API key configured' };
     }
 
-    console.log('[Transcription] Starting both connections...');
+    log.info('Starting both connections...');
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
       this.startConnection('system'),
     ]);
 
-    console.log(
-      `[Transcription] Connection results — Mic: ${micResult.success}, System: ${systemResult.success}`
+    log.info(
+      `Connection results — Mic: ${micResult.success}, System: ${systemResult.success}`
     );
 
     if (!micResult.success && !systemResult.success) {
@@ -73,7 +77,7 @@ export class TranscriptionService {
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
 
     if (state.isConnected) {
-      console.log(`[Transcription] ${source} already connected`);
+      log.debug(`${source} already connected`);
       return { success: true };
     }
 
@@ -101,7 +105,7 @@ export class TranscriptionService {
 
       return new Promise((resolve) => {
         state.ws!.onopen = () => {
-          console.log(`[Transcription] ${source} WebSocket connected`);
+          log.info(`${source} WebSocket connected`);
           state.isConnected = true;
 
           state.keepAliveInterval = setInterval(() => {
@@ -109,7 +113,7 @@ export class TranscriptionService {
               try {
                 state.ws.send(JSON.stringify({ type: 'KeepAlive' }));
               } catch (err) {
-                console.error(`[Transcription] ${source} keep-alive error:`, err);
+                log.error(`${source} keep-alive error:`, err);
               }
             }
           }, 8000);
@@ -122,41 +126,41 @@ export class TranscriptionService {
           try {
             const data = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
             
-            console.log(`[Transcription] ${source} received:`, JSON.stringify(data).slice(0, 200));
+            log.debug(`${source} received:`, JSON.stringify(data).slice(0, 200));
             
             this.handleTranscriptResult(data, source);
           } catch (err) {
-            console.error(`[Transcription] ${source} parse error:`, err);
+            log.error(`${source} parse error:`, err);
           }
         };
 
         state.ws!.onerror = (event: { message?: string }) => {
-          console.error(`[Transcription] ${source} WebSocket error:`, event.message || event);
+          log.error(`${source} WebSocket error:`, event.message || event);
           resolve({ success: false });
         };
 
         state.ws!.onclose = () => {
-          console.log(`[Transcription] ${source} WebSocket closed`);
+          log.info(`${source} WebSocket closed`);
           state.isConnected = false;
           this.clearKeepAlive(state);
         };
       });
     } catch (err: unknown) {
-      console.error(`[Transcription] ${source} failed to connect:`, err);
+      log.error(`${source} failed to connect:`, err);
       return { success: false };
     }
   }
 
   private handleTranscriptResult(data: { channel?: { alternatives?: Array<{ transcript?: string }> }; is_final?: boolean }, source: AudioSource): void {
-    console.log(`[Transcription] handleTranscriptResult called for ${source}`);
+    log.debug(`handleTranscriptResult called for ${source}`);
     
     const transcript = data.channel?.alternatives?.[0]?.transcript;
     if (!transcript) {
-      console.log(`[Transcription] ${source} - no transcript in message`);
+      log.debug(`${source} - no transcript in message`);
       return;
     }
 
-    console.log(`[Transcription] ${source} transcript: "${transcript}" (final: ${data.is_final})`);
+    log.debug(`${source} transcript: "${transcript}" (final: ${data.is_final})`);
 
     const isFinal = !!data.is_final;
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
@@ -242,7 +246,7 @@ export class TranscriptionService {
 
     if (!state.ws || !state.isConnected) {
       if (Math.random() < 0.01) {
-        console.log(`[Transcription] ${source} not connected, dropping audio`);
+        log.debug(`${source} not connected, dropping audio`);
       }
       return;
     }
@@ -254,11 +258,11 @@ export class TranscriptionService {
       if (state.sendCount <= 5 || state.sendCount % 200 === 0) {
         const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.min(10, buf.byteLength / 2));
         const maxVal = samples.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-        console.log(`[Transcription] ${source} send #${state.sendCount}: ${buf.byteLength} bytes, first10max=${maxVal}, first5=[${Array.from(samples).slice(0, 5)}]`);
+        log.debug(`${source} send #${state.sendCount}: ${buf.byteLength} bytes, first10max=${maxVal}, first5=[${Array.from(samples).slice(0, 5)}]`);
       }
       state.ws.send(buf);
     } catch (err) {
-      console.error(`[Transcription] ${source} send error:`, err);
+      log.error(`${source} send error:`, err);
     }
   }
 
@@ -267,7 +271,7 @@ export class TranscriptionService {
       this.stopConnection(this.micConnection),
       this.stopConnection(this.systemConnection),
     ]);
-    console.log('[Transcription] All connections stopped');
+    log.info('All connections stopped');
   }
 
   private async stopConnection(state: ConnectionState): Promise<void> {
@@ -280,7 +284,7 @@ export class TranscriptionService {
 
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(() => {
-              console.log('[Transcription] Flush timeout reached, force closing');
+              log.warn('Flush timeout reached, force closing');
               try { state.ws?.close(); } catch {}
               resolve();
             }, 3000);
@@ -296,7 +300,7 @@ export class TranscriptionService {
           state.ws.close();
         }
       } catch (err) {
-        console.error('[Transcription] Close error:', err);
+        log.error('Close error:', err);
         try { state.ws?.close(); } catch {}
       }
       state.ws = null;
@@ -315,8 +319,9 @@ export class TranscriptionService {
   }
 
   private getFullTranscriptText(): string {
+    const displayName = getSetting('displayName') || 'You';
     return this.transcriptEntries
-      .map((e) => `${e.speaker === 'you' ? 'You' : 'Them'}: ${e.text}`)
+      .map((e) => `${e.speaker === 'you' ? displayName : 'Them'}: ${e.text}`)
       .join('\n');
   }
 
@@ -340,7 +345,7 @@ export class TranscriptionService {
         this.overlayWindow.webContents.send('transcription:update', payload);
       }
     } catch (err) {
-      console.error('[Transcription] Broadcast to overlay failed:', err);
+      log.error('Broadcast to overlay failed:', err);
     }
 
     try {
@@ -348,7 +353,7 @@ export class TranscriptionService {
         this.dashboardWindow.webContents.send('transcription:update', payload);
       }
     } catch (err) {
-      console.error('[Transcription] Broadcast to dashboard failed:', err);
+      log.error('Broadcast to dashboard failed:', err);
     }
   }
 

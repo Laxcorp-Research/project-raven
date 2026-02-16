@@ -43,6 +43,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const [showTitleTooltip, setShowTitleTooltip] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState('')
   const [tabDimensions, setTabDimensions] = useState({
     summary: { left: 0, width: 0 },
     transcript: { left: 0, width: 0 },
@@ -56,6 +57,12 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const summaryTabRef = useRef<HTMLButtonElement>(null)
   const transcriptTabRef = useRef<HTMLButtonElement>(null)
   const usageTabRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    window.raven.storeGet('displayName').then((name) => {
+      setDisplayName((name as string) || '')
+    })
+  }, [])
 
   useEffect(() => {
     if (isEditingTitle && titleRef.current) {
@@ -177,8 +184,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     }
   }
 
+  const userName = displayName || 'You'
   const transcriptText = session.transcript
-    .map((entry) => `${entry.source === 'mic' ? 'You' : 'Them'}: ${entry.text}`)
+    .map((entry) => `${entry.source === 'mic' ? userName : 'Them'}: ${entry.text}`)
     .join('\n')
   const hasTranscript = transcriptText.trim().length > 0
 
@@ -198,7 +206,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     if (activeTab === 'transcript') return transcriptText
     if (activeTab === 'usage') {
       return messages
-        .map((message) => `${message.role === 'user' ? 'You' : 'Raven'}: ${message.content}`)
+        .map((message) => `${message.role === 'user' ? userName : 'Raven'}: ${message.content}`)
         .join('\n\n')
     }
     return ''
@@ -360,7 +368,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                 <SummaryTab summary={session.summary} hasTranscript={hasTranscript} />
               )}
               {activeTab === 'transcript' && (
-                <TranscriptTab transcript={session.transcript} />
+                <TranscriptTab transcript={session.transcript} displayName={displayName} />
               )}
               {activeTab === 'usage' && (
                 <UsageTab messages={messages} loading={loadingMessages} />
@@ -411,12 +419,13 @@ function SummaryTab({ summary, hasTranscript }: { summary: string | null; hasTra
   )
 }
 
-function TranscriptTab({ transcript }: { transcript: TranscriptEntry[] }) {
+function TranscriptTab({ transcript, displayName }: { transcript: TranscriptEntry[]; displayName: string }) {
   if (!transcript || transcript.length === 0) {
     return <p className="text-gray-400 text-lg">No transcript available</p>
   }
 
-  const utterances = parseTranscript(transcript)
+  const userName = displayName || 'You'
+  const utterances = parseTranscript(transcript, userName)
 
   return (
     <div className="space-y-4">
@@ -424,7 +433,7 @@ function TranscriptTab({ transcript }: { transcript: TranscriptEntry[] }) {
         <div key={index}>
           <div className="flex items-center gap-2 mb-1">
             <span className={`text-sm font-medium ${
-              utterance.speaker === 'You' ? 'text-blue-600' : 'text-gray-500'
+              utterance.isUser ? 'text-blue-600' : 'text-gray-500'
             }`}>
               {utterance.speaker}
             </span>
@@ -495,15 +504,17 @@ function renderBoldText(text: string): ReactNode {
 
 interface Utterance {
   speaker: string
+  isUser: boolean
   timestamp?: string
   text: string
 }
 
-function parseTranscript(transcript: TranscriptEntry[]): Utterance[] {
+function parseTranscript(transcript: TranscriptEntry[], userName: string): Utterance[] {
   return transcript
     .filter((entry) => entry.text && entry.text.trim())
     .map((entry) => ({
-      speaker: entry.source === 'mic' ? 'You' : 'Them',
+      speaker: entry.source === 'mic' ? userName : 'Them',
+      isUser: entry.source === 'mic',
       timestamp: formatTimestamp(entry.timestamp),
       text: entry.text.trim(),
     }))

@@ -5,6 +5,9 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { databaseService } from './database'
+import { createLogger } from '../logger'
+
+const log = createLogger('Summary')
 
 interface NotesSection {
   id: string
@@ -96,7 +99,7 @@ SUMMARY:
 
     return { title, summary }
   } catch (error) {
-    console.error('[SummaryService] Failed to generate summary:', error)
+    log.error('Failed to generate summary:', error)
     return { title: 'Untitled session', summary: '' }
   }
 }

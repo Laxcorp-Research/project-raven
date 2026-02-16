@@ -1,4 +1,4 @@
-import { ipcMain, shell, screen } from 'electron'
+import { app, ipcMain, shell, screen } from 'electron'
 import {
   getAllSettings,
   getSetting,
@@ -96,6 +96,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('open-external', (_event, url: string) => {
     shell.openExternal(url)
     return true
+  })
+
+  ipcMain.handle('app:get-version', () => {
+    return app.getVersion()
   })
 
   // ---- Window ----

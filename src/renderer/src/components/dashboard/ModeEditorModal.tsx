@@ -224,10 +224,11 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       } else {
         alert(result.error || 'Upload failed')
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsUploading(false)
       setUploadProgress(null)
-      alert(err.message || 'Upload failed')
+      const msg = err instanceof Error ? err.message : 'Upload failed'
+      alert(msg)
     }
   }
 

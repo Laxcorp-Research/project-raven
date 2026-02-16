@@ -47,11 +47,14 @@ export class OpenAIProvider implements AIProvider {
       }
 
       callbacks.onDone(fullText);
-    } catch (error: any) {
+    } catch (error: unknown) {
       let errorMsg = 'Failed to get AI response.';
-      if (error?.status === 401) errorMsg = 'Invalid OpenAI API key. Check settings.';
-      else if (error?.status === 429) errorMsg = 'Rate limited. Wait a moment and try again.';
-      else if (error?.message) errorMsg = `AI error: ${error.message}`;
+      const status = error != null && typeof error === 'object' && 'status' in error
+        ? (error as { status: number }).status
+        : undefined;
+      if (status === 401) errorMsg = 'Invalid OpenAI API key. Check settings.';
+      else if (status === 429) errorMsg = 'Rate limited. Wait a moment and try again.';
+      else if (error instanceof Error) errorMsg = `AI error: ${error.message}`;
       callbacks.onError(errorMsg);
       throw error;
     }
