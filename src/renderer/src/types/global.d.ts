@@ -155,7 +155,7 @@ declare global {
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
       audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;
       audioGetState: () => Promise<{ isRecording: boolean; duration: number }>;
-      onRecordingStateChanged: (callback: (state: { isRecording: boolean }) => void) => () => void;
+      onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => () => void;
       onTranscriptUpdate: (callback: (data: {
         text: string;
         isFinal: boolean;

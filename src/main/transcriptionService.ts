@@ -277,10 +277,27 @@ export class TranscriptionService {
       try {
         if (state.isConnected) {
           state.ws.send(JSON.stringify({ type: 'CloseStream' }));
+
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              console.log('[Transcription] Flush timeout reached, force closing');
+              try { state.ws?.close(); } catch {}
+              resolve();
+            }, 3000);
+
+            const origOnClose = state.ws!.onclose;
+            state.ws!.onclose = (ev) => {
+              clearTimeout(timeout);
+              if (typeof origOnClose === 'function') origOnClose.call(state.ws, ev);
+              resolve();
+            };
+          });
+        } else {
+          state.ws.close();
         }
-        state.ws.close();
       } catch (err) {
         console.error('[Transcription] Close error:', err);
+        try { state.ws?.close(); } catch {}
       }
       state.ws = null;
     }

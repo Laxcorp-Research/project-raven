@@ -139,8 +139,8 @@ contextBridge.exposeInMainWorld('raven', {
   audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') =>
     ipcRenderer.send('audio:chunk', buffer, source),
   audioGetState: () => ipcRenderer.invoke('audio:get-state'),
-  onRecordingStateChanged: (callback: (state: { isRecording: boolean }) => void) => {
-    const handler = (_event: unknown, state: { isRecording: boolean }) => callback(state)
+  onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => {
+    const handler = (_event: unknown, state: { isRecording: boolean; endedSessionId?: string | null }) => callback(state)
     ipcRenderer.on('audio:recording-state-changed', handler)
     return () => {
       ipcRenderer.removeListener('audio:recording-state-changed', handler)

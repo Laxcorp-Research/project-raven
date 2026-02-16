@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
-import ravenLogo from '../../../../logo/Raven.svg'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -444,13 +443,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       </>
                     ) : (
                       <>
-                        <img
-                          src={ravenLogo}
-                          alt=""
-                          className="w-4 h-4 brightness-0 invert"
-                          draggable={false}
-                        />
                         Launch Raven
+                        <ArrowRight size={15} />
                       </>
                     )}
                   </button>

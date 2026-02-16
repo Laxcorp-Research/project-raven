@@ -74,7 +74,12 @@ export class AudioManager {
       this.isRecording = false
       const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
       this.recordingStartTime = null
-      this.broadcastRecordingState(false)
+      this.broadcastRecordingState(false, session?.id || null)
+
+      if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
+        this.dashboardWindow.show()
+        this.dashboardWindow.focus()
+      }
       console.log(
         `[AudioManager] Recording stopped. Chunks received: ${this.chunkCount}, Duration: ${Math.round(
           duration / 1000
@@ -124,8 +129,8 @@ export class AudioManager {
     })
   }
 
-  private broadcastRecordingState(isRecording: boolean): void {
-    const payload = { isRecording }
+  private broadcastRecordingState(isRecording: boolean, endedSessionId: string | null = null): void {
+    const payload = { isRecording, endedSessionId }
 
     try {
       if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {

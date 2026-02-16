@@ -67,14 +67,13 @@ export function Dashboard() {
       if (state.isRecording) {
         syncActiveSession()
       } else {
-        setActiveSession((prev) => {
-          if (prev?.id) {
-            window.raven.sessions.get(prev.id).then((fullSession) => {
-              if (fullSession) setSelectedSession(fullSession)
-            }).catch(() => {})
-          }
-          return null
-        })
+        const sessionId = state.endedSessionId
+        setActiveSession(null)
+        if (sessionId) {
+          window.raven.sessions.get(sessionId).then((fullSession) => {
+            if (fullSession) setSelectedSession(fullSession)
+          }).catch(() => {})
+        }
       }
     })
 
@@ -87,6 +86,19 @@ export function Dashboard() {
           title: session.title || prev.title,
           startedAt: session.startedAt || prev.startedAt,
         }
+      })
+    })
+
+    const unsubListUpdated = window.raven.sessions.onListUpdated(() => {
+      setSelectedSession((prev) => {
+        if (!prev) return prev
+        const prevId = prev.id
+        window.raven.sessions.get(prevId).then((updated) => {
+          if (updated) {
+            setSelectedSession((current) => current?.id === prevId ? updated : current)
+          }
+        }).catch(() => {})
+        return prev
       })
     })
 
@@ -103,6 +115,7 @@ export function Dashboard() {
       unsub()
       unsubRecording()
       unsubSessionUpdated()
+      unsubListUpdated()
     }
   }, [])
 

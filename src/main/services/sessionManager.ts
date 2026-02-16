@@ -68,7 +68,7 @@ class SessionManager {
 
     if (entry.isFinal) {
       this.activeSession.transcript = this.activeSession.transcript.filter(
-        (e) => e.isFinal || e.source !== entry.source
+        (e) => e.id !== entry.id && (e.isFinal || e.source !== entry.source)
       );
       this.activeSession.transcript.push(entry);
     } else {
