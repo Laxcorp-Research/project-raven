@@ -1,27 +1,43 @@
 import { useState } from 'react'
+import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
+import ravenFullLogo from '../../../../logo/raven_full.svg'
+import ravenLogo from '../../../../logo/Raven.svg'
 
 interface OnboardingProps {
   onComplete: () => void
 }
 
+type AiProvider = 'anthropic' | 'openai'
+
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [deepgramKey, setDeepgramKey] = useState('')
+  const [aiProvider, setAiProvider] = useState<AiProvider>('anthropic')
   const [anthropicKey, setAnthropicKey] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
+  const [fadeKey, setFadeKey] = useState(0)
+
+  const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
   const handleNext = () => {
-    if (step < 3) setStep((s) => (s + 1) as 1 | 2 | 3)
+    if (step < 3) {
+      setFadeKey((k) => k + 1)
+      setStep((s) => (s + 1) as 1 | 2 | 3)
+    }
   }
 
   const handleBack = () => {
-    if (step > 1) setStep((s) => (s - 1) as 1 | 2 | 3)
+    if (step > 1) {
+      setFadeKey((k) => k + 1)
+      setStep((s) => (s - 1) as 1 | 2 | 3)
+    }
     setError(null)
   }
 
   const handleSaveKeys = async () => {
-    if (!deepgramKey.trim() || !anthropicKey.trim()) {
+    if (!deepgramKey.trim() || !aiKey.trim()) {
       setError('Both API keys are required.')
       return
     }
@@ -30,221 +46,419 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setError(null)
 
     try {
-      const result = await window.raven.validateApiKeys(deepgramKey.trim(), anthropicKey.trim())
+      const anthropicForValidation = aiProvider === 'anthropic' ? anthropicKey.trim() : 'skip'
+      const result = await window.raven.validateApiKeys(deepgramKey.trim(), anthropicForValidation)
 
       if (!result.valid) {
-        setError(result.error || 'Invalid API keys.')
-        setValidating(false)
-        return
+        if (aiProvider === 'openai' && result.error?.toLowerCase().includes('anthropic')) {
+          // Skip anthropic validation error when using OpenAI
+        } else {
+          setError(result.error || 'Invalid API keys.')
+          setValidating(false)
+          return
+        }
       }
 
-      await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim())
+      await window.raven.apiKeysSave(
+        deepgramKey.trim(),
+        aiProvider === 'anthropic' ? anthropicKey.trim() : ''
+      )
+      await window.raven.storeSet('aiProvider', aiProvider)
+      await window.raven.storeSet(
+        'aiModel',
+        aiProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o'
+      )
+      if (aiProvider === 'openai') {
+        await window.raven.storeSet('openaiApiKey', openaiKey.trim())
+      }
       await window.raven.storeSet('onboardingComplete', true)
       onComplete()
-    } catch (err) {
+    } catch {
       setError('Failed to save keys. Please try again.')
     }
 
     setValidating(false)
   }
 
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  const cmdKey = isMac ? '⌘' : 'Ctrl'
+
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
-      <div className="w-full max-w-md mx-auto p-8">
-        {/* Progress dots */}
-        <div className="flex justify-center gap-2 mb-8">
-          {[1, 2, 3].map((s) => (
-            <div
-              key={s}
-              className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                s === step ? 'bg-cyan-500' : s < step ? 'bg-cyan-700' : 'bg-gray-600'
-              }`}
-            />
+    <div className="flex flex-col h-screen bg-white">
+      {/* Fixed stepper - always in the same spot */}
+      <div className="pt-16 pb-6 flex justify-center">
+        <div className="flex items-center gap-0">
+          {[1, 2, 3].map((s, i) => (
+            <div key={s} className="flex items-center">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
+                  s < step
+                    ? 'bg-blue-600 text-white'
+                    : s === step
+                      ? 'bg-gradient-to-b from-blue-500 to-blue-700 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-400 border border-gray-200'
+                }`}
+              >
+                {s < step ? <Check size={12} strokeWidth={2.5} /> : s}
+              </div>
+              {i < 2 && (
+                <div
+                  className={`w-12 h-[2px] mx-2 rounded-full transition-colors duration-300 ${
+                    s < step ? 'bg-blue-500' : 'bg-gray-200'
+                  }`}
+                />
+              )}
+            </div>
           ))}
         </div>
+      </div>
 
-        {/* Step 1: Welcome */}
-        {step === 1 && (
-          <div className="text-center space-y-6">
-            <div className="text-6xl mb-4">🐦‍⬛</div>
-            <h1 className="text-3xl font-bold">Welcome to Raven</h1>
-            <p className="text-gray-400 leading-relaxed">
-              Your AI-powered meeting assistant. Raven transcribes your conversations in real-time
-              and provides intelligent suggestions — all while staying invisible to screen sharing.
-            </p>
-            <p className="text-gray-500 text-sm">
-              You'll need API keys from Deepgram and Anthropic to get started. They're stored
-              locally and encrypted on your machine.
-            </p>
-            <button
-              onClick={handleNext}
-              className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-lg font-medium transition-colors"
-            >
-              Get Started
-            </button>
-          </div>
-        )}
-
-        {/* Step 2: API Keys */}
-        {step === 2 && (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold mb-2">Enter API Keys</h2>
-              <p className="text-gray-400 text-sm">
-                Your keys are stored locally and encrypted. They never leave your machine.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              {/* Deepgram */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-gray-300">Deepgram API Key</label>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      window.raven.openExternal('https://console.deepgram.com')
-                    }}
-                    className="text-xs text-cyan-500 hover:text-cyan-400"
-                  >
-                    Get a key →
-                  </a>
-                </div>
-                <input
-                  type="password"
-                  value={deepgramKey}
-                  onChange={(e) => setDeepgramKey(e.target.value)}
-                  placeholder="Enter your Deepgram API key"
-                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+      {/* Content area - fills remaining space, centers vertically */}
+      <div className="flex-1 flex items-center justify-center overflow-y-auto">
+        <div className="w-full max-w-lg mx-auto px-8 py-4">
+          <div key={fadeKey} className="animate-fade-in">
+            {/* Step 1: Welcome */}
+            {step === 1 && (
+              <div className="text-center">
+                <img
+                  src={ravenFullLogo}
+                  alt="Raven"
+                  className="h-10 mx-auto mb-5 object-contain"
+                  draggable={false}
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Free tier: $200 credit. Used for real-time transcription.
-                </p>
-              </div>
 
-              {/* Anthropic */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-sm font-medium text-gray-300">Anthropic API Key</label>
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      window.raven.openExternal('https://console.anthropic.com')
-                    }}
-                    className="text-xs text-cyan-500 hover:text-cyan-400"
-                  >
-                    Get a key →
-                  </a>
-                </div>
-                <input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Pay-as-you-go. Used for AI suggestions.
+                <p className="text-gray-500 text-sm leading-relaxed max-w-sm mx-auto mb-6">
+                  Real-time transcription and AI suggestions for your meetings while being invisible to screen sharing.
                 </p>
-              </div>
-            </div>
 
-            {error && (
-              <div className="bg-red-900/50 border border-red-500 rounded-lg p-3 text-red-300 text-sm">
-                {error}
+                <button
+                  onClick={handleNext}
+                  className="w-full max-w-[280px] mx-auto flex items-center justify-center gap-2 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white rounded-xl text-sm font-medium shadow-sm transition-all"
+                >
+                  Get Started
+                  <ArrowRight size={15} />
+                </button>
+
+                <p className="text-xs text-gray-400 mt-5">
+                  All keys stored locally and encrypted.
+                </p>
               </div>
             )}
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleBack}
-                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
-              >
-                Back
-              </button>
-              <button
-                onClick={handleNext}
-                disabled={!deepgramKey.trim() || !anthropicKey.trim()}
-                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Confirm & Save */}
-        {step === 3 && (
-          <div className="space-y-6">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold mb-2">Ready to Go</h2>
-              <p className="text-gray-400 text-sm">
-                Confirm your setup. We'll validate both keys before saving.
-              </p>
-            </div>
-
-            <div className="bg-gray-800 rounded-lg p-4 space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Deepgram Key</span>
-                <span className="text-green-400 font-mono">
-                  {deepgramKey.slice(0, 8)}...{deepgramKey.slice(-4)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Anthropic Key</span>
-                <span className="text-green-400 font-mono">
-                  {anthropicKey.slice(0, 12)}...{anthropicKey.slice(-4)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Storage</span>
-                <span className="text-gray-300">Encrypted, local only</span>
-              </div>
-            </div>
-
-            <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
-              <p className="text-sm font-medium text-gray-300">Quick shortcuts:</p>
-              <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
-                <div>
-                  <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-300">⌘+Enter</kbd>{' '}
-                  AI Suggestion
+            {/* Step 2: API Keys */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <div className="text-center mb-1">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-0.5">API Keys</h2>
+                  <p className="text-xs text-gray-500">
+                    Stored locally and encrypted. Never leave your machine.
+                  </p>
                 </div>
-                <div>
-                  <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-300">⌘+⇧+R</kbd>{' '}
-                  Toggle Recording
-                </div>
-                <div>
-                  <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-300">⌘+⇧+H</kbd>{' '}
-                  Toggle Overlay
-                </div>
-              </div>
-            </div>
 
-            {error && (
-              <div className="bg-red-900/50 border border-red-500 rounded-lg p-3 text-red-300 text-sm">
-                {error}
+                <div className="space-y-4">
+                  {/* Deepgram */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Deepgram</label>
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          window.raven.openExternal('https://console.deepgram.com')
+                        }}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Get key
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <input
+                      type="password"
+                      value={deepgramKey}
+                      onChange={(e) => setDeepgramKey(e.target.value)}
+                      placeholder="Enter your Deepgram API key"
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                    />
+                    <p className="text-xs text-gray-400">Speech-to-text. Free tier: $200 credit.</p>
+                  </div>
+
+                  {/* AI Provider Toggle */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">AI Provider</label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setAiProvider('anthropic')
+                          setError(null)
+                        }}
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                          aiProvider === 'anthropic'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        Anthropic
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAiProvider('openai')
+                          setError(null)
+                        }}
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                          aiProvider === 'openai'
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        OpenAI
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* AI Key Input */}
+                  {aiProvider === 'anthropic' ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">Anthropic Key</label>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            window.raven.openExternal('https://console.anthropic.com')
+                          }}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          Get key
+                          <ExternalLink size={10} />
+                        </a>
+                      </div>
+                      <input
+                        type="password"
+                        value={anthropicKey}
+                        onChange={(e) => setAnthropicKey(e.target.value)}
+                        placeholder="sk-ant-..."
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                      />
+                      <p className="text-xs text-gray-400">
+                        Claude models. Pay-as-you-go.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-700">OpenAI Key</label>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            window.raven.openExternal('https://platform.openai.com/api-keys')
+                          }}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          Get key
+                          <ExternalLink size={10} />
+                        </a>
+                      </div>
+                      <input
+                        type="password"
+                        value={openaiKey}
+                        onChange={(e) => setOpenaiKey(e.target.value)}
+                        placeholder="sk-..."
+                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                      />
+                      <p className="text-xs text-gray-400">
+                        GPT models. Pay-as-you-go.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <svg
+                      className="w-4 h-4 text-red-500 mt-0.5 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={handleBack}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
+                  >
+                    <ArrowLeft size={14} />
+                    Back
+                  </button>
+                  <button
+                    onClick={handleNext}
+                    disabled={!deepgramKey.trim() || !aiKey.trim()}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium shadow-sm transition-all"
+                  >
+                    Next
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
             )}
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleBack}
-                className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
-              >
-                Back
-              </button>
-              <button
-                onClick={handleSaveKeys}
-                disabled={validating}
-                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-cyan-800 rounded-lg font-medium transition-colors"
-              >
-                {validating ? 'Validating...' : 'Launch Raven'}
-              </button>
-            </div>
+            {/* Step 3: Confirm & Save */}
+            {step === 3 && (
+              <div className="space-y-5">
+                <div className="text-center mb-1">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Ready to Go</h2>
+                  <p className="text-xs text-gray-500">We'll validate your keys before saving.</p>
+                </div>
+
+                {/* Summary card */}
+                <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Key size={13} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">Deepgram</span>
+                    </div>
+                    <span className="text-xs font-mono text-green-600 bg-green-50 px-2 py-0.5 rounded-md">
+                      {deepgramKey.slice(0, 6)}...{deepgramKey.slice(-4)}
+                    </span>
+                  </div>
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Key size={13} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">
+                        {aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-green-600 bg-green-50 px-2 py-0.5 rounded-md">
+                      {aiKey.slice(0, 6)}...{aiKey.slice(-4)}
+                    </span>
+                  </div>
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <svg
+                        className="w-[13px] h-[13px] text-gray-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
+                        />
+                      </svg>
+                      <span className="text-sm text-gray-600">Model</span>
+                    </div>
+                    <span className="text-xs text-gray-700 font-medium">
+                      {aiProvider === 'anthropic' ? 'Claude Sonnet 4' : 'GPT-4o'}
+                    </span>
+                  </div>
+                  <div className="px-4 py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Shield size={13} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">Storage</span>
+                    </div>
+                    <span className="text-xs text-gray-700 font-medium">Encrypted, local only</span>
+                  </div>
+                </div>
+
+                {/* Shortcuts card */}
+                <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <Keyboard size={13} className="text-gray-500" />
+                    <p className="text-sm font-medium text-gray-700">Shortcuts</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    {[
+                      { keys: [cmdKey, '↵'], label: 'AI Suggestion' },
+                      { keys: [cmdKey, 'R'], label: 'Toggle Recording' },
+                      { keys: [cmdKey, '\\'], label: 'Toggle Overlay' },
+                    ].map((shortcut) => (
+                      <div
+                        key={shortcut.label}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="text-xs text-gray-500">{shortcut.label}</span>
+                        <div className="flex items-center gap-1">
+                          {shortcut.keys.map((key, ki) => (
+                            <kbd
+                              key={ki}
+                              className="min-w-[24px] h-5 px-1.5 flex items-center justify-center text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded shadow-sm"
+                            >
+                              {key}
+                            </kbd>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <svg
+                      className="w-4 h-4 text-red-500 mt-0.5 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={handleBack}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
+                  >
+                    <ArrowLeft size={14} />
+                    Back
+                  </button>
+                  <button
+                    onClick={handleSaveKeys}
+                    disabled={validating}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 disabled:from-blue-400 disabled:to-blue-600 disabled:opacity-70 text-white rounded-xl text-sm font-medium shadow-sm transition-all"
+                  >
+                    {validating ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        Validating...
+                      </>
+                    ) : (
+                      <>
+                        <img
+                          src={ravenLogo}
+                          alt=""
+                          className="w-4 h-4 brightness-0 invert"
+                          draggable={false}
+                        />
+                        Launch Raven
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

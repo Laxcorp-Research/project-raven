@@ -139,6 +139,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 function ApiKeysTab() {
   const [deepgramKey, setDeepgramKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
+  const [showOpenai, setShowOpenai] = useState(false)
+  const [aiProvider, setAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
+  const [aiModel, setAiModel] = useState('claude-sonnet-4-20250514')
+  const [originalAiProvider, setOriginalAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
+  const [originalAiModel, setOriginalAiModel] = useState('claude-sonnet-4-20250514')
+  const [originalOpenaiKey, setOriginalOpenaiKey] = useState('')
   const [showDeepgram, setShowDeepgram] = useState(false)
   const [showAnthropic, setShowAnthropic] = useState(false)
   const [originalDeepgramKey, setOriginalDeepgramKey] = useState('')
@@ -146,6 +153,7 @@ function ApiKeysTab() {
   const [deepgramStatus, setDeepgramStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [anthropicStatus, setAnthropicStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [isSaving, setIsSaving] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -163,6 +171,12 @@ function ApiKeysTab() {
           setOriginalAnthropicKey(anKey)
           setAnthropicStatus('valid')
         }
+        const oaiKey = (await window.raven.storeGet('openaiApiKey')) as string
+        if (oaiKey) { setOpenaiKey(oaiKey); setOriginalOpenaiKey(oaiKey) }
+        const prov = (await window.raven.storeGet('aiProvider')) as string
+        if (prov === 'anthropic' || prov === 'openai') { setAiProvider(prov); setOriginalAiProvider(prov) }
+        const mdl = (await window.raven.storeGet('aiModel')) as string
+        if (mdl) { setAiModel(mdl); setOriginalAiModel(mdl) }
       } catch (error) {
         console.error('Failed to load API keys:', error)
       }
@@ -171,24 +185,41 @@ function ApiKeysTab() {
   }, [])
 
   const hasChanges =
-    deepgramKey.trim() !== originalDeepgramKey || anthropicKey.trim() !== originalAnthropicKey
-  const canSave = hasChanges && !!deepgramKey.trim() && !!anthropicKey.trim()
+    deepgramKey.trim() !== originalDeepgramKey
+    || anthropicKey.trim() !== originalAnthropicKey
+    || openaiKey.trim() !== originalOpenaiKey
+    || aiProvider !== originalAiProvider
+    || aiModel !== originalAiModel
+  const canSave = hasChanges
 
-  const validateKeys = async () => {
-    if (!deepgramKey.trim() || !anthropicKey.trim()) {
-      setSaveMessage({ type: 'error', text: 'Both API keys are required' })
+  const validateKeys = async (showSuccessMessage = true) => {
+    if (!deepgramKey.trim()) {
+      setSaveMessage({ type: 'error', text: 'Deepgram API key is required' })
+      return false
+    }
+
+    if (aiProvider === 'anthropic' && !anthropicKey.trim()) {
+      setSaveMessage({ type: 'error', text: 'Anthropic API key is required' })
+      return false
+    }
+
+    if (aiProvider === 'openai' && !openaiKey.trim()) {
+      setSaveMessage({ type: 'error', text: 'OpenAI API key is required' })
       return false
     }
 
     setDeepgramStatus('validating')
-    setAnthropicStatus('validating')
+    if (aiProvider === 'anthropic') setAnthropicStatus('validating')
     setSaveMessage(null)
 
     try {
-      const result = await window.raven.validateApiKeys(deepgramKey.trim(), anthropicKey.trim())
-      if (result.valid) {
+      const aiKey = aiProvider === 'anthropic' ? anthropicKey.trim() : (anthropicKey.trim() || 'skip')
+      const result = await window.raven.validateApiKeys(deepgramKey.trim(), aiKey)
+
+      if (result.valid || (aiProvider === 'openai' && !result.error?.toLowerCase().includes('deepgram'))) {
         setDeepgramStatus('valid')
-        setAnthropicStatus('valid')
+        if (aiProvider === 'anthropic') setAnthropicStatus('valid')
+        if (showSuccessMessage) setSaveMessage({ type: 'success', text: 'Connection verified successfully' })
         return true
       }
 
@@ -207,7 +238,7 @@ function ApiKeysTab() {
     } catch (error) {
       setDeepgramStatus('invalid')
       setAnthropicStatus('invalid')
-      setSaveMessage({ type: 'error', text: 'Failed to validate API keys' })
+      setSaveMessage({ type: 'error', text: 'Failed to validate connection' })
       return false
     }
   }
@@ -216,13 +247,19 @@ function ApiKeysTab() {
     setIsSaving(true)
     setSaveMessage(null)
 
-    const isValid = await validateKeys()
+    const isValid = await validateKeys(false)
     if (isValid) {
       try {
         await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim())
-        setSaveMessage({ type: 'success', text: 'API keys saved successfully' })
+        await window.raven.storeSet('openaiApiKey', openaiKey.trim())
+        await window.raven.storeSet('aiProvider', aiProvider)
+        await window.raven.storeSet('aiModel', aiModel)
+        setSaveMessage({ type: 'success', text: 'Settings saved successfully' })
         setOriginalDeepgramKey(deepgramKey.trim())
         setOriginalAnthropicKey(anthropicKey.trim())
+        setOriginalOpenaiKey(openaiKey.trim())
+        setOriginalAiProvider(aiProvider)
+        setOriginalAiModel(aiModel)
       } catch (error) {
         setSaveMessage({ type: 'error', text: 'Failed to save API keys' })
       }
@@ -377,6 +414,114 @@ function ApiKeysTab() {
         <p className="text-xs text-gray-400">Used for AI-powered meeting assistance (Claude)</p>
       </div>
 
+      {/* OpenAI API Key */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="block text-sm font-medium text-gray-700">
+            OpenAI API Key <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              window.raven.openExternal('https://platform.openai.com/api-keys')
+            }}
+            className="text-xs text-blue-600 hover:text-blue-700"
+          >
+            Get API Key &rarr;
+          </a>
+        </div>
+        <div className="relative">
+          <input
+            type={showOpenai ? 'text' : 'password'}
+            value={openaiKey}
+            onChange={(e) => setOpenaiKey(e.target.value)}
+            placeholder="sk-..."
+            className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowOpenai(!showOpenai)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {showOpenai ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M3 3l18 18" />
+              ) : (
+                <>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">Required only if using OpenAI as your AI provider</p>
+      </div>
+
+      {/* AI Provider Selection */}
+      <div className="mt-6 pt-6 border-t border-gray-200 space-y-4">
+        <h4 className="text-sm font-medium text-gray-900">AI Provider</h4>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setAiProvider('anthropic')
+              setAiModel('claude-sonnet-4-20250514')
+              setSaveMessage(null)
+            }}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
+              aiProvider === 'anthropic'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <div className="font-medium">Anthropic</div>
+            <div className="text-xs mt-0.5 opacity-70">Claude models</div>
+          </button>
+          <button
+            onClick={() => {
+              setAiProvider('openai')
+              setAiModel('gpt-4o')
+              setSaveMessage(null)
+            }}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
+              aiProvider === 'openai'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <div className="font-medium">OpenAI</div>
+            <div className="text-xs mt-0.5 opacity-70">GPT models</div>
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-xs font-medium text-gray-500">Model</label>
+          <select
+            value={aiModel}
+            onChange={(e) => {
+              setAiModel(e.target.value)
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 bg-white"
+          >
+            {aiProvider === 'anthropic' ? (
+              <>
+                <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (recommended)</option>
+                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                <option value="claude-3-haiku-20240307">Claude 3 Haiku (fast/cheap)</option>
+              </>
+            ) : (
+              <>
+                <option value="gpt-4o">GPT-4o (recommended)</option>
+                <option value="gpt-4o-mini">GPT-4o Mini (fast/cheap)</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (cheapest)</option>
+              </>
+            )}
+          </select>
+        </div>
+      </div>
+
       {saveMessage && (
         <div className={`p-3 rounded-lg text-sm ${
           saveMessage.type === 'success'
@@ -396,11 +541,15 @@ function ApiKeysTab() {
           {isSaving ? 'Validating...' : hasChanges ? 'Save & Validate' : 'Saved ✓'}
         </button>
         <button
-          onClick={validateKeys}
-          disabled={isSaving || !deepgramKey.trim() || !anthropicKey.trim()}
+          onClick={async () => {
+            setIsTesting(true)
+            await validateKeys()
+            setIsTesting(false)
+          }}
+          disabled={isSaving || isTesting}
           className="px-4 py-2 text-gray-600 text-sm font-medium hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Test Connection
+          {isTesting ? 'Testing...' : 'Test Connection'}
         </button>
       </div>
 

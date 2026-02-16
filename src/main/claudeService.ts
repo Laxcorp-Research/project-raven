@@ -1,7 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
+import { getProviderFromStore } from './services/ai/providerFactory';
+import type { AIMessage, AIContentPart } from './services/ai/types';
 
 interface ChatMessage {
   id: string;
@@ -63,23 +64,16 @@ const ACTION_PROMPTS: Record<string, string> = {
 };
 
 /**
- * Generate a session title from transcript using Claude
+ * Generate a session title using the active AI provider
  */
 export async function generateSessionTitle(
-  anthropicApiKey: string,
+  _anthropicApiKey: string,
   transcriptText: string
 ): Promise<string> {
-  if (!anthropicApiKey) {
-    throw new Error('Anthropic API key not configured');
-  }
-
   try {
-    const response = await (new Anthropic({ apiKey: anthropicApiKey })).messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 30,
-      messages: [{
-        role: 'user',
-        content: `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
+    const provider = await getProviderFromStore();
+
+    const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
 
 <transcript>
 ${transcriptText.slice(0, 1500)}
@@ -90,11 +84,9 @@ Good titles: "Q4 Sales Review", "Marketing Budget Discussion", "Team Standup Mee
 Bad titles: "I'd be happy to help...", "Here's a title:", "The conversation is about..."
 </examples>
 
-Title:`
-      }],
-    });
+Title:`;
 
-    let title = (response.content[0] as any).text?.trim() || 'Untitled Session';
+    let title = await provider.generateShort({ prompt, maxTokens: 30 });
 
     title = title
       .replace(/^["']|["']$/g, '')
@@ -113,13 +105,12 @@ Title:`
 
     return title.length > 50 ? title.slice(0, 47) + '...' : title;
   } catch (error) {
-    console.error('[ClaudeService] Title generation failed:', error);
+    console.error('[AIService] Title generation failed:', error);
     throw error;
   }
 }
 
 export class ClaudeService {
-  private client: Anthropic | null = null;
   private overlayWindow: BrowserWindow | null = null;
   private isProcessing = false;
   private conversation: ConversationState = {
@@ -146,21 +137,13 @@ export class ClaudeService {
       includeScreenshot?: boolean;
     }) => {
       try {
-        const Store = (await import('electron-store')).default;
-        const store = new Store();
-        const apiKey = store.get('anthropicApiKey', '') as string;
-
-        if (!apiKey) {
-          this.broadcastError('No Anthropic API key configured. Add it in Settings.');
-          return;
-        }
+        const provider = await getProviderFromStore();
 
         if (this.isProcessing) {
-          console.log('[ClaudeService] Ignoring request while processing is active');
+          console.log('[AIService] Ignoring request while processing is active');
           return;
         }
 
-        this.client = new Anthropic({ apiKey });
         this.isProcessing = true;
 
         const screenshotAttachment = params.includeScreenshot
@@ -195,10 +178,7 @@ export class ClaudeService {
           },
         });
 
-        const claudeMessages = this.buildClaudeMessages(
-          userMessageContent,
-          screenshotAttachment
-        );
+        const aiMessages = this.buildAIMessages(userMessageContent, screenshotAttachment);
 
         let ragChunks: Array<{ chunkText: string; fileName: string; score: number }> = [];
         if (params.modeId) {
@@ -207,30 +187,37 @@ export class ClaudeService {
             const queryText = params.customPrompt || params.transcript.slice(-500) || params.action;
             ragChunks = await retrieveRelevantChunks(params.modeId, queryText, 5);
           } catch (err) {
-            console.error('[ClaudeService] RAG retrieval failed (non-fatal):', err);
+            console.error('[AIService] RAG retrieval failed (non-fatal):', err);
           }
         }
 
         let fullResponse = '';
 
-        const stream = this.client.messages.stream({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1024,
-          system: buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined),
-          messages: claudeMessages,
-        });
-
-        stream.on('text', (text) => {
-          fullResponse += text;
-          this.broadcast({
-            type: 'delta',
-            messageId: assistantMessageId,
-            text,
-            fullText: fullResponse,
-          });
-        });
-
-        await stream.finalMessage();
+        await provider.streamResponse(
+          {
+            system: buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined),
+            messages: aiMessages,
+            maxTokens: 1024,
+          },
+          {
+            onText: (text) => {
+              fullResponse += text;
+              this.broadcast({
+                type: 'delta',
+                messageId: assistantMessageId,
+                text,
+                fullText: fullResponse,
+              });
+            },
+            onDone: () => {
+              // handled below after await
+            },
+            onError: (errorMsg) => {
+              this.isProcessing = false;
+              this.broadcastError(errorMsg);
+            },
+          }
+        );
 
         const assistantMessage: ChatMessage = {
           id: assistantMessageId,
@@ -265,11 +252,8 @@ export class ClaudeService {
       } catch (error: any) {
         this.isProcessing = false;
         let errorMsg = 'Failed to get AI response.';
-        if (error?.status === 401) errorMsg = 'Invalid Anthropic API key. Check settings.';
-        else if (error?.status === 429) errorMsg = 'Rate limited. Wait a moment and try again.';
-        else if (error?.status === 529) errorMsg = 'Claude is overloaded. Try again shortly.';
-        else if (error?.message) errorMsg = `AI error: ${error.message}`;
-        console.error('[ClaudeService] Error:', error);
+        if (error?.message) errorMsg = error.message;
+        console.error('[AIService] Error:', error);
         this.broadcastError(errorMsg);
       }
     });
@@ -324,33 +308,11 @@ export class ClaudeService {
     return message;
   }
 
-  private buildClaudeMessages(
+  private buildAIMessages(
     currentUserMessage: string,
     screenshot: ScreenshotAttachment | null
-  ): Array<{
-    role: 'user' | 'assistant';
-    content:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | {
-              type: 'image';
-              source: { type: 'base64'; media_type: string; data: string };
-            }
-        >;
-  }> {
-    const messages: Array<{
-      role: 'user' | 'assistant';
-      content:
-        | string
-        | Array<
-            | { type: 'text'; text: string }
-            | {
-                type: 'image';
-                source: { type: 'base64'; media_type: string; data: string };
-              }
-          >;
-    }> = [];
+  ): AIMessage[] {
+    const messages: AIMessage[] = [];
 
     const recentHistory = this.conversation.messages.slice(-20);
 
@@ -365,25 +327,17 @@ export class ClaudeService {
     }
 
     if (screenshot) {
-      messages.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: currentUserMessage },
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: screenshot.mediaType,
-              data: screenshot.data,
-            },
-          },
-        ],
-      });
+      const parts: AIContentPart[] = [
+        { type: 'text', text: currentUserMessage },
+        {
+          type: 'image',
+          base64: screenshot.data,
+          mediaType: screenshot.mediaType,
+        },
+      ];
+      messages.push({ role: 'user', content: parts });
     } else {
-      messages.push({
-        role: 'user',
-        content: currentUserMessage,
-      });
+      messages.push({ role: 'user', content: currentUserMessage });
     }
 
     return messages;
@@ -405,7 +359,6 @@ export class ClaudeService {
     const originalContentProtection = new Map<BrowserWindow, boolean>();
 
     try {
-      // Prevent all Raven windows from appearing in captured frames without changing visibility.
       for (const win of appWindows) {
         const currentProtected = typeof win.isContentProtected === 'function'
           ? win.isContentProtected()
@@ -414,7 +367,6 @@ export class ClaudeService {
         win.setContentProtection(true);
       }
 
-      // Small delay so compositor applies content protection before capture.
       await this.sleep(45);
 
       const primaryDisplay = screen.getPrimaryDisplay();
@@ -434,7 +386,7 @@ export class ClaudeService {
       const targetDisplayId = String(primaryDisplay.id);
       const source = sources.find((candidate) => candidate.display_id === targetDisplayId) || sources[0];
       if (!source || source.thumbnail.isEmpty()) {
-        console.warn('[ClaudeService] Screenshot capture returned empty thumbnail');
+        console.warn('[AIService] Screenshot capture returned empty thumbnail');
         return null;
       }
 
@@ -444,7 +396,7 @@ export class ClaudeService {
         previewData: source.thumbnail.resize({ width: 320 }).toPNG().toString('base64'),
       };
     } catch (error) {
-      console.error('[ClaudeService] Failed to capture screenshot:', error);
+      console.error('[AIService] Failed to capture screenshot:', error);
       return null;
     } finally {
       for (const win of appWindows) {
@@ -478,7 +430,7 @@ export class ClaudeService {
         this.overlayWindow.webContents.send('claude:response', data);
       }
     } catch (err) {
-      console.error('[ClaudeService] Broadcast error:', err);
+      console.error('[AIService] Broadcast error:', err);
     }
   }
 

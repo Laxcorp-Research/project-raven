@@ -23,6 +23,11 @@ export interface LocalSettings {
   transcriptionLanguage: string;
   outputLanguage: string;
 
+  // AI Provider
+  aiProvider: 'anthropic' | 'openai';
+  aiModel: string;
+  openaiApiKey: string;
+
   // Active mode
   activeModeId: string | null;
 
@@ -46,6 +51,9 @@ const store = new Store<LocalSettings>({
     openOnLogin: false,
     transcriptionLanguage: 'en',
     outputLanguage: 'en',
+    aiProvider: 'anthropic',
+    aiModel: 'claude-sonnet-4-20250514',
+    openaiApiKey: '',
     activeModeId: null,
     accessToken: null,
     refreshToken: null,
@@ -73,6 +81,9 @@ export function getAllSettings(): LocalSettings {
     openOnLogin: store.get('openOnLogin'),
     transcriptionLanguage: store.get('transcriptionLanguage'),
     outputLanguage: store.get('outputLanguage'),
+    aiProvider: store.get('aiProvider'),
+    aiModel: store.get('aiModel'),
+    openaiApiKey: store.get('openaiApiKey'),
     activeModeId: store.get('activeModeId'),
     accessToken: store.get('accessToken'),
     refreshToken: store.get('refreshToken'),
