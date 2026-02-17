@@ -1496,7 +1496,7 @@ function AboutTab() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.15),transparent_60%)]" />
         <div className="relative flex items-center gap-4">
           <img
-            src={new URL('../../../../../logo/Raven.svg', import.meta.url).href}
+            src={new URL('../../../../../logo/raven.svg', import.meta.url).href}
             alt="Raven"
             className="w-14 h-14 drop-shadow-lg"
             draggable={false}

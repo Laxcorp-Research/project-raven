@@ -6,7 +6,7 @@ import { ModeEditorModal } from './ModeEditorModal'
 const log = createLogger('Header')
 import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
-import ravenLogo from '../../../../../logo/Raven.svg'
+import ravenLogo from '../../../../../logo/raven.svg'
 
 interface SearchResult {
   id: string

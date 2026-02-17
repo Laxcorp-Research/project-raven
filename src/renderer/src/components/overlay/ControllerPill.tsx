@@ -5,7 +5,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent
 } from 'react'
-import ravenLogo from '../../../../../logo/Raven.svg'
+import ravenLogo from '../../../../../logo/raven.svg'
 
 interface ControllerPillProps {
   stealthEnabled: boolean
