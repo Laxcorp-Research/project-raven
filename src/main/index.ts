@@ -6,6 +6,7 @@ import { registerIpcHandlers } from './ipc'
 import {
   createDashboardWindow,
   createOverlayWindow,
+  getDashboardWindow,
   getOverlayWindow,
   setStealthMode
 } from './windowManager'
@@ -643,11 +644,24 @@ app.whenReady().then(() => {
   })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) boot()
+    const dashboard = getDashboardWindow()
+    if (dashboard && !dashboard.isDestroyed()) {
+      dashboard.show()
+      dashboard.focus()
+    } else if (BrowserWindow.getAllWindows().length === 0) {
+      boot()
+    }
   })
 })
 
 app.on('before-quit', () => {
+  // Force-close the dashboard window (bypass the hide-on-close behavior)
+  const dashboard = getDashboardWindow()
+  if (dashboard && !dashboard.isDestroyed()) {
+    dashboard.removeAllListeners('close')
+    dashboard.close()
+  }
+
   if (testTranscriptionWs) {
     try {
       testTranscriptionWs.close()

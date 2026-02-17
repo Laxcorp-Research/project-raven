@@ -79,6 +79,14 @@ npm run dev
 
 > See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed build prerequisites and troubleshooting.
 
+**`better-sqlite3` native module error:**
+
+If you see `NODE_MODULE_VERSION` mismatch errors after `npm install`, rebuild the native module for Electron:
+
+```bash
+npx electron-rebuild -f -w better-sqlite3
+```
+
 On first launch, you'll be prompted to enter your API keys.
 
 ## ⌨️ Keyboard Shortcuts

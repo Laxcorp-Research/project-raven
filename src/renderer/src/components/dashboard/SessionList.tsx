@@ -280,7 +280,8 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
             {groupSessions.map((session) => {
               const isActive = session.id === activeId
-              const isProcessing = !isActive && (!session.title || session.title === 'Untitled Session') && session.duration > 0
+              const sessionAgeMs = Date.now() - session.updatedAt
+              const isProcessing = !isActive && (!session.title || session.title === 'Untitled Session') && session.duration > 0 && sessionAgeMs < 120_000
               const displayTitle = isActive
                 ? 'Untitled session'
                 : regeneratingId === session.id

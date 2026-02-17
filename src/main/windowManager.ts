@@ -85,6 +85,14 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     dashboardWindow?.show()
   })
 
+  // On macOS, hide instead of close so the window can be re-shown
+  dashboardWindow.on('close', (e) => {
+    if (process.platform === 'darwin' && dashboardWindow && !dashboardWindow.isDestroyed()) {
+      e.preventDefault()
+      dashboardWindow.hide()
+    }
+  })
+
   dashboardWindow.on('closed', () => {
     dashboardWindow = null
   })
