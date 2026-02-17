@@ -199,7 +199,6 @@ describe('Database Round-Trip Integration (mocked SQLite)', () => {
         color: '#8b5cf6',
         is_default: 1,
         is_builtin: 1,
-        quick_actions_json: '[]',
         created_at: now,
         updated_at: now,
       })
@@ -308,23 +307,6 @@ describe('Database Round-Trip Integration (mocked SQLite)', () => {
       expect(parsed[1].source).toBe('system')
     })
 
-    it('quick_actions_json round-trips correctly', () => {
-      const actions = [
-        { id: 'a1', label: 'Help', prompt: 'Help me', icon: '💡' },
-        { id: 'a2', label: 'Clarify', prompt: 'Clarify this', icon: '❓' },
-      ]
-
-      modes.insert({
-        id: 'qa-test',
-        quick_actions_json: JSON.stringify(actions),
-      })
-
-      const row = modes.findById('qa-test')
-      const parsed = JSON.parse(row!.quick_actions_json as string)
-
-      expect(parsed).toHaveLength(2)
-      expect(parsed[0].label).toBe('Help')
-    })
 
     it('embedding_json round-trips correctly', () => {
       const embedding = [0.1, 0.2, 0.3, 0.4, 0.5]

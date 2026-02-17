@@ -1,12 +1,18 @@
-import { vi, describe, it, expect } from 'vitest'
+import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-const { mockUpdateMode } = vi.hoisted(() => ({
+const { mockUpdateMode, mockGetAllModes, mockCreateMode, mockSetActiveMode } = vi.hoisted(() => ({
   mockUpdateMode: vi.fn(),
+  mockGetAllModes: vi.fn(),
+  mockCreateMode: vi.fn(),
+  mockSetActiveMode: vi.fn(),
 }))
 
 vi.mock('../services/database', () => ({
   databaseService: {
     updateMode: mockUpdateMode,
+    getAllModes: mockGetAllModes,
+    createMode: mockCreateMode,
+    setActiveMode: mockSetActiveMode,
   },
 }))
 
@@ -22,6 +28,10 @@ vi.mock('../logger', () => ({
 import { seedBuiltinModes, resetBuiltinMode, getBuiltinModeDefaults, BUILTIN_MODES } from '../services/builtinModes'
 
 describe('builtinModes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   describe('BUILTIN_MODES', () => {
     it('defines expected mode IDs', () => {
       const ids = BUILTIN_MODES.map((m) => m.id)
@@ -38,26 +48,56 @@ describe('builtinModes', () => {
         expect(mode.icon).toBeTruthy()
         expect(mode.color).toBeTruthy()
         expect(mode.systemPrompt).toBeTruthy()
-        expect(mode.quickActions.length).toBeGreaterThan(0)
-      }
-    })
-
-    it('each quick action has id, label, and prompt', () => {
-      for (const mode of BUILTIN_MODES) {
-        for (const action of mode.quickActions) {
-          expect(action.id).toBeTruthy()
-          expect(action.label).toBeTruthy()
-          expect(action.prompt).toBeTruthy()
-        }
       }
     })
   })
 
   describe('seedBuiltinModes', () => {
-    it('is a no-op (templates are on-demand)', () => {
+    it('creates default mode when no modes exist', () => {
+      mockGetAllModes.mockReturnValue([])
+      mockCreateMode.mockReturnValue({ id: 'new-mode', name: 'General Assistant' })
+
       seedBuiltinModes()
-      // Should not throw or interact with database
-      expect(mockUpdateMode).not.toHaveBeenCalled()
+
+      expect(mockCreateMode).toHaveBeenCalledTimes(1)
+      expect(mockCreateMode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'General Assistant',
+          isDefault: true,
+        })
+      )
+    })
+
+    it('does not create mode when modes already exist', () => {
+      mockGetAllModes.mockReturnValue([{ id: 'existing', isDefault: true }])
+
+      seedBuiltinModes()
+
+      expect(mockCreateMode).not.toHaveBeenCalled()
+    })
+
+    it('sets first mode as active when no active mode exists', () => {
+      mockGetAllModes.mockReturnValue([
+        { id: 'mode-1', isDefault: false },
+        { id: 'mode-2', isDefault: false },
+      ])
+
+      seedBuiltinModes()
+
+      expect(mockSetActiveMode).toHaveBeenCalledWith('mode-1')
+      expect(mockCreateMode).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when active mode already exists', () => {
+      mockGetAllModes.mockReturnValue([
+        { id: 'mode-1', isDefault: true },
+        { id: 'mode-2', isDefault: false },
+      ])
+
+      seedBuiltinModes()
+
+      expect(mockCreateMode).not.toHaveBeenCalled()
+      expect(mockSetActiveMode).not.toHaveBeenCalled()
     })
   })
 
@@ -71,9 +111,6 @@ describe('builtinModes', () => {
         systemPrompt: expect.stringContaining('expert interview coach'),
         icon: '💼',
         color: '#8b5cf6',
-        quickActions: expect.arrayContaining([
-          expect.objectContaining({ id: 'interview-assist' }),
-        ]),
       })
     })
 

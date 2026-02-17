@@ -168,8 +168,8 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
   useEffect(() => {
     if (isOpen) {
-      loadModes()
       setShowTemplates(false)
+      loadModes(true)
     }
   }, [isOpen])
 
@@ -251,7 +251,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  async function loadModes() {
+  async function loadModes(resetSelection = false) {
     try {
       setIsLoading(true)
       const [allModes, active] = await Promise.all([
@@ -262,9 +262,11 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setModes(userModes)
       setActiveMode(active && !active.isBuiltin ? active : null)
 
-      if (userModes.length > 0 && !selectedMode) {
-        setSelectedMode(userModes[0])
+      if (userModes.length > 0 && (resetSelection || !selectedMode)) {
+        const activeInList = active ? userModes.find((m) => m.id === active.id) : null
+        setSelectedMode(activeInList || userModes[0])
       } else if (userModes.length === 0) {
+        setSelectedMode(null)
         setShowTemplates(true)
       }
     } catch (err) {
@@ -306,7 +308,6 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
         color: '#6b7280',
         isDefault: false,
         isBuiltin: false,
-        quickActions: [],
         notesTemplate: null,
       })
       await loadModes()
@@ -326,7 +327,6 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
         color: template.color,
         isDefault: false,
         isBuiltin: false,
-        quickActions: [],
         notesTemplate: template.notesTemplate || null,
       })
       await loadModes()
@@ -362,10 +362,15 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
     setToast({ message: 'Deleting mode...', type: 'loading' })
 
     try {
-      await Promise.all([
+      const [result] = await Promise.all([
         window.raven.modes.delete(modeToDelete.id),
         new Promise((resolve) => setTimeout(resolve, 2000)),
       ])
+
+      if (!result.success) {
+        setToast({ message: result.error || 'Failed to delete mode', type: 'error' })
+        return
+      }
 
       setToast({ message: 'Deleted mode', type: 'success' })
 
@@ -642,7 +647,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                           </svg>
                         </button>
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                        <div className="absolute top-full left-0 mt-1 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                           Upload files as context
                         </div>
                       </div>

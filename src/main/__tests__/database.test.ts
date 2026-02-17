@@ -40,7 +40,6 @@ function rowToMode(row: ModeRow) {
     color: row.color,
     isDefault: row.is_default === 1,
     isBuiltin: row.is_builtin === 1,
-    quickActions: JSON.parse(row.quick_actions_json),
     notesTemplate: row.notes_template_json ? JSON.parse(row.notes_template_json) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -171,7 +170,6 @@ describe('rowToMode', () => {
       color: '#3b82f6',
       is_default: 1,
       is_builtin: 0,
-      quick_actions_json: '[]',
       notes_template_json: null,
       created_at: 1000,
       updated_at: 1000,
@@ -184,32 +182,6 @@ describe('rowToMode', () => {
     expect(typeof mode.isBuiltin).toBe('boolean');
   });
 
-  it('parses quickActions JSON', () => {
-    const quickActions = [
-      { id: 'qa1', label: 'Pitch', prompt: 'Give me a pitch' },
-      { id: 'qa2', label: 'Objection', prompt: 'Handle objection' },
-    ];
-
-    const row: ModeRow = {
-      id: 'mode-2',
-      name: 'Sales',
-      system_prompt: 'Sales help',
-      icon: '💰',
-      color: '#10b981',
-      is_default: 0,
-      is_builtin: 1,
-      quick_actions_json: JSON.stringify(quickActions),
-      notes_template_json: null,
-      created_at: 1000,
-      updated_at: 1000,
-    };
-
-    const mode = rowToMode(row);
-    expect(mode.quickActions).toHaveLength(2);
-    expect(mode.quickActions[0].label).toBe('Pitch');
-    expect(mode.quickActions[1].id).toBe('qa2');
-  });
-
   it('handles null notesTemplate', () => {
     const row: ModeRow = {
       id: 'mode-3',
@@ -219,7 +191,6 @@ describe('rowToMode', () => {
       color: '#6366f1',
       is_default: 0,
       is_builtin: 0,
-      quick_actions_json: '[]',
       notes_template_json: null,
       created_at: 1000,
       updated_at: 1000,
@@ -242,7 +213,6 @@ describe('rowToMode', () => {
       color: '#8b5cf6',
       is_default: 0,
       is_builtin: 0,
-      quick_actions_json: '[]',
       notes_template_json: JSON.stringify(notes),
       created_at: 1000,
       updated_at: 1000,

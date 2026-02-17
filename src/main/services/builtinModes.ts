@@ -14,7 +14,6 @@ export interface BuiltinModeDefinition {
   icon: string;
   color: string;
   systemPrompt: string;
-  quickActions: { id: string; label: string; prompt: string; icon?: string }[];
 }
 
 export const BUILTIN_MODES: BuiltinModeDefinition[] = [
@@ -38,12 +37,6 @@ Guidelines:
 - Focus on highlighting achievements and relevant experience
 - Help turn weaknesses into growth opportunities
 - Maintain professional, confident tone`,
-    quickActions: [
-      { id: 'interview-assist', label: 'Help me answer', prompt: 'Help me formulate a strong answer to the question that was just asked. Use the STAR method if it\'s a behavioral question.', icon: '💡' },
-      { id: 'interview-clarify', label: 'Clarify question', prompt: 'Help me ask a clarifying question about what was just asked to make sure I understand correctly.', icon: '❓' },
-      { id: 'interview-followup', label: 'Question to ask', prompt: 'Suggest a thoughtful follow-up question I could ask based on what we\'ve discussed.', icon: '🎯' },
-      { id: 'interview-recap', label: 'Key points', prompt: 'Summarize the key points from this conversation that I should remember.', icon: '📝' },
-    ],
   },
   {
     id: 'mode-sales',
@@ -65,12 +58,6 @@ Guidelines:
 - Help pivot objections into opportunities
 - Maintain a consultative, not pushy, tone
 - Suggest questions that uncover pain points`,
-    quickActions: [
-      { id: 'sales-objection', label: 'Handle objection', prompt: 'Help me respond to the objection or concern that was just raised. Focus on understanding their perspective and addressing it.', icon: '🛡️' },
-      { id: 'sales-value', label: 'Show value', prompt: 'Suggest how I can reinforce our value proposition based on what the prospect has shared.', icon: '💎' },
-      { id: 'sales-discover', label: 'Discovery question', prompt: 'Suggest a discovery question to better understand their needs or pain points.', icon: '🔍' },
-      { id: 'sales-next', label: 'Next steps', prompt: 'Suggest how to advance this conversation toward next steps or a close.', icon: '➡️' },
-    ],
   },
   {
     id: 'mode-meeting',
@@ -92,12 +79,6 @@ Guidelines:
 - Attribute action items to specific people when mentioned
 - Flag items that seem unresolved
 - Focus on what's actionable`,
-    quickActions: [
-      { id: 'meeting-recap', label: 'Quick recap', prompt: 'Give me a quick recap of the key points discussed so far.', icon: '📝' },
-      { id: 'meeting-actions', label: 'Action items', prompt: 'List the action items mentioned so far, including who\'s responsible if stated.', icon: '✅' },
-      { id: 'meeting-decisions', label: 'Decisions made', prompt: 'Summarize the decisions that have been made in this meeting.', icon: '⚖️' },
-      { id: 'meeting-questions', label: 'Open questions', prompt: 'What questions or topics seem unresolved or need follow-up?', icon: '❓' },
-    ],
   },
   {
     id: 'mode-learning',
@@ -119,21 +100,54 @@ Guidelines:
 - Break down complex ideas into smaller parts
 - Encourage curiosity and deeper exploration
 - Be patient and supportive`,
-    quickActions: [
-      { id: 'learning-explain', label: 'Explain this', prompt: 'Explain the concept that was just discussed in simpler terms with an example.', icon: '💡' },
-      { id: 'learning-example', label: 'Give example', prompt: 'Provide a concrete, real-world example of what was just explained.', icon: '🎯' },
-      { id: 'learning-summary', label: 'Summarize', prompt: 'Summarize the key concepts covered so far in a clear, organized way.', icon: '📝' },
-      { id: 'learning-questions', label: 'Study questions', prompt: 'Suggest some questions I should be able to answer based on this material.', icon: '❓' },
-    ],
   },
 ];
 
 /**
- * Seed built-in modes - DISABLED
- * Templates now create modes on-demand, not pre-seeded
+ * Default mode used for new users who haven't created any modes yet.
+ * This is always seeded so there is an active mode available.
+ */
+const DEFAULT_MODE = {
+  name: 'General Assistant',
+  icon: '🎯',
+  color: '#6366f1',
+  systemPrompt: `You are a helpful AI assistant for live conversations. Adapt your style based on context — whether it's an interview, meeting, sales call, or casual discussion.
+
+Your role:
+- Listen to the live transcript and provide relevant, timely help
+- Answer questions, suggest talking points, and offer guidance
+- Be concise and actionable — the user is in a live conversation
+
+Guidelines:
+- Keep responses brief (2-4 sentences) unless asked for more
+- Use markdown formatting when helpful
+- Be direct — the user needs quick help, not essays
+- If you notice a question in the transcript, prioritize answering it`,
+  isDefault: true,
+  isBuiltin: false,
+  notesTemplate: null,
+};
+
+/**
+ * Seed default mode on first run.
+ * Ensures there is always an active mode for new users.
  */
 export function seedBuiltinModes(): void {
-  log.debug('Templates available on-demand, no seeding needed');
+  try {
+    const existingModes = databaseService.getAllModes();
+    if (existingModes.length === 0) {
+      log.info('No modes found — seeding default "General Assistant" mode');
+      databaseService.createMode(DEFAULT_MODE);
+    } else {
+      const hasActive = existingModes.some((m) => m.isDefault);
+      if (!hasActive) {
+        log.info('No active mode found — setting first mode as active');
+        databaseService.setActiveMode(existingModes[0].id);
+      }
+    }
+  } catch (err) {
+    log.error('Failed to seed default mode:', err);
+  }
 }
 
 /**
@@ -151,7 +165,6 @@ export function resetBuiltinMode(id: string): boolean {
     systemPrompt: modeDef.systemPrompt,
     icon: modeDef.icon,
     color: modeDef.color,
-    quickActions: modeDef.quickActions,
   });
 
   log.info('Reset mode to defaults:', modeDef.name);

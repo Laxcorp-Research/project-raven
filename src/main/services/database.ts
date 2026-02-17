@@ -29,13 +29,6 @@ export interface AIResponse {
   timestamp: number;
 }
 
-export interface QuickAction {
-  id: string;
-  label: string;
-  prompt: string;
-  icon?: string;
-}
-
 export interface Mode {
   id: string;
   name: string;
@@ -44,7 +37,6 @@ export interface Mode {
   color: string;
   isDefault: boolean;
   isBuiltin: boolean;
-  quickActions: QuickAction[];
   notesTemplate: NotesSection[] | null;
   createdAt: number;
   updatedAt: number;
@@ -92,7 +84,6 @@ export interface ModeRow {
   color: string;
   is_default: number;
   is_builtin: number;
-  quick_actions_json: string;
   notes_template_json: string | null;
   created_at: number;
   updated_at: number;
@@ -525,8 +516,8 @@ class DatabaseService {
 
     this.db
       .prepare(
-        `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, quick_actions_json, notes_template_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, notes_template_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullMode.id,
@@ -536,7 +527,6 @@ class DatabaseService {
         fullMode.color,
         fullMode.isDefault ? 1 : 0,
         fullMode.isBuiltin ? 1 : 0,
-        JSON.stringify(fullMode.quickActions),
         fullMode.notesTemplate ? JSON.stringify(fullMode.notesTemplate) : null,
         fullMode.createdAt,
         fullMode.updatedAt
@@ -633,10 +623,6 @@ class DatabaseService {
       setClauses.push('is_default = ?');
       values.push(updates.isDefault ? 1 : 0);
     }
-    if (updates.quickActions !== undefined) {
-      setClauses.push('quick_actions_json = ?');
-      values.push(JSON.stringify(updates.quickActions));
-    }
     if (updates.notesTemplate !== undefined) {
       setClauses.push('notes_template_json = ?');
       values.push(updates.notesTemplate ? JSON.stringify(updates.notesTemplate) : null);
@@ -652,24 +638,20 @@ class DatabaseService {
   }
 
   /**
-   * Delete a mode (only non-builtin)
+   * Delete a mode (cannot delete active or builtin modes)
    */
-  deleteMode(id: string): boolean {
+  deleteMode(id: string): { success: boolean; error?: string } {
     if (!this.db) throw new Error('Database not initialized');
 
     const mode = this.getMode(id);
-    if (!mode || mode.isBuiltin) {
-      log.warn('Cannot delete builtin mode:', id);
-      return false;
+    if (!mode) {
+      return { success: false, error: 'Mode not found' };
     }
-
+    if (mode.isBuiltin) {
+      return { success: false, error: 'Cannot delete a built-in mode' };
+    }
     if (mode.isDefault) {
-      const firstBuiltin = this.db
-        .prepare('SELECT id FROM modes WHERE is_builtin = 1 LIMIT 1')
-        .get() as { id: string } | undefined;
-      if (firstBuiltin) {
-        this.setActiveMode(firstBuiltin.id);
-      }
+      return { success: false, error: 'Cannot delete the active mode' };
     }
 
     const result = this.db
@@ -677,7 +659,7 @@ class DatabaseService {
       .run(id);
 
     log.debug('Deleted mode:', id, 'changes:', result.changes);
-    return result.changes > 0;
+    return { success: result.changes > 0 };
   }
 
   /**
@@ -696,7 +678,6 @@ class DatabaseService {
       color: original.color,
       isDefault: false,
       isBuiltin: false,
-      quickActions: original.quickActions,
       notesTemplate: original.notesTemplate,
     });
   }
@@ -726,7 +707,6 @@ class DatabaseService {
       color: row.color,
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
-      quickActions: JSON.parse(row.quick_actions_json),
       notesTemplate: row.notes_template_json ? JSON.parse(row.notes_template_json) : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

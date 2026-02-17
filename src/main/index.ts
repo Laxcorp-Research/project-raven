@@ -374,7 +374,7 @@ app.whenReady().then(() => {
       return databaseService.deleteMode(id)
     } catch (error) {
       ipcLog.error('modes:delete error:', error)
-      return false
+      return { success: false, error: 'Failed to delete mode' }
     }
   })
 

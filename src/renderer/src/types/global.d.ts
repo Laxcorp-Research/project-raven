@@ -15,12 +15,6 @@ interface AIResponse {
 }
 
 // Mode Types
-export interface QuickAction {
-  id: string;
-  label: string;
-  prompt: string;
-  icon?: string;
-}
 
 export interface NotesSection {
   id: string;
@@ -36,7 +30,6 @@ export interface Mode {
   color: string;
   isDefault: boolean;
   isBuiltin: boolean;
-  quickActions: QuickAction[];
   notesTemplate: NotesSection[] | null;
   createdAt: number;
   updatedAt: number;
@@ -139,7 +132,7 @@ declare global {
         get: (id: string) => Promise<Mode | null>;
         create: (mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Mode>;
         update: (id: string, updates: Partial<Omit<Mode, 'id' | 'isBuiltin' | 'createdAt'>>) => Promise<Mode | null>;
-        delete: (id: string) => Promise<boolean>;
+        delete: (id: string) => Promise<{ success: boolean; error?: string }>;
         duplicate: (id: string, newName: string) => Promise<Mode | null>;
         resetBuiltin: (id: string) => Promise<Mode | null>;
         getActive: () => Promise<Mode | null>;

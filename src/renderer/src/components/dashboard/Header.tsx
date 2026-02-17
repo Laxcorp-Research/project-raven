@@ -1,9 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { createLogger } from '../../lib/logger'
-import type { Mode } from '../../types/global'
 import { ModeEditorModal } from './ModeEditorModal'
-
-const log = createLogger('Header')
 import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
@@ -50,22 +46,17 @@ function getInitials(name: string): string {
 }
 
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
-  const [_modeDropdownOpen, setModeDropdownOpen] = useState(false)
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [_modes, setModes] = useState<Mode[]>([])
-  const [_activeMode, setActiveMode] = useState<Mode | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [profilePicData, setProfilePicData] = useState<string | null>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    loadModes()
     loadProfile()
   }, [])
 
@@ -88,9 +79,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setModeDropdownOpen(false)
-      }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setUserMenuOpen(false)
       }
@@ -98,12 +86,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-
-  useEffect(() => {
-    if (!modeEditorOpen) {
-      loadModes()
-    }
-  }, [modeEditorOpen])
 
   useEffect(() => {
     if (!searchOpen || !searchQuery.trim()) {
@@ -130,30 +112,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
     }
   }, [searchQuery, searchOpen])
-
-  async function loadModes() {
-    try {
-      const [allModes, active] = await Promise.all([
-        window.raven.modes.getAll(),
-        window.raven.modes.getActive(),
-      ])
-      setModes(allModes)
-      setActiveMode(active)
-    } catch (error) {
-      log.error('Failed to load modes:', error)
-    }
-  }
-
-  async function handleSelectMode(mode: Mode) {
-    try {
-      await window.raven.modes.setActive(mode.id)
-      setActiveMode(mode)
-      setModeDropdownOpen(false)
-    } catch (error) {
-      log.error('Failed to set active mode:', error)
-    }
-  }
-  void handleSelectMode
 
   return (
     <>

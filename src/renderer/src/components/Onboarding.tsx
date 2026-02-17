@@ -86,8 +86,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="flex flex-col h-screen bg-white">
+      {/* Draggable title bar area */}
+      <div
+        className="shrink-0 h-9"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
+
       {/* Fixed stepper - always in the same spot */}
-      <div className="pt-16 pb-6 flex justify-center">
+      <div className="pb-6 flex justify-center">
         <div className="flex items-center gap-0">
           {[1, 2, 3].map((s, i) => (
             <div key={s} className="flex items-center">

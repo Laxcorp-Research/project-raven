@@ -76,6 +76,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
 
   useEffect(() => {
+    if (isOpen) {
+      setActiveTab('profile')
+    }
+  }, [isOpen])
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         onClose()
