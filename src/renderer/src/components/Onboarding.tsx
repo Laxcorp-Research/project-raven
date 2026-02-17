@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2 } from 'lucide-react'
+import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2, Eye, EyeOff, Sparkles } from 'lucide-react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
 
 interface OnboardingProps {
@@ -17,6 +17,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [error, setError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
   const [fadeKey, setFadeKey] = useState(0)
+  const [showDeepgramKey, setShowDeepgramKey] = useState(false)
+  const [showAiKey, setShowAiKey] = useState(false)
 
   const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
@@ -45,17 +47,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setError(null)
 
     try {
-      const anthropicForValidation = aiProvider === 'anthropic' ? anthropicKey.trim() : 'skip'
-      const result = await window.raven.validateApiKeys(deepgramKey.trim(), anthropicForValidation)
+      const result = await window.raven.validateKeys(
+        deepgramKey.trim(),
+        aiProvider,
+        aiKey.trim()
+      )
 
       if (!result.valid) {
-        if (aiProvider === 'openai' && result.error?.toLowerCase().includes('anthropic')) {
-          // Skip anthropic validation error when using OpenAI
-        } else {
-          setError(result.error || 'Invalid API keys.')
-          setValidating(false)
-          return
-        }
+        setError(result.error || 'Invalid API keys.')
+        setValidating(false)
+        return
       }
 
       await window.raven.apiKeysSave(
@@ -172,13 +173,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         <ExternalLink size={10} />
                       </a>
                     </div>
-                    <input
-                      type="password"
-                      value={deepgramKey}
-                      onChange={(e) => setDeepgramKey(e.target.value)}
-                      placeholder="Enter your Deepgram API key"
-                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showDeepgramKey ? 'text' : 'password'}
+                        value={deepgramKey}
+                        onChange={(e) => setDeepgramKey(e.target.value)}
+                        placeholder="Enter your Deepgram API key"
+                        className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                      />
+                      {deepgramKey && (
+                        <button
+                          type="button"
+                          onClick={() => setShowDeepgramKey(!showDeepgramKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          {showDeepgramKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400">Speech-to-text. Free tier: $200 credit.</p>
                   </div>
 
@@ -232,13 +244,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                           <ExternalLink size={10} />
                         </a>
                       </div>
-                      <input
-                        type="password"
-                        value={anthropicKey}
-                        onChange={(e) => setAnthropicKey(e.target.value)}
-                        placeholder="sk-ant-..."
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAiKey ? 'text' : 'password'}
+                          value={anthropicKey}
+                          onChange={(e) => setAnthropicKey(e.target.value)}
+                          placeholder="sk-ant-..."
+                          className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                        />
+                        {anthropicKey && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAiKey(!showAiKey)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                          >
+                            {showAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-400">
                         Claude models. Pay-as-you-go.
                       </p>
@@ -259,13 +282,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                           <ExternalLink size={10} />
                         </a>
                       </div>
-                      <input
-                        type="password"
-                        value={openaiKey}
-                        onChange={(e) => setOpenaiKey(e.target.value)}
-                        placeholder="sk-..."
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAiKey ? 'text' : 'password'}
+                          value={openaiKey}
+                          onChange={(e) => setOpenaiKey(e.target.value)}
+                          placeholder="sk-..."
+                          className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                        />
+                        {openaiKey && (
+                          <button
+                            type="button"
+                            onClick={() => setShowAiKey(!showAiKey)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                          >
+                            {showAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-400">
                         GPT models. Pay-as-you-go.
                       </p>
@@ -344,19 +378,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </div>
                   <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
                     <div className="flex items-center gap-2">
-                      <svg
-                        className="w-[13px] h-[13px] text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
-                        />
-                      </svg>
+                      <Sparkles size={13} className="text-gray-400" />
                       <span className="text-sm text-gray-600">Model</span>
                     </div>
                     <span className="text-xs text-gray-700 font-medium">

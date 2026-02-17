@@ -89,6 +89,24 @@ On first launch, you'll be prompted to enter your API keys.
 | Start/Stop Recording | `Cmd + Shift + R` |
 | Get AI Suggestion | `Cmd + Enter` |
 
+## 🔧 Troubleshooting
+
+**Reset everything (fresh start):**
+
+Delete the config and database to wipe all data and re-trigger onboarding:
+
+```bash
+# macOS
+rm ~/Library/Application\ Support/project-raven/raven-config.json
+rm ~/Library/Application\ Support/project-raven/data/raven.db*
+
+# Windows
+del %APPDATA%\project-raven\raven-config.json
+del %APPDATA%\project-raven\data\raven.db*
+```
+
+> This clears API keys, settings, and all session history. You'll start completely fresh.
+
 ## 📦 Project Status
 
 - [x] **Phase A:** Foundation (two-window architecture, onboarding, hotkeys)

@@ -136,7 +136,7 @@ describe('generateSessionTitle', () => {
       generateShort: vi.fn().mockResolvedValue('"Q4 Sales Review"'),
     } as any);
 
-    const title = await generateSessionTitle('key', 'Alice: Let us discuss Q4 numbers');
+    const title = await generateSessionTitle('Alice: Let us discuss Q4 numbers');
 
     expect(title).toBe('Q4 Sales Review');
   });
@@ -146,7 +146,7 @@ describe('generateSessionTitle', () => {
       generateShort: vi.fn().mockResolvedValue("I'd be happy to help with that"),
     } as any);
 
-    await expect(generateSessionTitle('key', 'Some transcript'))
+    await expect(generateSessionTitle('Some transcript'))
       .rejects.toThrow('Invalid title format');
   });
 });

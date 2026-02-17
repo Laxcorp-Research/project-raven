@@ -202,19 +202,29 @@ function boot(): void {
 
   audioManager.setWindows(dashboard, overlay)
 
-  // Show overlay after dashboard is ready
-  dashboard.on('ready-to-show', () => {
-    // Small delay so overlay doesn't flash before dashboard
-    setTimeout(() => {
-      overlay.show()
-    }, 500)
-  })
+  // Only show overlay after onboarding is complete
+  const onboardingDone = getSetting('onboardingComplete')
+  if (onboardingDone) {
+    dashboard.on('ready-to-show', () => {
+      setTimeout(() => {
+        overlay.show()
+      }, 500)
+    })
 
-  // Apply stealth mode from saved settings
-  const stealthEnabled = getSetting('stealthEnabled')
-  if (stealthEnabled) {
-    setStealthMode(true)
+    // Apply stealth mode from saved settings
+    const stealthEnabled = getSetting('stealthEnabled')
+    if (stealthEnabled) {
+      setStealthMode(true)
+    }
   }
+
+  // Listen for onboarding completion to show overlay for the first time
+  ipcMain.on('onboarding:completed', () => {
+    log.info('Onboarding completed — showing overlay')
+    // Show overlay with stealth mode OFF so user can see it
+    setStealthMode(false)
+    overlay.show()
+  })
 
   registerGlobalHotkeys(dashboard, overlay)
 }
@@ -296,25 +306,27 @@ app.whenReady().then(() => {
     const session = databaseService.getSession(sessionId)
     if (!session || !session.transcript || session.transcript.length === 0) return false
 
-    const anthropicApiKey = getSetting('anthropicApiKey') as string
-    if (!anthropicApiKey) return false
-
     const regenDisplayName = getSetting('displayName') || 'You'
     const transcriptText = session.transcript
       .filter((e) => e.isFinal)
       .map((e) => `${e.source === 'mic' ? regenDisplayName : 'Them'}: ${e.text}`)
       .join('\n')
 
-    const result = await generateSessionSummary(transcriptText, session.modeId, anthropicApiKey)
-    databaseService.updateSession(sessionId, {
-      title: result.title || session.title,
-      summary: result.summary,
-    })
+    try {
+      const result = await generateSessionSummary(transcriptText, session.modeId)
+      databaseService.updateSession(sessionId, {
+        title: result.title || session.title,
+        summary: result.summary,
+      })
 
-    BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send('sessions:list-updated')
-    })
-    return true
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send('sessions:list-updated')
+      })
+      return true
+    } catch (err) {
+      ipcLog.error('Regenerate summary failed:', err)
+      return false
+    }
   })
 
   // ==================== MODE IPC HANDLERS ====================

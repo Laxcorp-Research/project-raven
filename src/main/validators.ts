@@ -17,7 +17,7 @@ export async function validateDeepgramKey(apiKey: string): Promise<{ valid: bool
     }
 
     return { valid: false, error: `Deepgram returned status ${response.status}.` }
-  } catch (err) {
+  } catch {
     return { valid: false, error: 'Could not reach Deepgram. Check your internet connection.' }
   }
 }
@@ -26,7 +26,6 @@ export async function validateAnthropicKey(apiKey: string): Promise<{ valid: boo
   try {
     const client = new Anthropic({ apiKey })
 
-    // Send a minimal request to verify the key
     await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 10,
@@ -52,13 +51,38 @@ export async function validateAnthropicKey(apiKey: string): Promise<{ valid: boo
   }
 }
 
+export async function validateOpenAIKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const response = await fetch('https://api.openai.com/v1/models', {
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      }
+    })
+
+    if (response.ok) {
+      return { valid: true }
+    }
+
+    if (response.status === 401) {
+      return { valid: false, error: 'Invalid OpenAI API key.' }
+    }
+    if (response.status === 403) {
+      return { valid: false, error: 'OpenAI key does not have permission. Check your plan.' }
+    }
+
+    return { valid: false, error: `OpenAI returned status ${response.status}.` }
+  } catch {
+    return { valid: false, error: 'Could not reach OpenAI. Check your internet connection.' }
+  }
+}
+
 export async function validateBothKeys(
   deepgramKey: string,
   anthropicKey: string
 ): Promise<{ valid: boolean; error?: string }> {
   const [deepgramResult, anthropicResult] = await Promise.all([
     validateDeepgramKey(deepgramKey),
-    validateAnthropicKey(anthropicKey)
+    anthropicKey === 'skip' ? { valid: true } : validateAnthropicKey(anthropicKey)
   ])
 
   if (!deepgramResult.valid) {
@@ -67,6 +91,31 @@ export async function validateBothKeys(
 
   if (!anthropicResult.valid) {
     return anthropicResult
+  }
+
+  return { valid: true }
+}
+
+export async function validateKeys(
+  deepgramKey: string,
+  aiProvider: 'anthropic' | 'openai',
+  aiKey: string
+): Promise<{ valid: boolean; error?: string }> {
+  const aiValidation = aiProvider === 'openai'
+    ? validateOpenAIKey(aiKey)
+    : validateAnthropicKey(aiKey)
+
+  const [deepgramResult, aiResult] = await Promise.all([
+    validateDeepgramKey(deepgramKey),
+    aiValidation
+  ])
+
+  if (!deepgramResult.valid) {
+    return deepgramResult
+  }
+
+  if (!aiResult.valid) {
+    return aiResult
   }
 
   return { valid: true }

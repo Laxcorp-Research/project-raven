@@ -115,6 +115,18 @@ function createStore(): Store<LocalSettings> {
 
 const store = createStore();
 
+// Clean up stale unencrypted config.json left by a previous bug
+// where `new Store()` was used without the encryption key.
+// This file contains plaintext API keys and must be removed.
+try {
+  const legacyConfigPath = join(app.getPath('userData'), 'config.json');
+  if (existsSync(legacyConfigPath)) {
+    unlinkSync(legacyConfigPath);
+  }
+} catch {
+  // ignore - file may not exist or be locked
+}
+
 // ---- Getters ----
 
 export function getStore(): Store<LocalSettings> {
@@ -174,12 +186,18 @@ export function saveApiKeys(deepgramKey: string, anthropicKey: string): void {
 }
 
 export function hasApiKeys(): boolean {
-  return !!(store.get('deepgramApiKey') && store.get('anthropicApiKey'));
+  const hasDeepgram = !!store.get('deepgramApiKey');
+  const provider = store.get('aiProvider') || 'anthropic';
+  const hasAiKey = provider === 'openai'
+    ? !!store.get('openaiApiKey')
+    : !!store.get('anthropicApiKey');
+  return hasDeepgram && hasAiKey;
 }
 
 export function clearApiKeys(): void {
   store.set('deepgramApiKey', '');
   store.set('anthropicApiKey', '');
+  store.set('openaiApiKey', '');
   store.set('apiKeysConfigured', false);
 }
 

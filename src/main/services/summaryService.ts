@@ -1,19 +1,13 @@
 /**
  * Summary Service
- * Generates session titles and summaries using Claude
+ * Generates session titles and summaries using the user's configured AI provider
  */
 
-import Anthropic from '@anthropic-ai/sdk'
 import { databaseService } from './database'
+import { getProviderFromStore } from './ai/providerFactory'
 import { createLogger } from '../logger'
 
 const log = createLogger('Summary')
-
-interface NotesSection {
-  id: string
-  title: string
-  instructions: string
-}
 
 interface SummaryResult {
   title: string
@@ -23,13 +17,10 @@ interface SummaryResult {
 export async function generateSessionSummary(
   transcript: string,
   modeId: string | null,
-  apiKey: string
 ): Promise<SummaryResult> {
   if (!transcript || transcript.trim().length < 20) {
     return { title: 'Untitled session', summary: '' }
   }
-
-  const anthropic = new Anthropic({ apiKey })
 
   let modeContext = ''
   if (modeId) {
@@ -79,18 +70,10 @@ SUMMARY:
 [your markdown summary here]`
 
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }],
-    })
+    const provider = await getProviderFromStore()
 
-    const textBlock = response.content.find((block) => block.type === 'text')
-    if (!textBlock || textBlock.type !== 'text') {
-      throw new Error('No text response from Claude')
-    }
+    const text = await provider.generateShort({ prompt, maxTokens: 2000 })
 
-    const text = textBlock.text || ''
     const titleMatch = text.match(/TITLE:\s*(.+?)(?:\n|SUMMARY:)/s)
     const summaryMatch = text.match(/SUMMARY:\s*([\s\S]+)/)
 

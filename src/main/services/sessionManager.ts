@@ -4,7 +4,6 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import Store from 'electron-store';
 import { databaseService, type Session, type TranscriptEntry, type AIResponse } from './database';
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
@@ -156,23 +155,17 @@ class SessionManager {
     this.dashboardWindow?.webContents.send('sessions:list-updated');
 
     // Generate title + summary asynchronously (don't block the stop flow)
-    const store = new Store();
-    const anthropicApiKey = store.get('anthropicApiKey') as string;
-    if (anthropicApiKey) {
-      generateSessionSummary(transcriptText, modeId, anthropicApiKey)
-        .then((result) => {
-          databaseService.updateSession(sessionId, {
-            title: result.title || endedSession.title,
-            summary: result.summary,
-          });
-          this.dashboardWindow?.webContents.send('sessions:list-updated');
-        })
-        .catch((err) => {
-          log.error('Async summary generation failed:', err);
+    generateSessionSummary(transcriptText, modeId)
+      .then((result) => {
+        databaseService.updateSession(sessionId, {
+          title: result.title || endedSession.title,
+          summary: result.summary,
         });
-    } else {
-      log.warn('No Anthropic API key — summary disabled');
-    }
+        this.dashboardWindow?.webContents.send('sessions:list-updated');
+      })
+      .catch((err) => {
+        log.error('Async summary generation failed:', err);
+      });
 
     return endedSession;
   }
@@ -198,14 +191,7 @@ class SessionManager {
     }
 
     try {
-      const store = new Store();
-      const anthropicApiKey = store.get('anthropicApiKey') as string;
-
-      if (!anthropicApiKey) {
-        throw new Error('No Anthropic API key');
-      }
-
-      const title = await generateSessionTitle(anthropicApiKey, transcriptText);
+      const title = await generateSessionTitle(transcriptText);
 
       databaseService.updateSession(sessionId, { title });
       log.info('Generated title:', title);

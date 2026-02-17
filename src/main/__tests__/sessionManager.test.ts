@@ -53,6 +53,8 @@ vi.mock('uuid', () => ({
 
 // Import after mocks are set up
 import { sessionManager } from '../services/sessionManager';
+import { generateSessionSummary } from '../services/summaryService';
+import { generateSessionTitle } from '../claudeService';
 
 describe('SessionManager', () => {
   beforeEach(() => {
@@ -65,12 +67,15 @@ describe('SessionManager', () => {
 
     vi.clearAllMocks();
 
-    // Reset the active session by ending it if one exists
-    // Need to re-apply mock again since clearAllMocks just cleared it
+    // Re-apply mocks after clearAllMocks
     MockStore.mockImplementation(function (this: Record<string, unknown>) {
       this.get = vi.fn(() => '');
       this.set = vi.fn();
     });
+
+    // Re-apply summary/title mocks (mockReset clears implementations)
+    vi.mocked(generateSessionSummary).mockResolvedValue({ title: 'Test Title', summary: 'Test Summary' });
+    vi.mocked(generateSessionTitle).mockRejectedValue(new Error('no key'));
 
     if (sessionManager.hasActiveSession()) {
       sessionManager.endSession();

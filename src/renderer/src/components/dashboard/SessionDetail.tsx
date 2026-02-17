@@ -396,7 +396,7 @@ function SummaryTab({ summary, hasTranscript }: { summary: string | null; hasTra
         <div key={index}>
           {section.heading && (
             <h3 className="text-lg font-semibold text-gray-900 mb-3">
-              {section.heading}
+              {section.heading.replace(/\*\*/g, '')}
             </h3>
           )}
           {section.items.length > 0 ? (
@@ -463,14 +463,14 @@ function parseSummary(summary: string): Section[] {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    const headingMatch = trimmed.match(/^##\s+(.+)$/) || trimmed.match(/^\*\*(.+)\*\*$/)
+    const headingMatch = trimmed.match(/^##\s+(.+)$/) || trimmed.match(/^\*\*(.+?)\*\*\s*:?\s*$/)
 
     if (headingMatch) {
       if (currentSection.content || currentSection.items.length > 0 || currentSection.heading) {
         sections.push(currentSection)
       }
       currentSection = { heading: headingMatch[1], content: '', items: [] }
-    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
       currentSection.items.push(trimmed.slice(2))
     } else {
       if (currentSection.items.length === 0) {

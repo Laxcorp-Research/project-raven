@@ -377,10 +377,10 @@ function ApiKeysTab() {
     setSaveMessage(null)
 
     try {
-      const aiKey = aiProvider === 'anthropic' ? anthropicKey.trim() : (anthropicKey.trim() || 'skip')
-      const result = await window.raven.validateApiKeys(deepgramKey.trim(), aiKey)
+      const activeAiKey = aiProvider === 'openai' ? openaiKey.trim() : anthropicKey.trim()
+      const result = await window.raven.validateKeys(deepgramKey.trim(), aiProvider, activeAiKey)
 
-      if (result.valid || (aiProvider === 'openai' && !result.error?.toLowerCase().includes('deepgram'))) {
+      if (result.valid) {
         setDeepgramStatus('valid')
         if (aiProvider === 'anthropic') setAnthropicStatus('valid')
         if (showSuccessMessage) setSaveMessage({ type: 'success', text: 'Connection verified successfully' })
@@ -390,7 +390,7 @@ function ApiKeysTab() {
       if (result.error?.toLowerCase().includes('deepgram')) {
         setDeepgramStatus('invalid')
         setAnthropicStatus('idle')
-      } else if (result.error?.toLowerCase().includes('anthropic')) {
+      } else if (result.error?.toLowerCase().includes('anthropic') || result.error?.toLowerCase().includes('openai')) {
         setDeepgramStatus('idle')
         setAnthropicStatus('invalid')
       } else {
@@ -399,7 +399,7 @@ function ApiKeysTab() {
       }
       setSaveMessage({ type: 'error', text: result.error || 'Invalid API keys' })
       return false
-    } catch (error) {
+    } catch {
       setDeepgramStatus('invalid')
       setAnthropicStatus('invalid')
       setSaveMessage({ type: 'error', text: 'Failed to validate connection' })

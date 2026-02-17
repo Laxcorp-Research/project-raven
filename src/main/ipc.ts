@@ -91,6 +91,14 @@ export function registerIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    'validate-keys',
+    async (_event, deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
+      const { validateKeys } = await import('./validators')
+      return validateKeys(deepgramKey, aiProvider, aiKey)
+    }
+  )
+
   // ---- Shell ----
 
   ipcMain.handle('open-external', (_event, url: string) => {

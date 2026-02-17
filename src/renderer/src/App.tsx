@@ -46,7 +46,14 @@ function App(): JSX.Element {
   }
 
   if (showOnboarding) {
-    return <Onboarding onComplete={() => setShowOnboarding(false)} />
+    return (
+      <Onboarding
+        onComplete={() => {
+          setShowOnboarding(false)
+          window.raven.sendOnboardingCompleted()
+        }}
+      />
+    )
   }
 
   return <Dashboard />

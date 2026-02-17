@@ -77,6 +77,7 @@ declare global {
       planIsPro: () => Promise<boolean>;
       resetAll: () => Promise<boolean>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
+      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;
       getAppVersion: () => Promise<string>;
       profileSelectPicture: () => Promise<string | null>;
@@ -210,6 +211,7 @@ declare global {
         error?: string;
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;
+      sendOnboardingCompleted: () => void;
       sendHotkeyToggleRecording: () => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;
       onHotkeyToggleRecording: (callback: () => void) => () => void;

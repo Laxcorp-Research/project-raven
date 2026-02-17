@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('raven', {
   resetAll: () => ipcRenderer.invoke('store:reset-all'),
   validateApiKeys: (deepgramKey: string, anthropicKey: string) =>
     ipcRenderer.invoke('validate-api-keys', deepgramKey, anthropicKey),
+  validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) =>
+    ipcRenderer.invoke('validate-keys', deepgramKey, aiProvider, aiKey),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   profileSelectPicture: () => ipcRenderer.invoke('profile:select-picture'),
@@ -243,6 +245,7 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.on('claude:response', handler)
     return () => { ipcRenderer.removeListener('claude:response', handler) }
   },
+  sendOnboardingCompleted: () => ipcRenderer.send('onboarding:completed'),
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
   onStealthChanged: (callback: (enabled: boolean) => void) => {
     const handler = (_event: unknown, enabled: boolean) => callback(enabled)

@@ -40,8 +40,8 @@ export function clearProviderCache(): void {
 }
 
 export async function getProviderFromStore(): Promise<AIProvider> {
-  const Store = (await import('electron-store')).default;
-  const store = new Store();
+  const { getStore } = await import('../../store');
+  const store = getStore();
 
   const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
   const model = store.get('aiModel', 'claude-sonnet-4-20250514') as string;

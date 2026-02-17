@@ -76,7 +76,6 @@ const ACTION_PROMPTS: Record<string, string> = {
  * Generate a session title using the active AI provider
  */
 export async function generateSessionTitle(
-  _anthropicApiKey: string,
   transcriptText: string
 ): Promise<string> {
   try {
