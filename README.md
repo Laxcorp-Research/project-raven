@@ -15,18 +15,31 @@ An open-source desktop app that provides real-time audio transcription and AI-po
 ## 🛠 Tech Stack
 
 - **Desktop:** Electron + React + TypeScript + Tailwind
-- **Audio:** Swift native module with ScreenCaptureKit + Apple Voice Processing (AEC)
+- **Audio (macOS):** Swift native module with ScreenCaptureKit + Apple Voice Processing (AEC)
+- **Audio (Windows):** Rust native module with WASAPI loopback + microphone capture
 - **Transcription:** Deepgram Nova-3 (real-time WebSocket)
-- **AI:** Claude claude-sonnet-4-20250514 (streaming responses)
+- **AI:** Anthropic Claude / OpenAI GPT (streaming responses)
+
+## 🖥 Platform Support
+
+| Platform | System Audio | Microphone | Status |
+|----------|-------------|------------|--------|
+| **macOS 12+** | ScreenCaptureKit | AVFoundation Voice Processing | Primary, fully tested |
+| **Windows 10/11** | WASAPI Loopback | WASAPI Capture | Supported, requires building native module |
+| Linux | — | — | Not yet supported |
 
 ## 📋 Requirements
 
-- macOS 12+ (Monterey or later)
 - Node.js 18+
 - Deepgram API key ([get one free](https://console.deepgram.com))
-- Anthropic API key ([get one here](https://console.anthropic.com))
+- Anthropic API key ([get one here](https://console.anthropic.com)) or OpenAI API key ([get one here](https://platform.openai.com))
+- **macOS**: macOS 12+ (Monterey or later), Xcode Command Line Tools
+- **Windows**: Windows 10/11, Rust toolchain, Visual Studio Build Tools
 
 ## 🚀 Getting Started
+
+### macOS
+
 ```bash
 # Clone the repo
 git clone https://github.com/Laxcorp-Research/project-raven.git
@@ -44,7 +57,29 @@ cd ../../../..
 npm run dev
 ```
 
-On first launch, you'll be prompted to enter your Deepgram and Anthropic API keys.
+### Windows
+
+```bash
+# Clone the repo
+git clone https://github.com/Laxcorp-Research/project-raven.git
+cd project-raven
+
+# Install dependencies
+npm install
+
+# Install NAPI-RS CLI and build the native Rust module
+npm install -g @napi-rs/cli
+cd src/native/windows
+napi build --platform --release
+cd ../../..
+
+# Run in development
+npm run dev
+```
+
+> See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed build prerequisites and troubleshooting.
+
+On first launch, you'll be prompted to enter your API keys.
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -57,11 +92,11 @@ On first launch, you'll be prompted to enter your Deepgram and Anthropic API key
 ## 📦 Project Status
 
 - [x] **Phase A:** Foundation (two-window architecture, onboarding, hotkeys)
-- [x] **Phase B (macOS):** Audio engine with AEC, transcription, Claude AI
-- [ ] **Phase B (Windows):** Windows audio capture (WASAPI + Voice Capture DSP)
-- [ ] **Phase C:** Session management & history
-- [ ] **Phase D:** Custom AI modes/profiles
-- [ ] **Phase E:** Full settings UI
+- [x] **Phase B (macOS):** Audio engine with AEC, transcription, AI suggestions
+- [x] **Phase B (Windows):** Windows audio capture (WASAPI loopback + mic)
+- [x] **Phase C:** Session management & history
+- [x] **Phase D:** Custom AI modes/profiles
+- [x] **Phase E:** Full settings UI
 - [ ] **Phase F-J:** Distribution, backend, polish
 
 ## 🤝 Contributing

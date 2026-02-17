@@ -40,6 +40,8 @@ interface WindowsAudioModule {
   isCapturing: () => boolean
   startSystemAudioCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void) => boolean
   stopSystemAudioCapture: () => boolean
+  startMicCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void) => boolean
+  stopMicCapture: () => boolean
 }
 
 function getBinaryPath(): string | null {
@@ -306,11 +308,11 @@ function startWindowsCapture(): boolean {
   const mod = loadWindowsModule()
   if (!mod) return false
 
-  return mod.startSystemAudioCapture((chunk) => {
+  const systemStarted = mod.startSystemAudioCapture((chunk) => {
     systemChunkCount++
     if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
       log.debug(
-        `Chunk #${systemChunkCount}, bytes: ${chunk.data.length}`
+        `System chunk #${systemChunkCount}, bytes: ${chunk.data.length}`
       )
     }
 
@@ -321,12 +323,34 @@ function startWindowsCapture(): boolean {
       timestamp: chunk.timestamp
     })
   })
+
+  const micStarted = mod.startMicCapture((chunk) => {
+    micChunkCount++
+    if (micChunkCount <= 5 || micChunkCount % 100 === 0) {
+      log.debug(
+        `Mic chunk #${micChunkCount}, bytes: ${chunk.data.length}`
+      )
+    }
+
+    broadcastNativeMicChunk({
+      data: chunk.data,
+      sampleRate: STREAM_SAMPLE_RATE,
+      channels: STREAM_CHANNELS,
+      timestamp: chunk.timestamp
+    })
+  })
+
+  log.info(`Windows capture started — system: ${systemStarted}, mic: ${micStarted}`)
+  return systemStarted
 }
 
 function stopWindowsCapture(): boolean {
   const mod = loadWindowsModule()
   if (!mod) return false
-  const stopped = mod.stopSystemAudioCapture()
-  log.info(`Capture stopped. Total chunks: ${systemChunkCount}`)
-  return stopped
+  const systemStopped = mod.stopSystemAudioCapture()
+  const micStopped = mod.stopMicCapture()
+  log.info(
+    `Windows capture stopped — system: ${systemStopped} (${systemChunkCount} chunks), mic: ${micStopped} (${micChunkCount} chunks)`
+  )
+  return systemStopped
 }

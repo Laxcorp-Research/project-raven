@@ -8,11 +8,11 @@ Thanks for your interest in contributing to Raven! This guide will help you get 
 
 - Node.js 18+
 - npm 9+
-- macOS (required for system audio capture via Swift)
-- Xcode Command Line Tools (`xcode-select --install`)
 - API keys: [Deepgram](https://deepgram.com), and [Anthropic](https://anthropic.com) or [OpenAI](https://openai.com)
+- **macOS**: Xcode Command Line Tools (`xcode-select --install`)
+- **Windows**: Rust toolchain ([rustup](https://rustup.rs/)), Visual Studio Build Tools with "Desktop development with C++" workload
 
-### Getting Started
+### Getting Started (macOS)
 
 ```bash
 # Clone the repo
@@ -30,6 +30,30 @@ cd ../../../..
 # Start the dev server
 npm run dev
 ```
+
+### Getting Started (Windows)
+
+```bash
+# Clone the repo
+git clone https://github.com/Laxcorp-Research/project-raven.git
+cd project-raven
+
+# Install dependencies
+npm install
+
+# Install the NAPI-RS CLI globally
+npm install -g @napi-rs/cli
+
+# Build the native Rust audio module
+cd src/native/windows
+napi build --platform --release
+cd ../../..
+
+# Start the dev server
+npm run dev
+```
+
+> **Note**: The Rust module requires the Windows SDK. Install Visual Studio Build Tools with the "Desktop development with C++" workload. See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed build instructions.
 
 The app will open with an onboarding flow where you can enter your API keys.
 
@@ -78,7 +102,9 @@ src/
         dashboard/  # Dashboard UI components
         overlay/    # Overlay UI components
       types/        # TypeScript type definitions
-  native/         # Native modules (Swift audio capture)
+  native/
+    swift/        # macOS audio capture (ScreenCaptureKit + AVFoundation)
+    windows/      # Windows audio capture (WASAPI via Rust/NAPI-RS)
 ```
 
 ## Pull Request Process
@@ -96,7 +122,7 @@ Open an issue on GitHub with:
 
 - Steps to reproduce
 - Expected vs actual behavior
-- macOS version and Raven version
+- OS version (macOS/Windows) and Raven version
 - Console logs if relevant (View > Toggle Developer Tools)
 
 ## Feature Requests
