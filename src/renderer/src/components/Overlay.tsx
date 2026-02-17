@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createLogger } from '../lib/logger'
 import { TitleBar } from './TitleBar'
 import { TabBar } from './TabBar'
 import { ResponsePanel } from './ResponsePanel'
@@ -9,6 +10,8 @@ import { Settings } from './Settings'
 import { useAppStore } from '../stores/appStore'
 import { startMicrophoneCapture, stopMicrophoneCapture } from '../hooks/useAudioCapture'
 import { startDeepgram, sendAudio, stopDeepgram } from '../hooks/useDeepgram'
+
+const log = createLogger('Overlay')
 
 export function Overlay() {
   const { activeTab, isRecording, setAiLoading, setAiResponse, setActiveTab, clearTranscript } = useAppStore()
@@ -42,9 +45,9 @@ export function Overlay() {
         stopDeepgram()
         try {
           await window.raven.systemAudioStop()
-          console.log('[Recording] System audio stopped')
+          log.log('System audio stopped')
         } catch (err) {
-          console.warn('[Recording] System audio stop failed:', err)
+          log.warn('System audio stop failed:', err)
         }
         useAppStore.getState().setRecording(false)
       } else {
@@ -68,9 +71,9 @@ export function Overlay() {
 
           try {
             await window.raven.systemAudioStart()
-            console.log('[Recording] System audio started')
+            log.log('System audio started')
           } catch (err) {
-            console.warn('[Recording] System audio failed, continuing mic-only:', err)
+            log.warn('System audio failed, continuing mic-only:', err)
           }
 
           await startMicrophoneCapture((audioBuffer) => {
@@ -79,7 +82,7 @@ export function Overlay() {
 
           useAppStore.getState().setRecording(true)
         } catch (err) {
-          console.error('Hotkey recording error:', err)
+          log.error('Hotkey recording error:', err)
           stopMicrophoneCapture()
           stopDeepgram()
         }

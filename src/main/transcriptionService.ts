@@ -9,6 +9,7 @@ import type WebSocket from 'ws';
 import { sessionManager } from './services/sessionManager';
 import { getSetting } from './store';
 import { createLogger } from './logger';
+import { AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS, DEEPGRAM_ENDPOINTING_MS, DEEPGRAM_UTTERANCE_END_MS, TRANSCRIPT_MERGE_WINDOW_MS, TRANSCRIPT_FLUSH_TIMEOUT_MS } from './constants';
 
 const log = createLogger('Transcription');
 
@@ -90,11 +91,11 @@ export class TranscriptionService {
         smart_format: 'true',
         interim_results: 'true',
         punctuate: 'true',
-        sample_rate: '16000',
-        channels: '1',
+        sample_rate: String(AUDIO_SAMPLE_RATE),
+        channels: String(AUDIO_CHANNELS),
         encoding: 'linear16',
-        endpointing: '300',
-        utterance_end_ms: '1500',
+        endpointing: String(DEEPGRAM_ENDPOINTING_MS),
+        utterance_end_ms: String(DEEPGRAM_UTTERANCE_END_MS),
       });
 
       const url = `${DEEPGRAM_WS_BASE}?${params.toString()}`;
@@ -116,7 +117,7 @@ export class TranscriptionService {
                 log.error(`${source} keep-alive error:`, err);
               }
             }
-          }, 8000);
+          }, DEEPGRAM_KEEPALIVE_MS);
 
           this.broadcastStatus(`${source}-connected`);
           resolve({ success: true });
@@ -168,12 +169,11 @@ export class TranscriptionService {
 
     if (isFinal) {
       const now = Date.now();
-      const MERGE_WINDOW_MS = 5000;
 
       const lastEntry = this.transcriptEntries[this.transcriptEntries.length - 1];
       const shouldMerge = lastEntry
         && lastEntry.speaker === speaker
-        && (now - lastEntry.timestamp) < MERGE_WINDOW_MS;
+        && (now - lastEntry.timestamp) < TRANSCRIPT_MERGE_WINDOW_MS;
 
       if (shouldMerge && lastEntry) {
         lastEntry.text = `${lastEntry.text} ${transcript}`;
@@ -287,7 +287,7 @@ export class TranscriptionService {
               log.warn('Flush timeout reached, force closing');
               try { state.ws?.close(); } catch {}
               resolve();
-            }, 3000);
+            }, TRANSCRIPT_FLUSH_TIMEOUT_MS);
 
             const origOnClose = state.ws!.onclose;
             state.ws!.onclose = (ev) => {

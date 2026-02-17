@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
+import { createLogger } from './lib/logger'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard } from './components/dashboard/Dashboard'
 import { OverlayWindow } from './components/overlay/OverlayWindow'
+
+const log = createLogger('App')
 
 function App(): JSX.Element {
   const [loading, setLoading] = useState(true)
@@ -24,7 +27,7 @@ function App(): JSX.Element {
           }
         }
       } catch (err) {
-        console.error('Failed to initialize:', err)
+        log.error('Failed to initialize:', err)
         setWindowType('dashboard')
         setShowOnboarding(true)
       }

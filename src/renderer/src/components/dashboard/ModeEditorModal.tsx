@@ -10,6 +10,9 @@ import type { Mode, NotesSection } from '../../types/global'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
 import { Briefcase, TrendingUp, ClipboardList, Target, BookOpen, ArrowRight } from 'lucide-react'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('ModeEditor')
 
 interface ModeEditorModalProps {
   isOpen: boolean
@@ -265,7 +268,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
         setShowTemplates(true)
       }
     } catch (err) {
-      console.error('Failed to load modes:', err)
+      log.error('Failed to load modes:', err)
     } finally {
       setIsLoading(false)
     }
@@ -288,7 +291,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
       setToast({ message: 'Mode saved', type: 'success' })
     } catch (err) {
-      console.error('Failed to save:', err)
+      log.error('Failed to save:', err)
     } finally {
       setIsSaving(false)
     }
@@ -310,7 +313,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setSelectedMode(newMode)
       setShowTemplates(false)
     } catch (err) {
-      console.error('Failed to create mode:', err)
+      log.error('Failed to create mode:', err)
     }
   }
 
@@ -330,7 +333,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setSelectedMode(newMode)
       setShowTemplates(false)
     } catch (err) {
-      console.error('Failed to create from template:', err)
+      log.error('Failed to create from template:', err)
     }
   }
 
@@ -341,7 +344,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setActiveMode(selectedMode)
       await loadModes()
     } catch (err) {
-      console.error('Failed to set active:', err)
+      log.error('Failed to set active:', err)
     }
   }
 
@@ -376,7 +379,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
       await loadModes()
     } catch (err) {
-      console.error('Failed to delete:', err)
+      log.error('Failed to delete:', err)
       setToast({ message: 'Failed to delete mode', type: 'error' })
     }
   }

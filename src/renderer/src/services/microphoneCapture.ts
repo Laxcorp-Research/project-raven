@@ -3,8 +3,11 @@
  * Uses shared AudioContext and downsamples to 16kHz for Deepgram.
  */
 
+import { createLogger } from '../lib/logger'
 import { getWorkletUrl } from './worklet'
 import { getSharedAudioContext, releaseSharedAudioContext } from './sharedAudioContext'
+
+const log = createLogger('MicrophoneCapture')
 
 export type MicChunkCallback = (chunk: Int16Array) => void
 
@@ -41,14 +44,14 @@ export class MicrophoneCapture {
           label: d.label || `Microphone (${d.deviceId.slice(0, 6)})`
         }))
     } catch (err) {
-      console.error('[MicrophoneCapture] Failed to enumerate devices:', err)
+      log.error('Failed to enumerate devices:', err)
       return []
     }
   }
 
   async start(onChunk: MicChunkCallback, deviceId?: string): Promise<boolean> {
     if (this._isRecording) {
-      console.warn('[MicrophoneCapture] Already recording')
+      log.warn('Already recording')
       return true
     }
 
@@ -67,24 +70,24 @@ export class MicrophoneCapture {
         }
       }
 
-      console.log('[MicrophoneCapture] Requesting microphone access...')
+      log.log('Requesting microphone access...')
       this.stream = await navigator.mediaDevices.getUserMedia(constraints)
-      console.log('[MicrophoneCapture] Microphone access granted')
+      log.log('Microphone access granted')
 
       const audioTrack = this.stream.getAudioTracks()[0]
       const settings = audioTrack.getSettings()
-      console.log('[MicrophoneCapture] Track settings:', settings)
+      log.log('Track settings:', settings)
 
       this.audioContext = await getSharedAudioContext()
-      console.log('[MicrophoneCapture] Using shared AudioContext, sampleRate:', this.audioContext.sampleRate)
+      log.log('Using shared AudioContext, sampleRate:', this.audioContext.sampleRate)
 
       if (!this.workletLoaded) {
         const workletUrl = getWorkletUrl('mic-capture-processor')
-        console.log('[MicrophoneCapture] Loading AudioWorklet...')
+        log.log('Loading AudioWorklet...')
         try {
           await this.audioContext.audioWorklet.addModule(workletUrl)
           this.workletLoaded = true
-          console.log('[MicrophoneCapture] AudioWorklet module loaded')
+          log.log('AudioWorklet module loaded')
         } catch (err) {
           const errObj = err as { name?: string; message?: string }
           if (
@@ -92,7 +95,7 @@ export class MicrophoneCapture {
             errObj.message?.includes('already been added')
           ) {
             this.workletLoaded = true
-            console.log('[MicrophoneCapture] AudioWorklet module already loaded')
+            log.log('AudioWorklet module already loaded')
           } else {
             throw err
           }
@@ -106,12 +109,12 @@ export class MicrophoneCapture {
 
       this.workletNode.port.onmessage = (event) => {
         if (event.data.type === 'init') {
-          console.log('[MicrophoneCapture] Worklet:', event.data.message)
+          log.log('Worklet:', event.data.message)
         } else if (event.data.type === 'heartbeat') {
           this.heartbeatCount++
           if (this.heartbeatCount <= 3 || this.heartbeatCount % 10 === 0) {
-            console.log(
-              `[MicrophoneCapture] Heartbeat #${this.heartbeatCount}, frames: ${event.data.frames}`
+            log.log(
+              `Heartbeat #${this.heartbeatCount}, frames: ${event.data.frames}`
             )
           }
         } else if (event.data.type === 'audio' && this._isRecording && this.onChunk) {
@@ -122,8 +125,8 @@ export class MicrophoneCapture {
 
           this.chunkCount++
           if (this.chunkCount <= 5 || this.chunkCount % 100 === 0) {
-            console.log(
-              `[MicrophoneCapture] Chunk #${this.chunkCount}, original: ${float32.length}, downsampled: ${int16.length}`
+            log.log(
+              `Chunk #${this.chunkCount}, original: ${float32.length}, downsampled: ${int16.length}`
             )
           }
 
@@ -138,13 +141,13 @@ export class MicrophoneCapture {
       this.workletNode.connect(silentGain)
       silentGain.connect(this.audioContext.destination)
 
-      console.log('[MicrophoneCapture] Audio graph connected')
+      log.log('Audio graph connected')
 
       this._isRecording = true
-      console.log('[MicrophoneCapture] Started successfully')
+      log.log('Started successfully')
       return true
     } catch (err) {
-      console.error('[MicrophoneCapture] Failed to start:', err)
+      log.error('Failed to start:', err)
       await this.cleanup()
       return false
     }
@@ -153,8 +156,8 @@ export class MicrophoneCapture {
   async stop(): Promise<void> {
     if (!this._isRecording) return
 
-    console.log(
-      `[MicrophoneCapture] Stopping... Chunks: ${this.chunkCount}, Heartbeats: ${this.heartbeatCount}`
+    log.log(
+      `Stopping... Chunks: ${this.chunkCount}, Heartbeats: ${this.heartbeatCount}`
     )
     this._isRecording = false
 
@@ -163,7 +166,7 @@ export class MicrophoneCapture {
     }
 
     await this.cleanup()
-    console.log('[MicrophoneCapture] Stopped')
+    log.log('Stopped')
   }
 
   private async cleanup(): Promise<void> {
@@ -173,7 +176,7 @@ export class MicrophoneCapture {
       this.stream?.getTracks().forEach((track) => track.stop())
       await releaseSharedAudioContext()
     } catch (err) {
-      console.error('[MicrophoneCapture] Cleanup error:', err)
+      log.error('Cleanup error:', err)
     }
 
     this.workletNode = null

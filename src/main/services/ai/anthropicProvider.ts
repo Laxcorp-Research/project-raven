@@ -72,7 +72,8 @@ export class AnthropicProvider implements AIProvider {
       messages,
     });
 
-    return (response.content[0] as any).text?.trim() || '';
+    const block = response.content[0];
+    return (block.type === 'text' ? block.text : '').trim();
   }
 
   private convertContent(

@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createLogger } from '../../lib/logger'
 import { Header } from './Header'
+
+const log = createLogger('Dashboard')
 import { SessionList } from './SessionList'
 import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
@@ -54,7 +57,7 @@ export function Dashboard() {
           })
         }
       } catch (error) {
-        console.error('Failed to load active session:', error)
+        log.error('Failed to load active session:', error)
       }
     }
 
@@ -109,7 +112,7 @@ export function Dashboard() {
       } else {
         setActiveSession(null)
       }
-    })
+    }).catch((err) => log.error('Failed to get audio state:', err))
 
     return () => {
       unsub()
@@ -152,7 +155,7 @@ export function Dashboard() {
     try {
       window.raven.sendHotkeyToggleRecording()
     } catch (error) {
-      console.error('Failed to stop recording:', error)
+      log.error('Failed to stop recording:', error)
     }
   }
 
@@ -167,7 +170,7 @@ export function Dashboard() {
         setSelectedSession(fullSession)
       }
     } catch (error) {
-      console.error('Failed to load session:', error)
+      log.error('Failed to load session:', error)
     }
   }
 
@@ -190,12 +193,19 @@ export function Dashboard() {
       await window.raven.sessions.updateTitle(sessionId, newTitle)
       setSelectedSession((prev) => (prev ? { ...prev, title: newTitle } : null))
     } catch (error) {
-      console.error('Failed to update title:', error)
+      log.error('Failed to update title:', error)
     }
   }
 
   return (
     <div className="flex flex-col h-screen bg-white">
+      {/* Custom title bar - draggable, centered title */}
+      <div
+        className="flex items-center justify-center shrink-0 h-9 bg-white border-b border-gray-100 text-xs font-medium text-gray-400 select-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        Raven
+      </div>
       <Header
         stealth={stealth}
         onToggleStealth={handleToggleStealth}

@@ -102,6 +102,14 @@ export function registerIpcHandlers(): void {
   // ---- Shell ----
 
   ipcMain.handle('open-external', (_event, url: string) => {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return false
+      }
+    } catch {
+      return false
+    }
     shell.openExternal(url)
     return true
   })

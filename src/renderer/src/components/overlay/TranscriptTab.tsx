@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('TranscriptTab');
 
 interface TranscriptEntry {
   id: string;
@@ -19,15 +22,15 @@ export function TranscriptTab() {
   useEffect(() => {
     window.raven.storeGet('displayName').then((name) => {
       setDisplayName((name as string) || '');
-    });
+    }).catch(() => {});
 
     window.raven.getTranscriptEntries?.().then((e: TranscriptEntry[]) => {
       if (e) setEntries(e);
-    });
+    }).catch(() => {});
 
     window.raven.audioGetState().then((state: { isRecording: boolean }) => {
       setIsRecording(state.isRecording);
-    });
+    }).catch(() => {});
 
     const unsubTranscript = window.raven.onTranscriptUpdate((data) => {
       if (data.entries) {

@@ -6,6 +6,7 @@
 import { databaseService } from './database'
 import { getProviderFromStore } from './ai/providerFactory'
 import { createLogger } from '../logger'
+import { SUMMARY_MAX_TOKENS, SUMMARY_TRANSCRIPT_SLICE, SUMMARY_MIN_TRANSCRIPT_LENGTH } from '../constants'
 
 const log = createLogger('Summary')
 
@@ -18,7 +19,7 @@ export async function generateSessionSummary(
   transcript: string,
   modeId: string | null,
 ): Promise<SummaryResult> {
-  if (!transcript || transcript.trim().length < 20) {
+  if (!transcript || transcript.trim().length < SUMMARY_MIN_TRANSCRIPT_LENGTH) {
     return { title: 'Untitled session', summary: '' }
   }
 
@@ -40,7 +41,7 @@ export async function generateSessionSummary(
 ${modeContext}
 
 TRANSCRIPT:
-${transcript.slice(0, 8000)}
+${transcript.slice(0, SUMMARY_TRANSCRIPT_SLICE)}
 
 ---
 
@@ -72,7 +73,7 @@ SUMMARY:
   try {
     const provider = await getProviderFromStore()
 
-    const text = await provider.generateShort({ prompt, maxTokens: 2000 })
+    const text = await provider.generateShort({ prompt, maxTokens: SUMMARY_MAX_TOKENS })
 
     const titleMatch = text.match(/TITLE:\s*(.+?)(?:\n|SUMMARY:)/s)
     const summaryMatch = text.match(/SUMMARY:\s*([\s\S]+)/)

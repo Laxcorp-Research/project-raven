@@ -10,6 +10,9 @@ import Markdown from 'react-markdown'
 import { Sparkles, Wand2, MessageSquareText, RotateCcw } from 'lucide-react'
 import { ControllerPill } from './ControllerPill'
 import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('OverlayWindow')
 
 interface ResponseCard {
   id: string
@@ -148,11 +151,11 @@ export function OverlayWindow() {
 
     window.raven.storeGet('stealthEnabled').then((enabled) => {
       if (typeof enabled === 'boolean') setStealthEnabled(enabled)
-    })
+    }).catch(() => {})
 
     window.raven.audioGetState().then((state) => {
       setIsRecording(state.isRecording)
-    })
+    }).catch((err) => log.error('Failed to get audio state:', err))
 
     const unsubStealth = window.raven.onStealthChanged((enabled: boolean) => {
       setStealthEnabled(enabled)
@@ -376,12 +379,12 @@ export function OverlayWindow() {
 
         await new Promise(resolve => setTimeout(resolve, 500))
         const result = await audioCaptureRef.current.start(handleChunk)
-        console.log('[OverlayWindow] Audio capture started:', result)
+        log.log('Audio capture started:', result)
 
         await new Promise(resolve => setTimeout(resolve, 2500))
         setIsStarting(false)
       } catch (err) {
-        console.error('Failed to start recording:', err)
+        log.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()
         setIsStarting(false)
       }
@@ -565,7 +568,7 @@ export function OverlayWindow() {
         setCopiedMessageId((current) => (current === entryId ? null : current))
       }, 1200)
     } catch (error) {
-      console.error('[OverlayWindow] Failed to copy message:', error)
+      log.error('Failed to copy message:', error)
     }
   }, [])
 

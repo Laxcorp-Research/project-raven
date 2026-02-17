@@ -4,7 +4,10 @@
  * Captures both microphone (your voice) and system audio (others' voices).
  */
 
+import { createLogger } from '../lib/logger'
 import { MicrophoneCapture, type AudioDevice } from './microphoneCapture'
+
+const log = createLogger('DualAudioCapture')
 
 export type AudioSource = 'mic' | 'system'
 export type AudioChunkCallback = (chunk: Int16Array, source: AudioSource) => void
@@ -36,7 +39,7 @@ export class DualAudioCapture {
     micDeviceId?: string
   ): Promise<{ mic: boolean; system: boolean }> {
     if (this._isRecording) {
-      console.warn('[DualAudioCapture] Already recording')
+      log.warn('Already recording')
       return { mic: false, system: false }
     }
 
@@ -45,49 +48,49 @@ export class DualAudioCapture {
     this.micChunkCount = 0
     this.systemChunkCount = 0
 
-    console.log('[DualAudioCapture] Starting capture (sequential)...')
-    console.log('[DualAudioCapture] Callback registered:', !!this.onChunk)
+    log.log('Starting capture (sequential)...')
+    log.log('Callback registered:', !!this.onChunk)
 
     const isMac = navigator.userAgent.includes('Mac')
     let micResult = false
     let systemResult = false
 
     if (isMac) {
-      console.log('[DualAudioCapture] Starting system audio (native helper)...')
+      log.log('Starting system audio (native helper)...')
       systemResult = await this.startSystemAudio()
-      console.log('[DualAudioCapture] System audio result:', systemResult)
+      log.log('System audio result:', systemResult)
 
       if (systemResult) {
         micResult = this.startNativeMic()
       } else {
         micResult = false
       }
-      console.log('[DualAudioCapture] Native mic result:', micResult)
+      log.log('Native mic result:', micResult)
     } else {
-      console.log('[DualAudioCapture] Starting microphone...')
+      log.log('Starting microphone...')
       micResult = await this.micCapture.start((chunk) => {
         this.micChunkCount++
         if (this.micChunkCount <= 5 || this.micChunkCount % 100 === 0) {
-          console.log(`[DualAudioCapture] Mic callback #${this.micChunkCount}, forwarding...`)
+          log.log(`Mic callback #${this.micChunkCount}, forwarding...`)
         }
         if (this.onChunk && this._isRecording) {
           this.onChunk(chunk, 'mic')
         }
       }, micDeviceId)
-      console.log('[DualAudioCapture] Microphone result:', micResult)
+      log.log('Microphone result:', micResult)
 
       await new Promise((resolve) => setTimeout(resolve, 300))
 
-      console.log('[DualAudioCapture] Starting system audio (native helper)...')
+      log.log('Starting system audio (native helper)...')
       systemResult = await this.startSystemAudio()
-      console.log('[DualAudioCapture] System audio result:', systemResult)
+      log.log('System audio result:', systemResult)
     }
 
-    console.log(`[DualAudioCapture] Final results — Mic: ${micResult}, System: ${systemResult}`)
+    log.log(`Final results — Mic: ${micResult}, System: ${systemResult}`)
 
     if (!micResult && !systemResult) {
       this._isRecording = false
-      console.error('[DualAudioCapture] Both captures failed')
+      log.error('Both captures failed')
     }
 
     return { mic: micResult, system: systemResult }
@@ -96,8 +99,8 @@ export class DualAudioCapture {
   async stop(): Promise<void> {
     if (!this._isRecording) return
 
-    console.log(
-      `[DualAudioCapture] Stopping... Mic chunks: ${this.micChunkCount}, System chunks: ${this.systemChunkCount}`
+    log.log(
+      `Stopping... Mic chunks: ${this.micChunkCount}, System chunks: ${this.systemChunkCount}`
     )
     this._isRecording = false
 
@@ -113,14 +116,14 @@ export class DualAudioCapture {
     }
 
     this.onChunk = null
-    console.log('[DualAudioCapture] Stopped')
+    log.log('Stopped')
   }
 
   private async startSystemAudio(): Promise<boolean> {
     try {
       const started = await window.raven.systemAudioStart()
       if (!started) {
-        console.warn('[DualAudioCapture] Native system audio failed to start')
+        log.warn('Native system audio failed to start')
         return false
       }
 
@@ -130,8 +133,8 @@ export class DualAudioCapture {
           const byteLength = chunk.data instanceof ArrayBuffer
             ? chunk.data.byteLength
             : chunk.data.byteLength
-          console.log(
-            `[DualAudioCapture] System callback #${this.systemChunkCount}, bytes: ${byteLength}`
+          log.log(
+            `System callback #${this.systemChunkCount}, bytes: ${byteLength}`
           )
         }
 
@@ -145,10 +148,10 @@ export class DualAudioCapture {
         }
       })
 
-      console.log('[DualAudioCapture] Native system audio started')
+      log.log('Native system audio started')
       return true
     } catch (err) {
-      console.error('[DualAudioCapture] Native system audio error:', err)
+      log.error('Native system audio error:', err)
       return false
     }
   }
@@ -161,8 +164,8 @@ export class DualAudioCapture {
           const byteLength = chunk.data instanceof ArrayBuffer
             ? chunk.data.byteLength
             : chunk.data.byteLength
-          console.log(
-            `[DualAudioCapture] Native mic #${this.micChunkCount}, bytes: ${byteLength}`
+          log.log(
+            `Native mic #${this.micChunkCount}, bytes: ${byteLength}`
           )
         }
 
@@ -176,10 +179,10 @@ export class DualAudioCapture {
         }
       })
 
-      console.log('[DualAudioCapture] Native mic started')
+      log.log('Native mic started')
       return true
     } catch (err) {
-      console.error('[DualAudioCapture] Native mic error:', err)
+      log.error('Native mic error:', err)
       return false
     }
   }
@@ -189,7 +192,7 @@ export class DualAudioCapture {
       this.nativeMicUnsubscribe()
       this.nativeMicUnsubscribe = null
     }
-    console.log('[DualAudioCapture] Native mic stopped')
+    log.log('Native mic stopped')
   }
 
   private toAlignedInt16(bytes: Uint8Array): Int16Array {
@@ -205,6 +208,6 @@ export class DualAudioCapture {
       this.systemAudioUnsubscribe = null
     }
     await window.raven.systemAudioStop()
-    console.log('[DualAudioCapture] Native system audio stopped')
+    log.log('Native system audio stopped')
   }
 }

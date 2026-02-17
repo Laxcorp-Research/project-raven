@@ -5,6 +5,7 @@ import { getProviderFromStore } from './services/ai/providerFactory';
 import { getSetting } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -84,7 +85,7 @@ export async function generateSessionTitle(
     const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
 
 <transcript>
-${transcriptText.slice(0, 1500)}
+${transcriptText.slice(0, TITLE_TRANSCRIPT_SLICE)}
 </transcript>
 
 <examples>
@@ -94,7 +95,7 @@ Bad titles: "I'd be happy to help...", "Here's a title:", "The conversation is a
 
 Title:`;
 
-    let title = await provider.generateShort({ prompt, maxTokens: 30 });
+    let title = await provider.generateShort({ prompt, maxTokens: TITLE_MAX_TOKENS });
 
     title = title
       .replace(/^["']|["']$/g, '')
@@ -106,12 +107,12 @@ Title:`;
       title.toLowerCase().startsWith("i'd")
       || title.toLowerCase().startsWith('i need')
       || title.toLowerCase().startsWith("i don't")
-      || title.length > 60
+      || title.length > TITLE_MAX_LENGTH
     ) {
       throw new Error('Invalid title format');
     }
 
-    return title.length > 50 ? title.slice(0, 47) + '...' : title;
+    return title.length > TITLE_TRUNCATE_AT ? title.slice(0, TITLE_TRUNCATED_LENGTH) + '...' : title;
   } catch (error) {
     log.error('Title generation failed:', error);
     throw error;
@@ -192,8 +193,8 @@ export class ClaudeService {
         if (params.modeId) {
           try {
             const { retrieveRelevantChunks } = await import('./services/ragService');
-            const queryText = params.customPrompt || params.transcript.slice(-500) || params.action;
-            ragChunks = await retrieveRelevantChunks(params.modeId, queryText, 5);
+            const queryText = params.customPrompt || params.transcript.slice(-RAG_QUERY_TRANSCRIPT_SLICE) || params.action;
+            ragChunks = await retrieveRelevantChunks(params.modeId, queryText, RAG_DEFAULT_TOP_K);
           } catch (err) {
             log.error('RAG retrieval failed (non-fatal):', err);
           }
@@ -205,7 +206,7 @@ export class ClaudeService {
           {
             system: buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined),
             messages: aiMessages,
-            maxTokens: 1024,
+            maxTokens: STREAM_MAX_TOKENS,
           },
           {
             onText: (text) => {
@@ -321,7 +322,7 @@ export class ClaudeService {
   ): AIMessage[] {
     const messages: AIMessage[] = [];
 
-    const recentHistory = this.conversation.messages.slice(-20);
+    const recentHistory = this.conversation.messages.slice(-CONVERSATION_HISTORY_LIMIT);
 
     for (let i = 0; i < recentHistory.length - 1; i++) {
       const msg = recentHistory[i];
@@ -374,13 +375,13 @@ export class ClaudeService {
         win.setContentProtection(true);
       }
 
-      await this.sleep(45);
+      await this.sleep(SCREENSHOT_CAPTURE_DELAY_MS);
 
       const primaryDisplay = screen.getPrimaryDisplay();
-      const maxCaptureWidth = 1920;
+      const maxCaptureWidth = SCREENSHOT_MAX_WIDTH;
       const scale = Math.min(1, maxCaptureWidth / Math.max(1, primaryDisplay.size.width));
-      const captureWidth = Math.max(640, Math.floor(primaryDisplay.size.width * scale));
-      const captureHeight = Math.max(360, Math.floor(primaryDisplay.size.height * scale));
+      const captureWidth = Math.max(SCREENSHOT_MIN_WIDTH, Math.floor(primaryDisplay.size.width * scale));
+      const captureHeight = Math.max(SCREENSHOT_MIN_HEIGHT, Math.floor(primaryDisplay.size.height * scale));
 
       const sources = await desktopCapturer.getSources({
         types: ['screen'],
@@ -400,7 +401,7 @@ export class ClaudeService {
       return {
         mediaType: 'image/png',
         data: source.thumbnail.toPNG().toString('base64'),
-        previewData: source.thumbnail.resize({ width: 320 }).toPNG().toString('base64'),
+        previewData: source.thumbnail.resize({ width: SCREENSHOT_PREVIEW_WIDTH }).toPNG().toString('base64'),
       };
     } catch (error) {
       log.error('Failed to capture screenshot:', error);

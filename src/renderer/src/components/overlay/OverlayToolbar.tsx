@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('OverlayToolbar')
 
 interface OverlayToolbarProps {
   stealthEnabled: boolean
@@ -23,7 +26,7 @@ export function OverlayToolbar({
   useEffect(() => {
     audioCaptureRef.current = new DualAudioCapture()
 
-    DualAudioCapture.getDevices().then(setAudioDevices)
+    DualAudioCapture.getDevices().then(setAudioDevices).catch((err) => log.error('Failed to get audio devices:', err))
 
     const unsubRecording = window.raven.onRecordingStateChanged((state) => {
       setIsRecording(state.isRecording)
@@ -31,7 +34,7 @@ export function OverlayToolbar({
 
     window.raven.audioGetState().then((state) => {
       setIsRecording(state.isRecording)
-    })
+    }).catch((err) => log.error('Failed to get audio state:', err))
 
     return () => {
       unsubRecording()
@@ -43,8 +46,8 @@ export function OverlayToolbar({
   const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
     chunkCount.current++
     if (chunkCount.current <= 5 || chunkCount.current % 100 === 0) {
-      console.log(
-        `[OverlayToolbar] Received chunk #${chunkCount.current}, source: ${source}, size: ${chunk.byteLength}`
+      log.log(
+        `Received chunk #${chunkCount.current}, source: ${source}, size: ${chunk.byteLength}`
       )
     }
     window.raven.audioSendChunk(chunk.buffer, source)
@@ -63,15 +66,15 @@ export function OverlayToolbar({
         chunkCount.current = 0
         const result = await audioCaptureRef.current.start(handleChunk, selectedDevice)
 
-        console.log('[OverlayToolbar] Audio capture result:', result)
+        log.log('Audio capture result:', result)
 
         if (result.mic && !result.system) {
-          console.warn(
-            '[OverlayToolbar] System audio not available — only capturing mic'
+          log.warn(
+            'System audio not available — only capturing mic'
           )
         }
       } catch (err) {
-        console.error('Failed to start recording:', err)
+        log.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()
       }
     }

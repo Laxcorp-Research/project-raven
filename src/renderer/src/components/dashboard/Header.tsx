@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { createLogger } from '../../lib/logger'
 import type { Mode } from '../../types/global'
 import { ModeEditorModal } from './ModeEditorModal'
+
+const log = createLogger('Header')
 import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/Raven.svg'
@@ -137,7 +140,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       setModes(allModes)
       setActiveMode(active)
     } catch (error) {
-      console.error('Failed to load modes:', error)
+      log.error('Failed to load modes:', error)
     }
   }
 
@@ -147,7 +150,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       setActiveMode(mode)
       setModeDropdownOpen(false)
     } catch (error) {
-      console.error('Failed to set active mode:', error)
+      log.error('Failed to set active mode:', error)
     }
   }
 

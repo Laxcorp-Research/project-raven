@@ -7,13 +7,30 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+.npm-cache
+
+# Build output
 dist
 dist-ssr
-.npm-cache
-.venv
-*.local
+dist-electron
+out
 .build
+*.tsbuildinfo
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Test coverage
+coverage
+
+# Playwright
+test-results/
+playwright-report/
 
 # Environment and secrets
 .env
@@ -21,6 +38,11 @@ dist-ssr
 .env.local
 .env.*.local
 *.pem
+
+# Native build artifacts (Swift)
+.swiftpm/
+*.swiftmodule
+*.swiftdoc
 
 # Editor directories and files
 .vscode/*
@@ -33,4 +55,8 @@ dist-ssr
 *.sln
 *.sw?
 
+# OS files
+Thumbs.db
+
+# Project-specific
 RavenPlan.txt

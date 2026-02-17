@@ -2,13 +2,17 @@ import { readFileSync } from 'fs';
 import { extname } from 'path';
 import { databaseService } from './database';
 import { createLogger } from '../logger';
+import { RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP, RAG_DEFAULT_TOP_K, RAG_MAX_CONTEXT_TOKENS } from '../constants';
 
 const log = createLogger('RAG');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let pipeline: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let embeddingModel: any = null;
+type PipelineFn = (...args: unknown[]) => Promise<EmbeddingModel>;
+interface EmbeddingModel {
+  (input: string[], options?: Record<string, unknown>): Promise<{ tolist(): number[][] }>;
+}
+
+let pipeline: PipelineFn | null = null;
+let embeddingModel: EmbeddingModel | null = null;
 
 async function getEmbeddingPipeline() {
   if (embeddingModel) return embeddingModel;
@@ -53,7 +57,7 @@ async function parseFile(filePath: string): Promise<string> {
 
 // ==================== CHUNKING ====================
 
-function chunkText(text: string, chunkSize = 500, overlap = 50): string[] {
+function chunkText(text: string, chunkSize = RAG_CHUNK_SIZE, overlap = RAG_CHUNK_OVERLAP): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   if (words.length <= chunkSize) return [words.join(' ')];
@@ -205,7 +209,7 @@ export function deleteContextFile(fileId: string): boolean {
 export async function retrieveRelevantChunks(
   modeId: string,
   query: string,
-  topK = 5
+  topK = RAG_DEFAULT_TOP_K
 ): Promise<Array<{ chunkText: string; fileName: string; score: number }>> {
   const allChunks = databaseService.getContextChunks(modeId);
   if (allChunks.length === 0) return [];
@@ -224,7 +228,7 @@ export async function retrieveRelevantChunks(
 
   scored.sort((a, b) => b.score - a.score);
 
-  const maxTokens = 3000;
+  const maxTokens = RAG_MAX_CONTEXT_TOKENS;
   const results: typeof scored = [];
   let tokenCount = 0;
 

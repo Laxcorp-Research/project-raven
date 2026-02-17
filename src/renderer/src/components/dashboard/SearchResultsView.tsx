@@ -1,5 +1,8 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { ArrowLeft, FileText } from 'lucide-react'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('Search')
 
 interface Session {
   id: string
@@ -93,7 +96,7 @@ export function SearchResultsView({ query, onBack, onSessionSelect }: SearchResu
           setRecentSessions(all.slice(0, 5))
         }
       } catch (error) {
-        console.error('Search failed:', error)
+        log.error('Search failed:', error)
       } finally {
         if (!cancelled) setIsLoading(false)
       }

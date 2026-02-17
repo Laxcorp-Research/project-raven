@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import { createLogger } from '../lib/logger'
 import { useAppStore } from '../stores/appStore'
 import { startMicrophoneCapture, stopMicrophoneCapture } from '../hooks/useAudioCapture'
 import { startDeepgram, sendAudio, stopDeepgram } from '../hooks/useDeepgram'
+
+const log = createLogger('Recording')
 
 export function InputBar() {
   const { isRecording, setRecording, setAiLoading, setAiResponse, setActiveTab } = useAppStore()
@@ -13,9 +16,9 @@ export function InputBar() {
       stopDeepgram()
       try {
         await window.raven.systemAudioStop()
-        console.log('[Recording] System audio stopped')
+        log.log('System audio stopped')
       } catch (err) {
-        console.warn('[Recording] System audio stop failed:', err)
+        log.warn('System audio stop failed:', err)
       }
       setRecording(false)
     } else {
@@ -34,7 +37,7 @@ export function InputBar() {
             useAppStore.getState().appendTranscript(text, isFinal)
           },
           (status) => {
-            console.log('[Deepgram Status]', status)
+            log.log('Deepgram Status:', status)
             if (status === 'error') {
               stopMicrophoneCapture()
               useAppStore.getState().setRecording(false)
@@ -45,9 +48,9 @@ export function InputBar() {
         // Start system audio capture
         try {
           await window.raven.systemAudioStart()
-          console.log('[Recording] System audio started')
+          log.log('System audio started')
         } catch (err) {
-          console.warn('[Recording] System audio failed, continuing mic-only:', err)
+          log.warn('System audio failed, continuing mic-only:', err)
         }
 
         // Then start mic capture, sending audio chunks to Deepgram
@@ -57,7 +60,7 @@ export function InputBar() {
 
         setRecording(true)
       } catch (err) {
-        console.error('Recording error:', err)
+        log.error('Recording error:', err)
         stopMicrophoneCapture()
         stopDeepgram()
       }

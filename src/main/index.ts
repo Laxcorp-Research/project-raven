@@ -11,6 +11,7 @@ import {
   setStealthMode
 } from './windowManager'
 import { getSetting, getStore } from './store'
+import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudioNative'
@@ -163,7 +164,7 @@ function moveOverlayWindow(
   const bounds = overlayWindow.getBounds()
   const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
   const workArea = display.workArea
-  const step = 50 // pixels to move
+  const step = WINDOW_MOVE_STEP_PX
 
   let newX = bounds.x
   let newY = bounds.y
@@ -209,7 +210,7 @@ function boot(): void {
     dashboard.on('ready-to-show', () => {
       setTimeout(() => {
         overlay.show()
-      }, 500)
+      }, OVERLAY_SHOW_DELAY_MS)
     })
 
     // Apply stealth mode from saved settings
@@ -421,9 +422,23 @@ app.whenReady().then(() => {
 
   ipcMain.handle('context:upload-file', async (event, modeId: string, filePath: string, fileName: string, fileSize: number) => {
     try {
+      const pathMod = await import('path')
+      const fsMod = await import('fs')
+
+      // Validate file exists and has an allowed extension
+      const resolved = pathMod.resolve(filePath)
+      const allowedExtensions = ['.pdf', '.txt', '.md', '.docx']
+      const ext = pathMod.extname(resolved).toLowerCase()
+      if (!allowedExtensions.includes(ext)) {
+        return { success: false, error: `Unsupported file type: ${ext}` }
+      }
+      if (!fsMod.existsSync(resolved)) {
+        return { success: false, error: 'File not found' }
+      }
+
       const { uploadContextFile } = await import('./services/ragService')
       const sender = event.sender
-      const result = await uploadContextFile(modeId, filePath, fileName, fileSize, (stage, current, total) => {
+      const result = await uploadContextFile(modeId, resolved, fileName, fileSize, (stage, current, total) => {
         sender.send('context:upload-progress', { stage, current, total })
       })
       return { success: true, file: result }
@@ -487,9 +502,15 @@ app.whenReady().then(() => {
     if (!filePath) return null
     const fsMod = await import('fs')
     const pathMod = await import('path')
-    if (!fsMod.existsSync(filePath)) return null
-    const data = fsMod.readFileSync(filePath)
-    const ext = pathMod.extname(filePath).toLowerCase().replace('.', '')
+
+    // Path traversal protection: only allow files inside userData
+    const resolved = pathMod.resolve(filePath)
+    const userDataPath = app.getPath('userData')
+    if (!resolved.startsWith(userDataPath)) return null
+
+    if (!fsMod.existsSync(resolved)) return null
+    const data = fsMod.readFileSync(resolved)
+    const ext = pathMod.extname(resolved).toLowerCase().replace('.', '')
     const mime = ext === 'jpg' ? 'jpeg' : ext
     return `data:image/${mime};base64,${data.toString('base64')}`
   })
@@ -552,8 +573,8 @@ app.whenReady().then(() => {
         smart_format: 'true',
         interim_results: 'true',
         punctuate: 'true',
-        sample_rate: '16000',
-        channels: '1',
+        sample_rate: String(AUDIO_SAMPLE_RATE),
+        channels: String(AUDIO_CHANNELS),
         encoding: 'linear16',
       })
 
@@ -569,7 +590,7 @@ app.whenReady().then(() => {
           if (testTranscriptionWs?.readyState === 1) {
             testTranscriptionWs.send(JSON.stringify({ type: 'KeepAlive' }))
           }
-        }, 8000)
+        }, DEEPGRAM_KEEPALIVE_MS)
 
         testTranscriptionCleanup = () => {
           clearInterval(keepAlive)

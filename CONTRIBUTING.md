@@ -6,8 +6,8 @@ Thanks for your interest in contributing to Raven! This guide will help you get 
 
 ### Prerequisites
 
-- Node.js 18+
-- npm 9+
+- Node.js 22+ (use `nvm use` -- the repo includes `.nvmrc`)
+- npm 10+
 - API keys: [Deepgram](https://deepgram.com), and [Anthropic](https://anthropic.com) or [OpenAI](https://openai.com)
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
 - **Windows**: Rust toolchain ([rustup](https://rustup.rs/)), Visual Studio Build Tools with "Desktop development with C++" workload
@@ -107,14 +107,84 @@ src/
     windows/      # Windows audio capture (WASAPI via Rust/NAPI-RS)
 ```
 
+## Testing
+
+Always run the test suite before opening a PR.
+
+### Unit & Integration Tests
+
+```bash
+# Run all unit + integration tests
+npm test
+
+# Run tests in watch mode during development
+npm run test:watch
+
+# Run with coverage report (outputs to coverage/)
+npm run test:coverage
+
+# Run only the integration tests
+npm run test:integration
+```
+
+Tests live in `src/main/__tests__/`:
+
+```
+src/main/__tests__/
+  # Unit tests (one per module)
+  providerFactory.test.ts
+  anthropicProvider.test.ts
+  openaiProvider.test.ts
+  ragService.test.ts
+  authService.test.ts
+  builtinModes.test.ts
+  windowManager.test.ts
+  validators.test.ts
+  sessionManager.test.ts
+  claudeService.test.ts
+  summaryService.test.ts
+  transcriptionService.test.ts
+  database.test.ts
+  store.test.ts
+  logger.test.ts
+  # Integration tests
+  integration/
+    aiPipeline.test.ts
+    sessionLifecycle.test.ts
+    databaseRoundTrip.test.ts
+    ragPipeline.test.ts
+```
+
+### E2E Tests
+
+E2E tests use Playwright for Electron and require a built app:
+
+```bash
+# Build the app first
+npm run build
+
+# Run E2E tests
+npm run test:e2e
+```
+
+E2E specs live in `e2e/` and cover onboarding, dashboard, recording, window management, and settings.
+
+### Writing Tests
+
+- **Unit tests:** Mock all external dependencies (Electron APIs, SDKs, database). Follow the patterns in existing test files using `vi.hoisted()` + `vi.mock()`.
+- **Integration tests:** Mock only the outermost boundaries (SDK HTTP calls, filesystem). Let multiple real modules work together.
+- **E2E tests:** Test the actual built Electron app via Playwright. Use the shared fixture from `e2e/fixtures/electronApp.ts`.
+
 ## Pull Request Process
 
 1. Fork the repository and create your branch from `main`
 2. Make your changes with clear, focused commits
-3. Ensure `npm run lint` passes
-4. Update documentation if you changed any user-facing behavior
-5. Open a PR with a clear title and description of what changed and why
-6. Link any related issues
+3. Ensure `npm test` passes (all unit + integration tests)
+4. Ensure `npm run lint` passes
+5. Add tests for new features or bug fixes
+6. Update documentation if you changed any user-facing behavior
+7. Open a PR with a clear title and description of what changed and why
+8. Link any related issues
 
 ## Reporting Bugs
 

@@ -8,6 +8,9 @@
 import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('SessionList')
 
 interface Session {
   id: string
@@ -151,7 +154,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       }))
       setSessions(mapped)
     } catch (err) {
-      console.error('Failed to load sessions:', err)
+      log.error('Failed to load sessions:', err)
     } finally {
       setIsLoading(false)
     }
@@ -186,7 +189,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       ])
       setToast({ message: 'Deleted session', type: 'success' })
     } catch (err) {
-      console.error('Failed to delete:', err)
+      log.error('Failed to delete:', err)
       setToast({ message: 'Failed to delete', type: 'error' })
     }
   }
@@ -202,7 +205,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       await window.raven.sessions.regenerateSummary(sessionId)
       setToast({ message: 'Regenerated summary', type: 'success' })
     } catch (err) {
-      console.error('Failed to regenerate:', err)
+      log.error('Failed to regenerate:', err)
       setToast({ message: 'Failed to regenerate', type: 'error' })
     } finally {
       setRegeneratingId(null)
@@ -271,7 +274,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="max-w-[900px] mx-auto w-full px-6 min-w-[500px]">
+        <div className="max-w-[900px] mx-auto w-full px-6">
         {Array.from(groupedSessions.entries()).map(([dateGroup, groupSessions]) => (
           <div key={dateGroup} className="mb-2">
             <div className="sticky top-0 py-2.5 px-4 -mx-4 text-xs font-medium text-gray-400 bg-white z-10">
@@ -326,7 +329,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
                         }
                       }}
                       onMouseLeave={() => setTooltipState(null)}
-                      className={`truncate max-w-[500px] text-sm ${
+                      className={`truncate text-sm ${
                         regeneratingId === session.id
                           ? 'text-gray-400 animate-pulse'
                           : isProcessing

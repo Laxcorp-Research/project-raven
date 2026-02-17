@@ -25,12 +25,20 @@
     "real-time"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
+    "postinstall": "npx @electron/rebuild -f -w better-sqlite3 -m .",
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --include 'src/main/__tests__/integration/**'",
+    "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
+    "test:all": "vitest run && npx playwright test --config e2e/playwright.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -57,6 +65,8 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/cli": "^4.1.18",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/better-sqlite3": "^7.6.13",
@@ -67,10 +77,10 @@
     "@typescript-eslint/eslint-plugin": "^7.1.1",
     "@typescript-eslint/parser": "^7.1.1",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.24",
-    "electron": "^30.0.1",
-    "electron-builder": "^24.13.3",
-    "electron-rebuild": "^3.2.9",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
@@ -79,7 +89,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.2.2",
-    "vite": "^5.1.6",
+    "vite": "^7.3.1",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5",
     "vitest": "^4.0.18"

@@ -2,11 +2,24 @@ import { BrowserWindow, screen } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
+import { DASHBOARD_DEFAULT_WIDTH, DASHBOARD_DEFAULT_HEIGHT, DASHBOARD_MIN_WIDTH, DASHBOARD_MIN_HEIGHT, OVERLAY_DEFAULT_WIDTH, OVERLAY_DEFAULT_HEIGHT, OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_SCREEN_EDGE_OFFSET } from './constants'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+/** Block Ctrl/Cmd +/-/0 and pinch-to-zoom so the app feels native. */
+function disableZoom(win: BrowserWindow): void {
+  win.webContents.on('before-input-event', (_event, input) => {
+    const isZoomKey = input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0'
+    if (isZoomKey && (input.control || input.meta)) {
+      _event.preventDefault()
+    }
+  })
+  win.webContents.setZoomLevel(0)
+  win.webContents.setVisualZoomLevelLimits(1, 1)
+}
 
 interface WindowBounds {
   x: number
@@ -52,14 +65,15 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
   const savedBounds = getSetting('dashboardBounds')
 
   dashboardWindow = new BrowserWindow({
-    width: savedBounds?.width || 1000,
-    height: savedBounds?.height || 700,
+    width: savedBounds?.width || DASHBOARD_DEFAULT_WIDTH,
+    height: savedBounds?.height || DASHBOARD_DEFAULT_HEIGHT,
     x: savedBounds?.x ?? undefined,
     y: savedBounds?.y ?? undefined,
-    minWidth: 800,
-    minHeight: 600,
+    minWidth: DASHBOARD_MIN_WIDTH,
+    minHeight: DASHBOARD_MIN_HEIGHT,
     show: false,
-    title: 'Raven',
+    title: '',
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -67,6 +81,9 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
       sandbox: false
     }
   })
+
+  // Disable zoom (Ctrl/Cmd +/- and pinch)
+  disableZoom(dashboardWindow)
 
   // Save window bounds on move/resize
   dashboardWindow.on('resized', () => {
@@ -111,18 +128,18 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
 
   // Base overlay size for single-line placeholder layout
-  const defaultWidth = 520
-  const defaultHeight = 216
-  const defaultX = screenWidth - defaultWidth - 20
-  const defaultY = screenHeight - defaultHeight - 20
+  const defaultWidth = OVERLAY_DEFAULT_WIDTH
+  const defaultHeight = OVERLAY_DEFAULT_HEIGHT
+  const defaultX = screenWidth - defaultWidth - OVERLAY_SCREEN_EDGE_OFFSET
+  const defaultY = screenHeight - defaultHeight - OVERLAY_SCREEN_EDGE_OFFSET
 
   overlayWindow = new BrowserWindow({
     width: defaultWidth,
     height: defaultHeight,
     x: savedBounds?.x ?? defaultX,
     y: savedBounds?.y ?? defaultY,
-    minWidth: 520,
-    minHeight: 210,
+    minWidth: OVERLAY_MIN_WIDTH,
+    minHeight: OVERLAY_MIN_HEIGHT,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -138,6 +155,9 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
       sandbox: false
     }
   })
+
+  // Disable zoom (Ctrl/Cmd +/- and pinch)
+  disableZoom(overlayWindow)
 
   // Keep on top even over full-screen apps
   overlayWindow.setAlwaysOnTop(true, 'floating', 1)

@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('ChatTab');
 
 interface ChatMessage {
   id: string;
@@ -19,7 +22,7 @@ export function ChatTab() {
   useEffect(() => {
     window.raven.claudeGetHistory().then((history: ChatMessage[]) => {
       setMessages(history);
-    });
+    }).catch(() => {});
 
     const unsub = window.raven.onClaudeResponse((data) => {
       if (data.type === 'start' && data.userMessage) {

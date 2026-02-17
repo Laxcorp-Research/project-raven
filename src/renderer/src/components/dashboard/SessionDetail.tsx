@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import ravenLogo from '../../../../../logo/raven.svg'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('SessionDetail')
 
 interface TranscriptEntry {
   id: string
@@ -63,7 +66,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   useEffect(() => {
     window.raven.storeGet('displayName').then((name) => {
       setDisplayName((name as string) || '')
-    })
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -182,7 +185,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
       setCopySuccess(type)
       setTimeout(() => setCopySuccess(null), 2000)
     } catch (err) {
-      console.error('Failed to copy:', err)
+      log.error('Failed to copy:', err)
     }
   }
 
@@ -198,7 +201,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
       const msgs = await window.raven.sessions.getMessages(session.id)
       setMessages(msgs)
     } catch (error) {
-      console.error('Failed to load messages:', error)
+      log.error('Failed to load messages:', error)
     }
     setLoadingMessages(false)
   }

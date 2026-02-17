@@ -4,6 +4,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { createLogger } from '../../lib/logger'
+
+const log = createLogger('Settings')
 
 type SettingsTab = 'profile' | 'api-keys' | 'audio' | 'language' | 'hotkeys' | 'about'
 
@@ -342,7 +345,7 @@ function ApiKeysTab() {
         const mdl = (await window.raven.storeGet('aiModel')) as string
         if (mdl) { setAiModel(mdl); setOriginalAiModel(mdl) }
       } catch (error) {
-        console.error('Failed to load API keys:', error)
+        log.error('Failed to load API keys:', error)
       }
     }
     loadKeys()
@@ -771,7 +774,7 @@ function AudioTab() {
         const systemAudio = (await window.raven.storeGet('captureSystemAudio')) as boolean
         if (systemAudio !== undefined) setCaptureSystemAudio(systemAudio)
       } catch (error) {
-        console.error('Failed to load microphones:', error)
+        log.error('Failed to load microphones:', error)
       }
     }
     void loadMicrophones()
@@ -890,7 +893,7 @@ function AudioTab() {
           }
         })
       } catch (err) {
-        console.error('Failed to start test transcription:', err)
+        log.error('Failed to start test transcription:', err)
       }
 
       // Countdown timer
@@ -904,7 +907,7 @@ function AudioTab() {
         })
       }, 1000)
     } catch (error) {
-      console.error('Failed to start mic test:', error)
+      log.error('Failed to start mic test:', error)
       setIsTestingMic(false)
     }
   }
@@ -952,7 +955,7 @@ function AudioTab() {
       transcriptUnsubscribeRef.current?.()
       transcriptUnsubscribeRef.current = null
     } catch (err) {
-      console.error('Failed to stop test transcription:', err)
+      log.error('Failed to stop test transcription:', err)
     }
 
     setIsTestingMic(false)
@@ -1131,7 +1134,7 @@ function LanguageTab() {
         if (tLang) setTranscriptionLang(tLang)
         if (oLang) setOutputLang(oLang)
       } catch (error) {
-        console.error('Failed to load language settings:', error)
+        log.error('Failed to load language settings:', error)
       }
     }
     loadSettings()
@@ -1479,7 +1482,7 @@ function AboutTab() {
   const [appVersion, setAppVersion] = useState('...')
 
   useEffect(() => {
-    window.raven.getAppVersion().then((v) => setAppVersion(v))
+    window.raven.getAppVersion().then((v) => setAppVersion(v)).catch(() => {})
   }, [])
 
   const handleOpenLink = (url: string) => {

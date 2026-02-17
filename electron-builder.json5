@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "com.laxcorpresearch.raven",
   "asar": true,
-  "productName": "YourAppName",
+  "productName": "Raven",
   "directories": {
     "output": "release/${version}"
   },

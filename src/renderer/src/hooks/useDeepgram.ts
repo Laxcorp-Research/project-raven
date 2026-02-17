@@ -1,3 +1,7 @@
+import { createLogger } from '../lib/logger'
+
+const log = createLogger('Deepgram')
+
 let ws: WebSocket | null = null
 let keepAliveInterval: ReturnType<typeof setInterval> | null = null
 let unsubscribeSystemAudioChunk: (() => void) | null = null
@@ -27,7 +31,7 @@ export function startDeepgram(
   ws = new WebSocket(url, ['token', apiKey])
 
   ws.onopen = () => {
-    console.log('[Deepgram] Connected (Nova-3, multi-language)')
+    log.log('Connected (Nova-3, multi-language)')
     onStatus('connected')
 
     keepAliveInterval = setInterval(() => {
@@ -49,17 +53,17 @@ export function startDeepgram(
         onTranscript(prefix + transcript, isFinal)
       }
     } catch (err) {
-      console.error('[Deepgram] Parse error:', err)
+      log.error('Parse error:', err)
     }
   }
 
   ws.onerror = () => {
-    console.error('[Deepgram] WebSocket error')
+    log.error('WebSocket error')
     onStatus('error')
   }
 
   ws.onclose = () => {
-    console.log('[Deepgram] Disconnected')
+    log.log('Disconnected')
     onStatus('disconnected')
     if (keepAliveInterval) {
       clearInterval(keepAliveInterval)

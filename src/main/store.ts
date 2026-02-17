@@ -1,23 +1,18 @@
 import Store from 'electron-store';
-import { safeStorage, app } from 'electron';
+import { app } from 'electron';
 import { createHash } from 'crypto';
 import { hostname, userInfo } from 'os';
 import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 function getEncryptionKey(): string {
-  // Derive a per-machine key from OS-level identifiers.
+  // Derive a deterministic per-machine key from OS-level identifiers.
   // This is obfuscation (not true security) since the derivation is deterministic,
   // but it prevents trivial decryption by someone who just reads the source code.
-  try {
-    if (safeStorage.isEncryptionAvailable()) {
-      const marker = safeStorage.encryptString('raven-key-seed');
-      return createHash('sha256').update(marker).digest('hex').slice(0, 32);
-    }
-  } catch {
-    // safeStorage not available (e.g. app not ready yet or no keychain)
-  }
-  // Fallback: derive from machine-specific data
+  // We intentionally avoid safeStorage here because:
+  //   - safeStorage.encryptString() is non-deterministic (random IV each call)
+  //   - It changes across Electron major versions, breaking existing configs
+  //   - It triggers macOS Keychain permission prompts on upgrade
   const machineId = `${hostname()}-${userInfo().username}-raven-v1`;
   return createHash('sha256').update(machineId).digest('hex').slice(0, 32);
 }

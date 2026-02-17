@@ -10,6 +10,7 @@ import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
 import { getSetting } from '../store';
 import { createLogger } from '../logger';
+import { SESSION_AUTOSAVE_INTERVAL_MS } from '../constants';
 
 const log = createLogger('SessionManager');
 
@@ -262,7 +263,7 @@ class SessionManager {
     this.stopAutoSave();
     this.autoSaveInterval = setInterval(() => {
       this.saveSession();
-    }, 60000);
+    }, SESSION_AUTOSAVE_INTERVAL_MS);
   }
 
   /**
