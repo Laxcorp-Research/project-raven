@@ -3,7 +3,6 @@ import ScreenCaptureKit
 import AVFoundation
 import AudioToolbox
 import CoreMedia
-import CAecBridge
 
 // MARK: - Audio Chunk Types
 enum AudioSource: String {
@@ -11,175 +10,7 @@ enum AudioSource: String {
     case mic = "mic"
 }
 
-// MARK: - Audio Delay Buffer
-final class AudioDelayBuffer {
-    private var buffer: [Int16]
-    private var writeIndex = 0
-    private var readIndex = 0
-    private let capacity: Int
-    private var filled = 0
-    private let delayFrames: Int
-    
-    /// Create buffer with delay in milliseconds at given sample rate
-    init(delayMs: Int, sampleRate: Int = 16000) {
-        self.delayFrames = (delayMs * sampleRate) / 1000
-        self.capacity = delayFrames * 2
-        self.buffer = [Int16](repeating: 0, count: capacity)
-        fputs("[DelayBuffer] Created with \(delayMs)ms delay (\(delayFrames) samples)\n", stderr)
-    }
-    
-    /// Write samples and get delayed samples back
-    func process(_ input: [Int16]) -> [Int16]? {
-        for sample in input {
-            buffer[writeIndex] = sample
-            writeIndex = (writeIndex + 1) % capacity
-            filled = min(filled + 1, capacity)
-        }
-        
-        if filled < delayFrames {
-            return nil
-        }
-        
-        var output = [Int16](repeating: 0, count: input.count)
-        for i in 0..<input.count {
-            output[i] = buffer[readIndex]
-            readIndex = (readIndex + 1) % capacity
-        }
-        
-        return output
-    }
-    
-    func reset() {
-        buffer = [Int16](repeating: 0, count: capacity)
-        writeIndex = 0
-        readIndex = 0
-        filled = 0
-    }
-}
-
-// MARK: - WebRTC AEC Processor Wrapper
-final class AECProcessor {
-    private var processor: OpaquePointer?
-    private let sampleRate: Int32
-    private let frameSize: Int32  // samples per 10ms frame
-    private var outputBuffer: [Int16]
-    private let lock = NSLock()
-    
-    init(sampleRate: Int32 = 16000) {
-        self.sampleRate = sampleRate
-        self.frameSize = sampleRate / 100  // 10ms = 160 samples at 16kHz
-        self.outputBuffer = [Int16](repeating: 0, count: Int(frameSize))
-        
-        processor = raven_aec_create(sampleRate)
-        if processor == nil {
-            fputs("[AEC] Failed to create processor\n", stderr)
-        } else {
-            fputs("[AEC] Created (sampleRate=\(sampleRate), frameSize=\(frameSize))\n", stderr)
-        }
-    }
-    
-    deinit {
-        if let proc = processor {
-            raven_aec_destroy(proc)
-        }
-    }
-    
-    /// Feed speaker/system audio as reference signal
-    func processRender(samples: UnsafePointer<Int16>, count: Int) {
-        guard let proc = processor else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        
-        // Process in 10ms frames
-        var offset = 0
-        while offset + Int(frameSize) <= count {
-            let result = raven_aec_process_render(proc, samples.advanced(by: offset), frameSize)
-            if result != 0 {
-                fputs("[AEC] processRender error: \(result)\n", stderr)
-            }
-            offset += Int(frameSize)
-        }
-    }
-    
-    /// Process microphone audio, removing echo
-    func processCapture(samples: UnsafePointer<Int16>, count: Int) -> Data {
-        guard let proc = processor else {
-            return Data(bytes: samples, count: count * MemoryLayout<Int16>.size)
-        }
-        
-        lock.lock()
-        defer { lock.unlock() }
-        
-        var result = Data()
-        result.reserveCapacity(count * MemoryLayout<Int16>.size)
-        
-        // Process in 10ms frames
-        var offset = 0
-        while offset + Int(frameSize) <= count {
-            let status = raven_aec_process_capture(
-                proc,
-                samples.advanced(by: offset),
-                &outputBuffer,
-                frameSize
-            )
-            
-            if status != 0 {
-                // On error, pass through original
-                let byteCount = Int(frameSize) * MemoryLayout<Int16>.size
-                let rawBytes = UnsafeRawBufferPointer(
-                    start: samples.advanced(by: offset),
-                    count: byteCount
-                )
-                result.append(contentsOf: rawBytes)
-            } else {
-                outputBuffer.withUnsafeBufferPointer { buffer in
-                    let bytes = UnsafeRawBufferPointer(buffer)
-                    result.append(contentsOf: bytes)
-                }
-            }
-            offset += Int(frameSize)
-        }
-        
-        return result
-    }
-    
-    func setStreamDelay(ms: Int32) {
-        guard let proc = processor else { return }
-        raven_aec_set_stream_delay(proc, ms)
-    }
-
-    struct Stats {
-        var erl: Float = 0
-        var erle: Float = 0
-        var delay: Int32 = 0
-        var diverged: Bool = false
-    }
-    
-    func getStats() -> Stats {
-        guard let proc = processor else {
-            return Stats()
-        }
-        
-        var cStats = RavenAecStats()
-        raven_aec_get_stats(proc, &cStats)
-        
-        return Stats(
-            erl: cStats.echo_return_loss,
-            erle: cStats.echo_return_loss_enhancement,
-            delay: Int32(cStats.delay_ms),
-            diverged: cStats.diverged
-        )
-    }
-
-    func reset() {
-        guard let proc = processor else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        raven_aec_reset(proc)
-    }
-}
-
-// MARK: - Mic Capture with Apple Voice Processing
+// MARK: - Mic Capture (raw, no Voice Processing)
 @available(macOS 14.0, *)
 final class MicCapture {
     private let engine = AVAudioEngine()
@@ -191,13 +22,10 @@ final class MicCapture {
         
         let inputNode = engine.inputNode
         
-        // Enable Apple's Voice Processing (AEC + Noise Suppression + AGC)
-        do {
-            try inputNode.setVoiceProcessingEnabled(true)
-            fputs("[Mic] Voice Processing ENABLED (Apple AEC)\n", stderr)
-        } catch {
-            fputs("[Mic] WARNING: Voice Processing failed: \(error). Continuing without AEC.\n", stderr)
-        }
+        // NOTE: Voice Processing (setVoiceProcessingEnabled) is intentionally NOT used.
+        // It causes system-wide audio ducking on macOS, making remote participants
+        // nearly inaudible during calls. Since mic and system audio are sent to
+        // separate Deepgram streams, AEC is unnecessary for transcription accuracy.
         
         let inputFormat = inputNode.outputFormat(forBus: 0)
         fputs("[Mic] Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels\n", stderr)
@@ -210,7 +38,7 @@ final class MicCapture {
         }
         
         try engine.start()
-        fputs("[Mic] Started with Voice Processing\n", stderr)
+        fputs("[Mic] Started (raw capture, no Voice Processing)\n", stderr)
     }
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -440,7 +268,7 @@ struct AudioCaptureApp {
         }
         intSource.resume()
         
-        fputs("[AudioCapture] Starting dual capture with Apple Voice Processing\n", stderr)
+        fputs("[AudioCapture] Starting dual capture\n", stderr)
         
         // System audio capture - outputs to "Them" stream
         systemCapture = SystemAudioCapture { data in
@@ -453,7 +281,6 @@ struct AudioCaptureApp {
             writeChunk(source: .system, data: data)
         }
         
-        // Mic capture - Apple Voice Processing handles AEC automatically
         micCapture = MicCapture()
         
         do {
@@ -464,11 +291,10 @@ struct AudioCaptureApp {
                     fputs("[Mic] Chunk #\(micChunkCount), bytes: \(data.count)\n", stderr)
                 }
                 
-                // Output directly - Voice Processing already removed echo
                 writeChunk(source: .mic, data: data)
             }
             
-            fputs("[AudioCapture] Both captures running with Voice Processing\n", stderr)
+            fputs("[AudioCapture] Both captures running\n", stderr)
             
             // Keep running
             while true {
