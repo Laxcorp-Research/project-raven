@@ -1,7 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { createLogger } from '../../lib/logger';
-
-const log = createLogger('ChatTab');
 
 interface ChatMessage {
   id: string;
@@ -14,7 +11,7 @@ interface ChatMessage {
 export function ChatTab() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [_streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);

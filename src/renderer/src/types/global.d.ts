@@ -220,6 +220,13 @@ declare global {
       onHotkeyScrollUp: (callback: () => void) => () => void;
       onHotkeyScrollDown: (callback: () => void) => () => void;
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
+
+      // Legacy overlay API (used by Settings.tsx, TitleBar.tsx, InputBar.tsx)
+      getAiSuggestion: (apiKey: string, transcript: string, question?: string) => Promise<{ success: boolean; text: string; error?: string }>;
+      saveSettings: (settings: Record<string, unknown>) => Promise<unknown>;
+      toggleStealth: (enabled: boolean) => Promise<unknown>;
+      hideWindow: () => void;
+      minimizeWindow: () => void;
     };
   }
 }

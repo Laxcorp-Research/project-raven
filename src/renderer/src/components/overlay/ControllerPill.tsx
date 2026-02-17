@@ -29,7 +29,7 @@ export function ControllerPill({
   onLogoMouseDown
 }: ControllerPillProps) {
   const [tooltip, setTooltip] = useState<{ text: string; left: number } | null>(null)
-  const [tooltipLeft, setTooltipLeft] = useState<number | null>(null)
+  const [_tooltipLeft, setTooltipLeft] = useState<number | null>(null)
   const pillRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)

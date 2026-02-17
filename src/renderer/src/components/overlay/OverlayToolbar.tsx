@@ -50,7 +50,7 @@ export function OverlayToolbar({
         `Received chunk #${chunkCount.current}, source: ${source}, size: ${chunk.byteLength}`
       )
     }
-    window.raven.audioSendChunk(chunk.buffer, source)
+    window.raven.audioSendChunk(chunk.buffer as ArrayBuffer, source)
   }, [])
 
   const handleMicToggle = useCallback(async () => {

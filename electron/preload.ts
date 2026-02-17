@@ -35,9 +35,3 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('raven', api)
-
-declare global {
-  interface Window {
-    raven: typeof api
-  }
-}

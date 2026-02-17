@@ -50,14 +50,14 @@ function getInitials(name: string): string {
 }
 
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
-  const [modeDropdownOpen, setModeDropdownOpen] = useState(false)
+  const [_modeDropdownOpen, setModeDropdownOpen] = useState(false)
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [modes, setModes] = useState<Mode[]>([])
-  const [activeMode, setActiveMode] = useState<Mode | null>(null)
+  const [_modes, setModes] = useState<Mode[]>([])
+  const [_activeMode, setActiveMode] = useState<Mode | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [profilePicData, setProfilePicData] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -153,6 +153,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       log.error('Failed to set active mode:', error)
     }
   }
+  void handleSelectMode
 
   return (
     <>
