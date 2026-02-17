@@ -280,11 +280,14 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
             {groupSessions.map((session) => {
               const isActive = session.id === activeId
+              const isProcessing = !isActive && (!session.title || session.title === 'Untitled Session') && session.duration > 0
               const displayTitle = isActive
                 ? 'Untitled session'
                 : regeneratingId === session.id
                   ? 'Regenerating...'
-                  : session.title || 'Untitled session'
+                  : isProcessing
+                    ? 'Processing Session...'
+                    : session.title || 'Untitled session'
 
               return (
                 <div
@@ -301,6 +304,9 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
                   <div className="flex items-center gap-3 min-w-0 flex-1 mr-6">
                     {isActive && (
                       <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                    )}
+                    {isProcessing && (
+                      <span className="w-2 h-2 rounded-full animate-breathing-dot shrink-0" />
                     )}
 
                     <span
@@ -320,7 +326,11 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
                       }}
                       onMouseLeave={() => setTooltipState(null)}
                       className={`truncate max-w-[500px] text-sm ${
-                        regeneratingId === session.id ? 'text-gray-400 animate-pulse' : 'text-gray-900'
+                        regeneratingId === session.id
+                          ? 'text-gray-400 animate-pulse'
+                          : isProcessing
+                            ? 'text-gray-400 animate-pulse'
+                            : 'text-gray-900'
                       }`}
                     >
                       {displayTitle}

@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
+import Markdown from 'react-markdown'
+import ravenLogo from '../../../../../logo/raven.svg'
 
 interface TranscriptEntry {
   id: string
@@ -273,6 +275,10 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                   minHeight: '1.2em',
                 }}
               />
+            ) : session.title === 'Untitled Session' && hasTranscript ? (
+              <div className="px-2 py-1 -mx-2">
+                <div className="h-7 bg-gray-200 rounded w-[60%] animate-pulse" />
+              </div>
             ) : (
               <h1
                 onClick={handleTitleClick}
@@ -350,7 +356,8 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         <div className="flex-1 h-0 relative">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto">
             <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
-              {(hasTranscript || (activeTab === 'usage' && messages.length > 0)) && (
+              {(hasTranscript || (activeTab === 'usage' && messages.length > 0)) &&
+                !(activeTab === 'summary' && !session.summary && hasTranscript) && (
                 <div className="flex justify-end mb-4">
                   <button
                     onClick={() => handleCopy(getCopyText(), activeTab)}
@@ -383,7 +390,49 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   )
 }
 
+function SummarySkeleton() {
+  return (
+    <div className="space-y-6 max-w-3xl animate-pulse">
+      <p className="text-sm text-gray-400 mb-4">Generating summary...</p>
+      <div>
+        <div className="h-5 bg-gray-200 rounded w-2/5 mb-4" />
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-200 mt-2 flex-shrink-0" />
+            <div className="h-4 bg-gray-200 rounded w-[90%]" />
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-200 mt-2 flex-shrink-0" />
+            <div className="h-4 bg-gray-200 rounded w-[75%]" />
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-200 mt-2 flex-shrink-0" />
+            <div className="h-4 bg-gray-200 rounded w-[85%]" />
+          </div>
+        </div>
+      </div>
+      <div>
+        <div className="h-5 bg-gray-200 rounded w-1/3 mb-4" />
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-200 mt-2 flex-shrink-0" />
+            <div className="h-4 bg-gray-200 rounded w-[80%]" />
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-200 mt-2 flex-shrink-0" />
+            <div className="h-4 bg-gray-200 rounded w-[60%]" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SummaryTab({ summary, hasTranscript }: { summary: string | null; hasTranscript: boolean }) {
+  if (!summary && hasTranscript) {
+    return <SummarySkeleton />
+  }
+
   if (!summary || !hasTranscript) {
     return <p className="text-gray-400 text-lg">Write your notes here...</p>
   }
@@ -602,16 +651,16 @@ function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: 
             </div>
           ) : (
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
-                <svg className="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C9.5 2 7.5 3.5 6.5 5.5C5 5 3 5.5 2 7C3 8 4.5 8.5 6 8.5C6 10 6.5 11.5 7.5 12.5L4 20H6L8.5 14C9.5 15 11 16 12 16C13 16 14.5 15 15.5 14L18 20H20L16.5 12.5C17.5 11.5 18 10 18 8.5C19.5 8.5 21 8 22 7C21 5.5 19 5 17.5 5.5C16.5 3.5 14.5 2 12 2ZM12 4C13.5 4 14.78 4.83 15.5 6C14.5 6.5 13.5 7 12 7C10.5 7 9.5 6.5 8.5 6C9.22 4.83 10.5 4 12 4ZM10 10C10.55 10 11 10.45 11 11C11 11.55 10.55 12 10 12C9.45 12 9 11.55 9 11C9 10.45 9.45 10 10 10ZM14 10C14.55 10 15 10.45 15 11C15 11.55 14.55 12 14 12C13.45 12 13 11.55 13 11C13 10.45 13.45 10 14 10Z" />
-                </svg>
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center">
+                <img src={ravenLogo} alt="Raven" className="w-4 h-4" draggable={false} />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm text-gray-400">• {formatTime(message.createdAt)}</span>
                 </div>
-                <p className="text-gray-700 leading-relaxed">{message.content}</p>
+                <div className="text-gray-700 leading-relaxed prose prose-sm prose-gray max-w-none [&_strong]:font-semibold [&_strong]:text-gray-900 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
+                  <Markdown>{message.content}</Markdown>
+                </div>
                 <button
                   onClick={() => handleCopy(message.id, message.content)}
                   className={`flex items-center gap-1 mt-2 text-xs text-gray-400 hover:text-gray-600 transition-all duration-150 ${

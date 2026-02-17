@@ -171,6 +171,22 @@ html, body, #root {
   animation: fade-in 0.15s ease-out;
 }
 
+/* Breathing dot animation for processing sessions */
+@keyframes breathing-dot {
+  0%, 100% {
+    transform: scale(0.85);
+    background-color: #3b82f6;
+  }
+  50% {
+    transform: scale(1.2);
+    background-color: #6366f1;
+  }
+}
+
+.animate-breathing-dot {
+  animation: breathing-dot 2s ease-in-out infinite;
+}
+
 /* Overlay markdown rendering */
 .overlay-markdown p {
   margin-bottom: 0.9em;
