@@ -1,0 +1,17 @@
+{
+  "name": "raven-aec",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebRTC AEC3 echo cancellation native addon for Project Raven",
+  "main": "build/Release/raven-aec.node",
+  "scripts": {
+    "build": "cmake-js compile",
+    "build:debug": "cmake-js compile --debug",
+    "rebuild": "cmake-js rebuild",
+    "clean": "cmake-js clean"
+  },
+  "dependencies": {
+    "cmake-js": "^7.3.0",
+    "node-addon-api": "^8.3.1"
+  }
+}

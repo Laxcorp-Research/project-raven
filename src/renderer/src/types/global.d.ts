@@ -93,22 +93,6 @@ declare global {
       systemAudioIsAvailable: () => Promise<boolean>;
       systemAudioHasPermission: () => Promise<boolean>;
       systemAudioRequestPermission: () => Promise<boolean>;
-      systemAudioStart: () => Promise<boolean>;
-      systemAudioStop: () => Promise<boolean>;
-      sendSystemAudioToDeepgram: (chunk: { data: number[]; timestamp: number }) => void;
-      onSystemAudioChunk: (callback: (data: {
-        data: ArrayBuffer | Uint8Array;
-        sampleRate: number;
-        channels: number;
-        timestamp: number;
-      }) => void) => () => void;
-      onNativeMicChunk: (callback: (data: {
-        data: ArrayBuffer | Uint8Array;
-        sampleRate: number;
-        channels: number;
-        timestamp: number;
-      }) => void) => () => void;
-      onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => () => void;
       sessions: {
         create: (session: Omit<Session, 'createdAt'>) => Promise<Session>;
         update: (id: string, updates: Partial<Session>) => Promise<boolean>;
@@ -151,7 +135,6 @@ declare global {
       };
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
-      audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') => void;
       audioGetState: () => Promise<{ isRecording: boolean; duration: number }>;
       onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => () => void;
       onTranscriptUpdate: (callback: (data: {

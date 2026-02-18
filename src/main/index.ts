@@ -14,11 +14,12 @@ import { getSetting, getStore } from './store'
 import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
-import { registerSystemAudioHandlers, setSystemAudioWindows } from './systemAudioNative'
+import { registerSystemAudioHandlers } from './systemAudioNative'
 import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
+import { initializeProFeatures } from './proLoader'
 import { createLogger } from './logger'
 
 const log = createLogger('Raven')
@@ -50,14 +51,6 @@ ipcMain.handle('desktop:get-sources', async () => {
   } catch (err) {
     log.error('Failed to get desktop sources:', err)
     return []
-  }
-})
-
-// Forward system audio chunks to Deepgram (overlay renderer)
-ipcMain.on('system-audio:to-deepgram', (_event, chunk: { data: number[]; timestamp: number }) => {
-  const overlayWindow = getOverlayWindow()
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.webContents.send('system-audio:for-deepgram', chunk)
   }
 })
 
@@ -198,7 +191,6 @@ function boot(): void {
   const overlay = createOverlayWindow(preloadPath, rendererURL)
   const claudeService = new ClaudeService(overlay)
 
-  setSystemAudioWindows(dashboard, overlay)
   sessionManager.setWindows(dashboard, overlay)
   sessionManager.recoverSession()
 
@@ -238,6 +230,7 @@ app.whenReady().then(() => {
 
   registerIpcHandlers()
   registerSystemAudioHandlers()
+  initializeProFeatures()
   boot()
 
   // Session IPC handlers

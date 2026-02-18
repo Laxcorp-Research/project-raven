@@ -15,7 +15,32 @@
     "target": [
       "dmg"
     ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+    "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    "extraResources": [
+      {
+        "from": "src/native/swift/AudioCapture/.build/release/audiocapture",
+        "to": "swift/audiocapture"
+      },
+      {
+        "from": "src/native/aec/build/Release/raven-aec.node",
+        "to": "raven-aec.node"
+      },
+      // GStreamer plugin (webrtcdsp + webrtcechoprobe)
+      {
+        "from": "src/native/aec/deps/lib/gstreamer-1.0/libgstwebrtcdsp.dylib",
+        "to": "gstreamer-1.0/libgstwebrtcdsp.dylib"
+      },
+      // GStreamer core plugins needed by our pipeline
+      {
+        "from": "build/gstreamer-bundle/plugins/",
+        "to": "gstreamer-1.0/"
+      },
+      // GStreamer shared libraries
+      {
+        "from": "build/gstreamer-bundle/lib/",
+        "to": "gstreamer-lib/"
+      }
+    ]
   },
   "win": {
     "target": [
@@ -26,7 +51,27 @@
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
+    "extraResources": [
+      {
+        "from": "src/native/windows/raven-windows-audio.win32-x64-msvc.node",
+        "to": "raven-windows-audio.win32-x64-msvc.node"
+      },
+      {
+        "from": "src/native/aec/build/Release/raven-aec.node",
+        "to": "raven-aec.node"
+      },
+      // GStreamer plugins (webrtcdsp + core pipeline plugins)
+      {
+        "from": "build/gstreamer-bundle-win/plugins/",
+        "to": "gstreamer-1.0/"
+      },
+      // GStreamer shared libraries (DLLs)
+      {
+        "from": "build/gstreamer-bundle-win/lib/",
+        "to": "gstreamer-lib/"
+      }
+    ]
   },
   "nsis": {
     "oneClick": false,

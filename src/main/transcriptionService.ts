@@ -31,15 +31,21 @@ interface ConnectionState {
   isConnected: boolean;
   keepAliveInterval: NodeJS.Timeout | null;
   currentInterim: string;
+  sendCount?: number;
+  reconnectAttempts?: number;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY_MS = 1000;
+
 export class TranscriptionService {
-  private micConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '' };
-  private systemConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '' };
+  private micConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '', sendCount: 0, reconnectAttempts: 0 };
+  private systemConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '', sendCount: 0, reconnectAttempts: 0 };
   private overlayWindow: BrowserWindow | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private apiKey: string = '';
   private transcriptEntries: TranscriptEntry[] = [];
+  private isActive = false;
 
   setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void {
     this.dashboardWindow = dashboard;
@@ -57,6 +63,7 @@ export class TranscriptionService {
     }
 
     log.info('Starting both connections...');
+    this.isActive = true;
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
@@ -68,6 +75,7 @@ export class TranscriptionService {
     );
 
     if (!micResult.success && !systemResult.success) {
+      this.isActive = false;
       return { success: false, error: 'Failed to start transcription' };
     }
 
@@ -140,15 +148,53 @@ export class TranscriptionService {
           resolve({ success: false });
         };
 
-        state.ws!.onclose = () => {
-          log.info(`${source} WebSocket closed`);
+        state.ws!.onclose = (event: { code?: number; reason?: string }) => {
+          const code = event?.code ?? 'unknown';
+          const reason = event?.reason ?? 'no reason';
+          log.warn(`${source} WebSocket closed (code=${code}, reason="${reason}", sends=${state.sendCount || 0})`);
           state.isConnected = false;
           this.clearKeepAlive(state);
+
+          // Reconnect if session is still active and this was unexpected
+          if (this.isActive && code !== 1000) {
+            this.attemptReconnect(source);
+          }
         };
       });
     } catch (err: unknown) {
       log.error(`${source} failed to connect:`, err);
       return { success: false };
+    }
+  }
+
+  private async attemptReconnect(source: AudioSource): Promise<void> {
+    const state = source === 'mic' ? this.micConnection : this.systemConnection;
+    state.reconnectAttempts = (state.reconnectAttempts || 0) + 1;
+
+    if (state.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+      log.error(`${source} exceeded max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}), giving up`);
+      this.broadcastStatus(`${source}-disconnected`);
+      return;
+    }
+
+    const delay = RECONNECT_DELAY_MS * state.reconnectAttempts;
+    log.info(`${source} reconnecting in ${delay}ms (attempt ${state.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+
+    if (!this.isActive) {
+      log.debug(`${source} session ended during reconnect wait, aborting`);
+      return;
+    }
+
+    state.sendCount = 0;
+    const result = await this.startConnection(source);
+    if (result.success) {
+      log.info(`${source} reconnected successfully`);
+      state.reconnectAttempts = 0;
+    } else {
+      log.error(`${source} reconnect failed`);
+      this.attemptReconnect(source);
     }
   }
 
@@ -241,7 +287,7 @@ export class TranscriptionService {
   /**
    * Send audio data to the appropriate Deepgram connection.
    */
-  sendAudio(buffer: ArrayBuffer, source: AudioSource): void {
+  sendAudio(buffer: Buffer | ArrayBuffer, source: AudioSource): void {
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
 
     if (!state.ws || !state.isConnected) {
@@ -252,8 +298,7 @@ export class TranscriptionService {
     }
 
     try {
-      const buf = Buffer.from(buffer);
-      // Diagnostic: log first few sends to check if audio data is non-zero
+      const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
       state.sendCount = (state.sendCount || 0) + 1;
       if (state.sendCount <= 5 || state.sendCount % 200 === 0) {
         const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.min(10, buf.byteLength / 2));
@@ -267,10 +312,13 @@ export class TranscriptionService {
   }
 
   async stop(): Promise<void> {
+    this.isActive = false;
     await Promise.all([
       this.stopConnection(this.micConnection),
       this.stopConnection(this.systemConnection),
     ]);
+    this.micConnection.reconnectAttempts = 0;
+    this.systemConnection.reconnectAttempts = 0;
     log.info('All connections stopped');
   }
 

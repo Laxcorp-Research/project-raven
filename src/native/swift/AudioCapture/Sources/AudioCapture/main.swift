@@ -1,8 +1,8 @@
 import Foundation
 import ScreenCaptureKit
-import AVFoundation
-import AudioToolbox
 import CoreMedia
+import AudioToolbox
+import CoreAudio
 
 // MARK: - Audio Chunk Types
 enum AudioSource: String {
@@ -10,86 +10,284 @@ enum AudioSource: String {
     case mic = "mic"
 }
 
-// MARK: - Mic Capture (raw, no Voice Processing)
-@available(macOS 14.0, *)
+// MARK: - Mic Capture (AUHAL AudioUnit — non-disruptive)
+//
+// Uses CoreAudio's low-level AUHAL (Hardware Abstraction Layer) AudioUnit
+// instead of AVAudioEngine. The critical difference:
+//
+// AVAudioEngine reconfigures the hardware device (sample rate, buffer size)
+// when started, which disrupts other apps (Teams, Zoom) sharing the device.
+//
+// AUHAL reads the hardware's CURRENT configuration and adapts to it —
+// no hardware properties are changed, so other apps are unaffected.
+// This is the same approach used by OBS, Logic Pro, and Audio Hijack.
+
+@available(macOS 13.0, *)
 final class MicCapture {
-    private let engine = AVAudioEngine()
+    private var audioUnit: AudioUnit?
     private var onData: ((Data) -> Void)?
     private let targetSampleRate: Double = 16000
-    
+    private var hwSampleRate: Double = 48000
+    private let processingQueue = DispatchQueue(label: "mic.processing", qos: .userInteractive)
+
     func start(onData: @escaping (Data) -> Void) throws {
         self.onData = onData
-        
-        let inputNode = engine.inputNode
-        
-        // NOTE: Voice Processing (setVoiceProcessingEnabled) is intentionally NOT used.
-        // It causes system-wide audio ducking on macOS, making remote participants
-        // nearly inaudible during calls. Since mic and system audio are sent to
-        // separate Deepgram streams, AEC is unnecessary for transcription accuracy.
-        
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        fputs("[Mic] Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels\n", stderr)
-        
-        // Buffer size for ~20ms at input sample rate
-        let bufferSize = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
-        
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
-            self?.processAudioBuffer(buffer)
+
+        // 1. Get default input device
+        var inputDeviceID = AudioDeviceID(0)
+        var propSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address, 0, nil, &propSize, &inputDeviceID
+        )
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to get default input device"])
         }
-        
-        try engine.start()
-        fputs("[Mic] Started (raw capture, no Voice Processing)\n", stderr)
+
+        // 2. Read hardware sample rate (we match it, never change it)
+        var nominalRate: Float64 = 0
+        propSize = UInt32(MemoryLayout<Float64>.size)
+        address.mSelector = kAudioDevicePropertyNominalSampleRate
+        status = AudioObjectGetPropertyData(inputDeviceID, &address, 0, nil, &propSize, &nominalRate)
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Cannot read device sample rate"])
+        }
+        hwSampleRate = nominalRate
+
+        // 3. Read hardware buffer frame size (we match it, never change it)
+        var hwBufferSize: UInt32 = 0
+        propSize = UInt32(MemoryLayout<UInt32>.size)
+        address.mSelector = kAudioDevicePropertyBufferFrameSize
+        address.mScope = kAudioObjectPropertyScopeGlobal
+        status = AudioObjectGetPropertyData(inputDeviceID, &address, 0, nil, &propSize, &hwBufferSize)
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Cannot read device buffer size"])
+        }
+
+        fputs("[Mic] Hardware: \(nominalRate)Hz, buffer=\(hwBufferSize) frames\n", stderr)
+
+        // 4. Create AUHAL AudioUnit
+        var componentDesc = AudioComponentDescription(
+            componentType: kAudioUnitType_Output,
+            componentSubType: kAudioUnitSubType_HALOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        guard let component = AudioComponentFindNext(nil, &componentDesc) else {
+            throw NSError(domain: "MicCapture", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "HAL output component not found"])
+        }
+
+        var au: AudioUnit?
+        status = AudioComponentInstanceNew(component, &au)
+        guard status == noErr, let unit = au else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create AudioUnit"])
+        }
+        audioUnit = unit
+
+        // 5. Enable input (bus 1), disable output (bus 0)
+        var enableIO: UInt32 = 1
+        var disableIO: UInt32 = 0
+        status = AudioUnitSetProperty(unit,
+            kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Input, 1,
+            &enableIO, UInt32(MemoryLayout<UInt32>.size))
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to enable input"])
+        }
+
+        status = AudioUnitSetProperty(unit,
+            kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output, 0,
+            &disableIO, UInt32(MemoryLayout<UInt32>.size))
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to disable output"])
+        }
+
+        // 6. Set the input device
+        var deviceID = inputDeviceID
+        status = AudioUnitSetProperty(unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global, 0,
+            &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to set input device"])
+        }
+
+        // 7. Set stream format: Float32, mono, at HARDWARE sample rate
+        //    By matching the hardware rate, we avoid triggering any reconfiguration.
+        //    Resampling to 16kHz is done in software after capture.
+        var streamFormat = AudioStreamBasicDescription(
+            mSampleRate: nominalRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+        status = AudioUnitSetProperty(unit,
+            kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Output, 1,
+            &streamFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to set stream format"])
+        }
+
+        // 8. Match the hardware buffer size on our AudioUnit
+        status = AudioUnitSetProperty(unit,
+            kAudioDevicePropertyBufferFrameSize,
+            kAudioUnitScope_Global, 0,
+            &hwBufferSize, UInt32(MemoryLayout<UInt32>.size))
+        if status != noErr {
+            fputs("[Mic] Warning: could not set buffer size (status \(status)), continuing\n", stderr)
+        }
+
+        // 9. Install input render callback
+        var callbackStruct = AURenderCallbackStruct(
+            inputProc: micInputCallback,
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+        )
+        status = AudioUnitSetProperty(unit,
+            kAudioOutputUnitProperty_SetInputCallback,
+            kAudioUnitScope_Global, 0,
+            &callbackStruct, UInt32(MemoryLayout<AURenderCallbackStruct>.size))
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to set input callback"])
+        }
+
+        // 10. Initialize and start
+        status = AudioUnitInitialize(unit)
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "AudioUnit initialize failed"])
+        }
+
+        status = AudioOutputUnitStart(unit)
+        guard status == noErr else {
+            throw NSError(domain: "MicCapture", code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "AudioUnit start failed"])
+        }
+
+        fputs("[Mic] Started (AUHAL, non-disruptive, \(nominalRate)Hz → 16kHz)\n", stderr)
     }
-    
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let onData = self.onData,
-              let floatData = buffer.floatChannelData else { return }
-        
-        let frameCount = Int(buffer.frameLength)
-        let inputSampleRate = buffer.format.sampleRate
-        
-        // Extract channel 0 only (mono) - Voice Processing may return multiple channels
-        let channel0 = floatData[0]
-        
-        // Calculate output frame count for resampling
-        let ratio = targetSampleRate / inputSampleRate
-        let outputFrameCount = Int(Double(frameCount) * ratio)
-        
-        // Simple linear resampling from input rate to 16kHz
-        var resampled = [Float](repeating: 0, count: outputFrameCount)
-        for i in 0..<outputFrameCount {
-            let srcIndex = Double(i) / ratio
-            let srcIndexInt = Int(srcIndex)
-            let frac = Float(srcIndex - Double(srcIndexInt))
-            
-            if srcIndexInt + 1 < frameCount {
-                // Linear interpolation
-                resampled[i] = channel0[srcIndexInt] * (1 - frac) + channel0[srcIndexInt + 1] * frac
-            } else if srcIndexInt < frameCount {
-                resampled[i] = channel0[srcIndexInt]
+
+    /// Called from the CoreAudio realtime thread — copies data and dispatches processing
+    fileprivate func renderInput(
+        ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+        inTimeStamp: UnsafePointer<AudioTimeStamp>,
+        inBusNumber: UInt32,
+        inNumberFrames: UInt32
+    ) {
+        guard let au = audioUnit else { return }
+
+        let byteSize = inNumberFrames * 4
+        let rawBuf = UnsafeMutableRawPointer.allocate(byteCount: Int(byteSize), alignment: 4)
+
+        var bufferList = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: 1,
+                mDataByteSize: byteSize,
+                mData: rawBuf
+            )
+        )
+
+        let status = AudioUnitRender(au, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, &bufferList)
+        if status != noErr {
+            rawBuf.deallocate()
+            return
+        }
+
+        let frameCount = Int(inNumberFrames)
+
+        // Copy float samples off the realtime thread
+        let floatArray = Array(UnsafeBufferPointer(
+            start: rawBuf.assumingMemoryBound(to: Float.self),
+            count: frameCount
+        ))
+        rawBuf.deallocate()
+
+        let capturedHwRate = self.hwSampleRate
+        let capturedTargetRate = self.targetSampleRate
+        let capturedOnData = self.onData
+
+        // Resample and convert on a non-realtime thread
+        processingQueue.async {
+            guard let onData = capturedOnData else { return }
+
+            let ratio = capturedTargetRate / capturedHwRate
+            let outputCount = Int(Double(frameCount) * ratio)
+
+            var int16Samples = [Int16](repeating: 0, count: outputCount)
+            for i in 0..<outputCount {
+                let srcIdx = Double(i) / ratio
+                let srcInt = Int(srcIdx)
+                let frac = Float(srcIdx - Double(srcInt))
+
+                let sample: Float
+                if srcInt + 1 < frameCount {
+                    sample = floatArray[srcInt] * (1 - frac) + floatArray[srcInt + 1] * frac
+                } else if srcInt < frameCount {
+                    sample = floatArray[srcInt]
+                } else {
+                    sample = 0
+                }
+
+                int16Samples[i] = Int16(max(-1.0, min(1.0, sample)) * 32767.0)
             }
+
+            let data = int16Samples.withUnsafeBufferPointer { Data(buffer: $0) }
+            onData(data)
         }
-        
-        // Convert Float32 to Int16
-        var int16Samples = [Int16](repeating: 0, count: outputFrameCount)
-        for i in 0..<outputFrameCount {
-            let sample = max(-1.0, min(1.0, resampled[i]))
-            int16Samples[i] = Int16(sample * 32767.0)
-        }
-        
-        // Create data
-        let data = int16Samples.withUnsafeBufferPointer { buffer in
-            Data(buffer: buffer)
-        }
-        
-        onData(data)
     }
-    
+
     func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        if let au = audioUnit {
+            AudioOutputUnitStop(au)
+            AudioUnitUninitialize(au)
+            AudioComponentInstanceDispose(au)
+        }
+        audioUnit = nil
+        onData = nil
         fputs("[Mic] Stopped\n", stderr)
     }
+}
+
+/// C-style callback invoked from CoreAudio's realtime thread
+private func micInputCallback(
+    inRefCon: UnsafeMutableRawPointer,
+    ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+    inTimeStamp: UnsafePointer<AudioTimeStamp>,
+    inBusNumber: UInt32,
+    inNumberFrames: UInt32,
+    ioData: UnsafeMutablePointer<AudioBufferList>?
+) -> OSStatus {
+    let capture = Unmanaged<MicCapture>.fromOpaque(inRefCon).takeUnretainedValue()
+    capture.renderInput(
+        ioActionFlags: ioActionFlags,
+        inTimeStamp: inTimeStamp,
+        inBusNumber: inBusNumber,
+        inNumberFrames: inNumberFrames
+    )
+    return noErr
 }
 
 // MARK: - System Audio Capture (ScreenCaptureKit)
@@ -215,14 +413,28 @@ class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
             return
         }
         
-        // Downsample to 16kHz
-        let ratio = Int(sampleRate / 16000)
+        // Downsample to 16kHz using linear interpolation (matches mic resampling)
+        let targetRate: Double = 16000
+        let resampleRatio = targetRate / sampleRate
+        let outputCount = Int(Double(floatSamples.count) * resampleRatio)
         var downsampled = [Int16]()
-        downsampled.reserveCapacity(floatSamples.count / max(1, ratio))
+        downsampled.reserveCapacity(outputCount)
         
-        for i in stride(from: 0, to: floatSamples.count, by: max(1, ratio)) {
-            let sample = max(-1.0, min(1.0, floatSamples[i]))
-            downsampled.append(Int16(sample * 32767))
+        for i in 0..<outputCount {
+            let srcIdx = Double(i) / resampleRatio
+            let srcInt = Int(srcIdx)
+            let frac = Float(srcIdx - Double(srcInt))
+            
+            let sample: Float
+            if srcInt + 1 < floatSamples.count {
+                sample = floatSamples[srcInt] * (1 - frac) + floatSamples[srcInt + 1] * frac
+            } else if srcInt < floatSamples.count {
+                sample = floatSamples[srcInt]
+            } else {
+                sample = 0
+            }
+            
+            downsampled.append(Int16(max(-1.0, min(1.0, sample)) * 32767.0))
         }
         
         let bytes = downsampled.withUnsafeBufferPointer { buffer in
@@ -268,19 +480,18 @@ struct AudioCaptureApp {
         }
         intSource.resume()
         
-        fputs("[AudioCapture] Starting dual capture\n", stderr)
+        fputs("[AudioCapture] Starting dual capture (AUHAL mic + ScreenCaptureKit system)\n", stderr)
         
-        // System audio capture - outputs to "Them" stream
+        // System audio capture — "Them" stream
         systemCapture = SystemAudioCapture { data in
             systemChunkCount += 1
             if systemChunkCount <= 5 || systemChunkCount % 100 == 0 {
                 fputs("[SystemAudio] Chunk #\(systemChunkCount), bytes: \(data.count)\n", stderr)
             }
-            
-            // Output system audio directly for "Them" transcript
             writeChunk(source: .system, data: data)
         }
         
+        // Mic capture — "You" stream (AUHAL, non-disruptive)
         micCapture = MicCapture()
         
         do {
@@ -290,13 +501,12 @@ struct AudioCaptureApp {
                 if micChunkCount <= 5 || micChunkCount % 100 == 0 {
                     fputs("[Mic] Chunk #\(micChunkCount), bytes: \(data.count)\n", stderr)
                 }
-                
                 writeChunk(source: .mic, data: data)
             }
             
             fputs("[AudioCapture] Both captures running\n", stderr)
             
-            // Keep running
+            // Keep alive
             while true {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -322,7 +532,7 @@ struct AudioCaptureApp {
     static func cleanup() {
         systemCapture?.stop()
         micCapture?.stop()
-        fputs("[AudioCapture] Cleanup complete. System chunks: \(systemChunkCount), Mic chunks: \(micChunkCount)\n", stderr)
+        fputs("[AudioCapture] Cleanup complete. System: \(systemChunkCount), Mic: \(micChunkCount)\n", stderr)
     }
 }
 

@@ -1,79 +1,100 @@
-# Project Raven 🦅
+<p align="center">
+  <img src="logo/raven_full.svg" alt="Project Raven" height="80" />
+</p>
 
-**AI-powered meeting assistant with real-time transcription and stealth mode**
+<p align="center">
+  <strong>Open-source, AI-powered meeting copilot with real-time transcription and echo cancellation.</strong>
+</p>
 
-An open-source desktop app that provides real-time audio transcription and AI-powered suggestions during meetings, interviews, and calls — completely invisible to screen sharing.
+Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram, and gives you AI assistance (Claude or OpenAI) with context-aware responses — all running locally on your desktop.
 
-## ✨ Features
+---
 
-- **Real-time Transcription** — Dual-stream capture (your mic + system audio) with speaker separation
-- **AI Suggestions** — Claude or GPT-powered responses with quick action chips (Assist, What to say, Follow-up, Recap)
-- **Stealth Mode** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
-- **Multilingual** — Auto-detects language with Deepgram Nova-3
-- **Local-First** — Your API keys, your data, stored locally
+## Features
 
-## 🛠 Tech Stack
+- **Dual-stream audio capture** — System audio + microphone, captured natively on macOS (ScreenCaptureKit) and Windows (WASAPI)
+- **Echo cancellation** — GStreamer pipeline using the same WebRTC AEC3 engine that powers Chrome, Recall.ai, and Cluely
+- **Real-time transcription** — Deepgram Nova-3 over WebSocket with separate connections for mic and system audio
+- **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
+- **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
+- **Local-first** — Your API keys and data stay on your machine (SQLite via better-sqlite3)
+- **RAG** — Upload local documents, embedded with `@xenova/transformers`, and reference them in AI context
+- **Sessions** — Auto-saved with full transcript, AI responses, and summaries
+- **Modes** — Customizable AI behavior profiles with system prompts and quick actions
+- **Pro features** — Optional auth, billing, and sync for a paid tier (connects to a separate backend)
 
-- **Desktop:** Electron + React + TypeScript + Tailwind
-- **Audio (macOS):** Swift native module with ScreenCaptureKit + Apple Voice Processing (AEC)
-- **Audio (Windows):** Rust native module with WASAPI loopback + microphone capture
-- **Transcription:** Deepgram Nova-3 (real-time WebSocket)
-- **AI:** Anthropic Claude / OpenAI GPT (streaming responses)
+## Architecture
 
-## 🖥 Platform Support
+![Architecture](docs/architecture.png)
 
-| Platform | System Audio | Microphone | Status |
-|----------|-------------|------------|--------|
-| **macOS 12+** | ScreenCaptureKit | AVFoundation Voice Processing | Primary, fully tested |
-| **Windows 10/11** | WASAPI Loopback | WASAPI Capture | Supported, requires building native module |
-| Linux | — | — | Not yet supported |
+## How It Works
 
-## 📋 Requirements
+1. User starts a recording session
+2. A native binary captures system audio and microphone simultaneously
+   - **macOS:** Swift process using ScreenCaptureKit (system) + CoreAudio (mic)
+   - **Windows:** Rust/NAPI-RS module using WASAPI loopback + capture
+3. Both streams are fed into a GStreamer echo-cancellation pipeline (`webrtcechoprobe` / `webrtcdsp`) so the remote speaker's voice doesn't contaminate the mic signal
+4. The clean mic audio and system audio are sent over two parallel WebSocket connections to Deepgram Nova-3 for transcription
+5. Transcripts appear in real-time in the overlay window
+6. The user can ask AI (Claude or OpenAI) for help, with full conversation context
 
-- Node.js 22+ (run `nvm use` if you have [nvm](https://github.com/nvm-sh/nvm) installed — the repo includes `.nvmrc`)
-- Deepgram API key ([get one free](https://console.deepgram.com))
-- Anthropic API key ([get one here](https://console.anthropic.com)) or OpenAI API key ([get one here](https://platform.openai.com))
-- **macOS**: macOS 12+ (Monterey or later), Xcode Command Line Tools (`xcode-select --install`)
-- **Windows**: Windows 10/11, Rust toolchain, Visual Studio Build Tools
+## Project Structure
 
-## 🚀 Getting Started
-
-### 1. Install Node.js 22
-
-If you don't have Node.js 22+, install it using [nvm](https://github.com/nvm-sh/nvm) (recommended):
-
-```bash
-# Install nvm (skip if you already have it)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-
-# Restart your terminal, then:
-nvm install 22
+```
+src/
+├── main/                  # Electron main process
+│   ├── audioManager.ts    #   Audio capture orchestration
+│   ├── transcriptionService.ts  #   Deepgram WebSocket connections
+│   ├── aiService.ts       #   AI provider abstraction (Claude / OpenAI)
+│   ├── sessionManager.ts  #   Session persistence & history
+│   ├── store.ts           #   SQLite database (better-sqlite3)
+│   └── index.ts           #   App lifecycle, IPC handlers, windows
+├── renderer/              # React UI (Vite + Tailwind)
+│   └── src/
+│       ├── components/    #   Dashboard, overlay, settings, onboarding
+│       └── ...
+├── preload/               # Electron preload scripts (context bridge)
+├── native/
+│   ├── swift/             # macOS audio capture (ScreenCaptureKit + CoreAudio)
+│   │   └── AudioCapture/
+│   ├── windows/           # Windows audio capture (WASAPI, Rust/NAPI-RS)
+│   └── aec/               # GStreamer AEC C++ addon (WebRTC AEC3)
+└── pro/                   # Pro features (auth, sync, billing UI)
 ```
 
-If you already have nvm, just run `nvm use` inside the project folder — it reads the `.nvmrc` file automatically.
+## Platform Support
 
-### 2. Set up the project
+| Platform | System Audio | Microphone | Echo Cancellation | Status |
+|----------|-------------|------------|-------------------|--------|
+| **macOS 12+** | ScreenCaptureKit | CoreAudio | GStreamer AEC3 | Primary, fully tested |
+| **Windows 10/11** | WASAPI Loopback | WASAPI Capture | GStreamer AEC3 | Supported |
+| Linux | — | — | — | Not yet supported |
 
-#### macOS
+## Getting Started
 
-```bash
-# Clone the repo
-git clone https://github.com/Laxcorp-Research/project-raven.git
-cd project-raven
+### Prerequisites
 
-# Install dependencies (also rebuilds native modules for Electron automatically)
-npm install
+- **Node.js 20+** — install via [nvm](https://github.com/nvm-sh/nvm) (the repo includes `.nvmrc`)
+- **GStreamer** — required for echo cancellation
+- **Deepgram API key** — [get one free](https://console.deepgram.com)
+- **Anthropic or OpenAI API key** — [Anthropic](https://console.anthropic.com) / [OpenAI](https://platform.openai.com)
 
-# Build the native Swift audio module
-cd src/native/swift/AudioCapture
-swift build -c release
-cd ../../../..
+#### macOS-specific
 
-# Run in development
-npm run dev
-```
+- macOS 12+ (Monterey or later)
+- Xcode Command Line Tools (`xcode-select --install`)
+- GStreamer:
+  ```bash
+  brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+  ```
 
-#### Windows
+#### Windows-specific
+
+- Windows 10/11
+- Rust toolchain
+- Visual Studio Build Tools
+
+### Setup
 
 ```bash
 # Clone the repo
@@ -82,22 +103,47 @@ cd project-raven
 
 # Install dependencies
 npm install
+```
 
-# Install NAPI-RS CLI and build the native Rust module
+#### Build the GStreamer AEC addon
+
+```bash
+cd src/native/aec
+./build-deps.sh
+npx cmake-js compile --runtime electron --runtime-version <your-electron-version>
+cd ../../..
+```
+
+#### Build the native audio binary
+
+**macOS:**
+
+```bash
+cd src/native/swift/AudioCapture
+swift build -c release
+cd ../../../..
+```
+
+**Windows:**
+
+```bash
 npm install -g @napi-rs/cli
 cd src/native/windows
 napi build --platform --release
 cd ../../..
+```
 
-# Run in development
+> See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed Windows build instructions.
+
+#### Run
+
+```bash
 npm run dev
 ```
 
-> See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed build prerequisites and troubleshooting.
+On first launch you'll be prompted to enter your API keys.
 
-On first launch, you'll be prompted to enter your API keys.
-
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Action | Shortcut |
 |--------|----------|
@@ -110,76 +156,45 @@ On first launch, you'll be prompted to enter your API keys.
 
 > On Windows, replace `Cmd` with `Ctrl`.
 
-## 🧪 Testing
-
-Raven has a comprehensive test suite: unit tests, integration tests, and end-to-end tests.
+## Testing
 
 ```bash
-# Run all unit + integration tests (165 tests)
-npm test
-
-# Run with coverage report
-npm run test:coverage
-
-# Run only integration tests
-npm run test:integration
-
-# Run E2E tests (requires `npm run build` first)
-npm run test:e2e
-
-# Run everything (unit + integration + E2E)
-npm run test:all
+npm test              # Unit + integration tests
+npm run test:coverage # With coverage report
+npm run test:e2e      # End-to-end (requires npm run build first)
+npm run test:all      # Everything
 ```
 
-| Layer | Framework | Tests | What it covers |
-|-------|-----------|-------|----------------|
-| Unit | Vitest | 134 | AI providers, store, validators, sessions, transcription, RAG, auth, window manager |
-| Integration | Vitest | 31 | AI pipeline end-to-end, session lifecycle, database CRUD, RAG pipeline |
-| E2E | Playwright | 19 | Onboarding flow, dashboard, recording, window management, settings |
-
-## 🔧 Troubleshooting
+## Troubleshooting
 
 **`better-sqlite3` native module error:**
 
-The `postinstall` script handles this automatically during `npm install`. If you still see `NODE_MODULE_VERSION` mismatch errors, run:
+The `postinstall` script handles this automatically. If you still see `NODE_MODULE_VERSION` mismatch errors:
 
 ```bash
 npx electron-rebuild -f -w better-sqlite3
 ```
 
-**Reset everything (fresh start):**
-
-Delete the config, database, and saved state to wipe all data and re-trigger onboarding:
+**Reset all data (fresh start):**
 
 ```bash
 # macOS
 rm -rf ~/Library/Application\ Support/project-raven/
-rm -rf ~/Library/Saved\ Application\ State/io.rave.desktop.savedState/
 
 # Windows
 rmdir /s /q "%APPDATA%\project-raven"
 ```
 
-> This clears API keys, settings, and all session history. You'll start completely fresh.
+## Contributing
 
-**App shows "unexpectedly quit" on launch:**
+Issues and pull requests are welcome. This project is in active development.
 
-This happens when a previous session crashed. Click "Don't Reopen" and the app will start normally. To prevent it, run the reset commands above.
+1. Fork the repo
+2. Create your feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'Add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a pull request
 
-## 📦 Project Status
+## License
 
-- [x] **Phase A:** Foundation (two-window architecture, onboarding, hotkeys)
-- [x] **Phase B (macOS):** Audio engine with AEC, transcription, AI suggestions
-- [x] **Phase B (Windows):** Windows audio capture (WASAPI loopback + mic)
-- [x] **Phase C:** Session management & history
-- [x] **Phase D:** Custom AI modes/profiles
-- [x] **Phase E:** Full settings UI
-- [ ] **Phase F-J:** Distribution, backend, polish
-
-## 🤝 Contributing
-
-This project is in active development. Issues and PRs welcome!
-
-## 📄 License
-
-MIT
+[MIT](LICENSE)

@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('OverlayToolbar')
@@ -18,16 +17,8 @@ export function OverlayToolbar({
   onHide
 }: OverlayToolbarProps) {
   const [isRecording, setIsRecording] = useState(false)
-  const [audioDevices, setAudioDevices] = useState<{ deviceId: string; label: string }[]>([])
-  const [selectedDevice, setSelectedDevice] = useState<string | undefined>(undefined)
-  const audioCaptureRef = useRef<DualAudioCapture | null>(null)
-  const chunkCount = useRef(0)
 
   useEffect(() => {
-    audioCaptureRef.current = new DualAudioCapture()
-
-    DualAudioCapture.getDevices().then(setAudioDevices).catch((err) => log.error('Failed to get audio devices:', err))
-
     const unsubRecording = window.raven.onRecordingStateChanged((state) => {
       setIsRecording(state.isRecording)
     })
@@ -38,47 +29,21 @@ export function OverlayToolbar({
 
     return () => {
       unsubRecording()
-      audioCaptureRef.current?.stop()
-      audioCaptureRef.current = null
     }
-  }, [])
-
-  const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
-    chunkCount.current++
-    if (chunkCount.current <= 5 || chunkCount.current % 100 === 0) {
-      log.log(
-        `Received chunk #${chunkCount.current}, source: ${source}, size: ${chunk.byteLength}`
-      )
-    }
-    window.raven.audioSendChunk(chunk.buffer as ArrayBuffer, source)
   }, [])
 
   const handleMicToggle = useCallback(async () => {
-    if (!audioCaptureRef.current) return
-
     if (isRecording) {
-      await audioCaptureRef.current.stop()
       await window.raven.audioStopRecording()
     } else {
       try {
-        await window.raven.audioStartRecording(selectedDevice)
-
-        chunkCount.current = 0
-        const result = await audioCaptureRef.current.start(handleChunk, selectedDevice)
-
-        log.log('Audio capture result:', result)
-
-        if (result.mic && !result.system) {
-          log.warn(
-            'System audio not available — only capturing mic'
-          )
-        }
+        await window.raven.audioStartRecording()
       } catch (err) {
         log.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()
       }
     }
-  }, [handleChunk, isRecording, selectedDevice])
+  }, [isRecording])
 
   useEffect(() => {
     const unsubHotkey = window.raven.onHotkeyToggleRecording(() => {
@@ -144,22 +109,6 @@ export function OverlayToolbar({
             </svg>
           )}
         </button>
-
-        {audioDevices.length > 1 && (
-          <select
-            className="bg-transparent text-white/60 text-xs border border-white/20 rounded px-1 py-0.5 max-w-[120px] cursor-pointer"
-            value={selectedDevice || ''}
-            onChange={(e) => setSelectedDevice(e.target.value || undefined)}
-            title="Select microphone"
-          >
-            <option value="">Default mic</option>
-            {audioDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        )}
 
         {/* Expand/Collapse */}
         <button

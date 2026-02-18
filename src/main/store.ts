@@ -52,9 +52,9 @@ export interface LocalSettings {
   displayName: string;
   profilePicturePath: string;
 
-  // Auth (pro tier only)
-  accessToken: string | null;
-  refreshToken: string | null;
+  // Pro extensions store arbitrary keys via saveSetting()
+  // (e.g. auth_tokens, auth_user, sync_queue, backendUrl)
+  [key: string]: unknown;
 }
 
 const STORE_DEFAULTS: LocalSettings = {
@@ -76,8 +76,6 @@ const STORE_DEFAULTS: LocalSettings = {
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
-  accessToken: null,
-  refreshToken: null,
 };
 
 function createStore(): Store<LocalSettings> {
@@ -148,8 +146,6 @@ export function getAllSettings(): LocalSettings {
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
-    accessToken: store.get('accessToken'),
-    refreshToken: store.get('refreshToken'),
   };
 }
 

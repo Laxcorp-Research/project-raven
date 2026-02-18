@@ -39,7 +39,9 @@
     "test:integration": "vitest run --include 'src/main/__tests__/integration/**'",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
     "test:all": "vitest run && npx playwright test --config e2e/playwright.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:aec": "cd src/native/aec && npm install --cache /tmp/npm-cache-aec && npx cmake-js compile",
+    "build:swift": "cd src/native/swift/AudioCapture && swift build -c release"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",

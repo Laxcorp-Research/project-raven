@@ -9,7 +9,6 @@ import {
 import Markdown from 'react-markdown'
 import { Sparkles, Wand2, MessageSquareText, RotateCcw } from 'lucide-react'
 import { ControllerPill } from './ControllerPill'
-import { DualAudioCapture, type AudioSource } from '../../services/audioCapture'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('OverlayWindow')
@@ -74,8 +73,6 @@ export function OverlayWindow() {
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
-  const audioCaptureRef = useRef<DualAudioCapture | null>(null)
-  const chunkCountRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const hideXTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeResponseIdRef = useRef<string | null>(null)
@@ -147,8 +144,6 @@ export function OverlayWindow() {
 
   // Initialize
   useEffect(() => {
-    audioCaptureRef.current = new DualAudioCapture()
-
     window.raven.storeGet('stealthEnabled').then((enabled) => {
       if (typeof enabled === 'boolean') setStealthEnabled(enabled)
     }).catch(() => {})
@@ -250,7 +245,6 @@ export function OverlayWindow() {
       unsubRecording()
       unsubClaude()
       unsubAi()
-      audioCaptureRef.current?.stop()
       clearHideXTimer()
       resizeCleanupRef.current?.()
       if (resizeRafRef.current !== null) {
@@ -352,19 +346,8 @@ export function OverlayWindow() {
 
   const hasResponse = responses.length > 0 || isLoadingResponse
 
-  // Handle audio chunks
-  const handleChunk = useCallback((chunk: Int16Array, source: AudioSource) => {
-    chunkCountRef.current++
-    const payload = new Int16Array(chunk).buffer
-    window.raven.audioSendChunk(payload, source)
-  }, [])
-
-  // Toggle recording
   const handleToggleRecording = useCallback(async () => {
-    if (!audioCaptureRef.current) return
-
     if (isRecording) {
-      await audioCaptureRef.current.stop()
       await window.raven.audioStopRecording()
     } else {
       setIsStarting(true)
@@ -375,13 +358,7 @@ export function OverlayWindow() {
 
       try {
         await window.raven.audioStartRecording()
-        chunkCountRef.current = 0
-
-        await new Promise(resolve => setTimeout(resolve, 500))
-        const result = await audioCaptureRef.current.start(handleChunk)
-        log.log('Audio capture started:', result)
-
-        await new Promise(resolve => setTimeout(resolve, 2500))
+        await new Promise(resolve => setTimeout(resolve, 3000))
         setIsStarting(false)
       } catch (err) {
         log.error('Failed to start recording:', err)
@@ -389,7 +366,7 @@ export function OverlayWindow() {
         setIsStarting(false)
       }
     }
-  }, [handleChunk, isRecording])
+  }, [isRecording])
 
   useEffect(() => {
     const unsub = window.raven.onHotkeyToggleRecording(() => {

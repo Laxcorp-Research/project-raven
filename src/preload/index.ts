@@ -42,52 +42,6 @@ contextBridge.exposeInMainWorld('raven', {
   systemAudioIsAvailable: () => ipcRenderer.invoke('system-audio:is-available'),
   systemAudioHasPermission: () => ipcRenderer.invoke('system-audio:has-permission'),
   systemAudioRequestPermission: () => ipcRenderer.invoke('system-audio:request-permission'),
-  systemAudioStart: () => ipcRenderer.invoke('system-audio:start'),
-  systemAudioStop: () => ipcRenderer.invoke('system-audio:stop'),
-  sendSystemAudioToDeepgram: (chunk: { data: number[]; timestamp: number }) => {
-    ipcRenderer.send('system-audio:to-deepgram', chunk)
-  },
-  onSystemAudioChunk: (callback: (data: {
-    data: ArrayBuffer | Buffer;
-    sampleRate: number;
-    channels: number;
-    timestamp: number;
-  }) => void) => {
-    const handler = (_event: unknown, data: {
-      data: ArrayBuffer | Buffer;
-      sampleRate: number;
-      channels: number;
-      timestamp: number;
-    }) => callback(data)
-    ipcRenderer.on('system-audio:chunk', handler)
-    return () => {
-      ipcRenderer.removeListener('system-audio:chunk', handler)
-    }
-  },
-  onNativeMicChunk: (callback: (data: {
-    data: ArrayBuffer | Buffer;
-    sampleRate: number;
-    channels: number;
-    timestamp: number;
-  }) => void) => {
-    const handler = (_event: unknown, data: {
-      data: ArrayBuffer | Buffer;
-      sampleRate: number;
-      channels: number;
-      timestamp: number;
-    }) => callback(data)
-    ipcRenderer.on('native-mic:chunk', handler)
-    return () => {
-      ipcRenderer.removeListener('native-mic:chunk', handler)
-    }
-  },
-  onSystemAudioForDeepgram: (callback: (chunk: { data: number[]; timestamp: number }) => void) => {
-    const handler = (_event: unknown, chunk: { data: number[]; timestamp: number }) => callback(chunk)
-    ipcRenderer.on('system-audio:for-deepgram', handler)
-    return () => {
-      ipcRenderer.removeListener('system-audio:for-deepgram', handler)
-    }
-  },
   sessions: {
     create: (session: unknown) => ipcRenderer.invoke('sessions:create', session),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('sessions:update', id, updates),
@@ -142,8 +96,6 @@ contextBridge.exposeInMainWorld('raven', {
   // ---- Audio ----
   audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
-  audioSendChunk: (buffer: ArrayBuffer, source: 'mic' | 'system') =>
-    ipcRenderer.send('audio:chunk', buffer, source),
   audioGetState: () => ipcRenderer.invoke('audio:get-state'),
   onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => {
     const handler = (_event: unknown, state: { isRecording: boolean; endedSessionId?: string | null }) => callback(state)

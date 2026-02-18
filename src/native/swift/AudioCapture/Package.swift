@@ -12,10 +12,9 @@ let package = Package(
             name: "AudioCapture",
             path: "Sources/AudioCapture",
             linkerSettings: [
-                .linkedFramework("Accelerate"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("CoreAudio"),
-                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreMedia"),
                 .linkedFramework("ScreenCaptureKit")
             ]
         )

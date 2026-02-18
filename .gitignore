@@ -44,6 +44,11 @@ playwright-report/
 *.swiftmodule
 *.swiftdoc
 
+# Native AEC addon build artifacts
+src/native/aec/build/
+src/native/aec/deps/
+src/native/aec/node_modules/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -57,6 +62,9 @@ playwright-report/
 
 # OS files
 Thumbs.db
+
+# Build artifacts
+release/
 
 # Project-specific
 RavenPlan.txt

@@ -1,14 +1,14 @@
 /**
- * AudioManager — main process coordinator.
- * Receives audio chunks from the overlay renderer via IPC.
- * Tracks recording state. Broadcasts state to all windows.
- * In Phase B2, this will forward chunks to Deepgram.
+ * AudioManager — main process coordinator for recording lifecycle.
+ * Owns the full pipeline: native capture -> AEC -> Deepgram transcription.
+ * The renderer only calls start/stop — all audio plumbing lives here.
  */
 
 import { BrowserWindow, ipcMain } from 'electron'
 import { getSetting } from './store'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
+import { setProcessedAudioCallback, startCapture, stopCapture } from './systemAudioNative'
 import { createLogger } from './logger'
 
 const log = createLogger('Audio')
@@ -24,6 +24,28 @@ export class AudioManager {
   constructor() {
     this.transcriptionService = new TranscriptionService()
     this.registerIpcHandlers()
+    this.setupAudioPipeline()
+  }
+
+  /**
+   * Wire up the audio pipeline: native capture -> AEC -> Deepgram.
+   * processedAudioCallback fires for every AEC-processed chunk.
+   */
+  private setupAudioPipeline(): void {
+    setProcessedAudioCallback((buffer: Buffer, source: 'mic' | 'system') => {
+      if (!this.isRecording) return
+
+      this.chunkCount++
+      if (this.chunkCount <= 3) {
+        log.debug(`AEC-processed chunk from ${source}, size: ${buffer.byteLength}`)
+      }
+      if (this.chunkCount % 50 === 0) {
+        log.debug(`${this.chunkCount} chunks processed (source: ${source})`)
+      }
+
+      this.transcriptionService.sendAudio(buffer, source)
+    })
+    log.info('Audio pipeline configured (native -> AEC -> Deepgram)')
   }
 
   setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void {
@@ -33,7 +55,6 @@ export class AudioManager {
   }
 
   private registerIpcHandlers(): void {
-    // Recording state management
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
       log.info('Starting recording...')
       const deepgramKey = getSetting('deepgramApiKey')
@@ -41,9 +62,7 @@ export class AudioManager {
       if (deepgramKey) {
         this.transcriptionService.setApiKey(deepgramKey)
         this.transcriptionService.clearTranscript()
-        log.debug('Starting transcription service...')
         const result = await this.transcriptionService.start()
-        log.debug('Transcription service result:', result)
         if (!result.success) {
           log.error('Transcription failed to start:', result.error)
         }
@@ -51,7 +70,11 @@ export class AudioManager {
         log.warn('No Deepgram API key — transcription disabled')
       }
 
-      // Start a new session
+      const captureStarted = startCapture()
+      if (!captureStarted) {
+        log.warn('Native audio capture failed to start')
+      }
+
       sessionManager.startSession(null)
 
       this.isRecording = true
@@ -66,9 +89,9 @@ export class AudioManager {
     })
 
     ipcMain.handle('audio:stop-recording', async () => {
+      stopCapture()
       await this.transcriptionService.stop()
 
-      // End the session
       const session = sessionManager.endSession()
       if (session) {
         log.info('Session saved with', session.transcript.length, 'entries')
@@ -84,31 +107,9 @@ export class AudioManager {
         this.dashboardWindow.focus()
       }
       log.info(
-        `Recording stopped. Chunks received: ${this.chunkCount}, Duration: ${Math.round(
-          duration / 1000
-        )}s`
+        `Recording stopped. Chunks: ${this.chunkCount}, Duration: ${Math.round(duration / 1000)}s`
       )
       return { success: true, duration }
-    })
-
-    // Receive audio chunks from overlay renderer (now with source tag)
-    ipcMain.on('audio:chunk', (_event, buffer: ArrayBuffer, source: 'mic' | 'system') => {
-      if (!this.isRecording) return
-      this.chunkCount++
-
-      if (this.chunkCount <= 3) {
-        log.debug(
-          `Received chunk from ${source}, size: ${buffer.byteLength}`
-        )
-      }
-
-      if (this.chunkCount % 50 === 0) {
-        log.debug(
-          `Received ${this.chunkCount} chunks (source: ${source}, size: ${buffer.byteLength})`
-        )
-      }
-
-      this.transcriptionService.sendAudio(buffer, source)
     })
 
     ipcMain.handle('audio:get-state', async () => {
