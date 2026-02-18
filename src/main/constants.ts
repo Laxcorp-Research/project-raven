@@ -27,7 +27,7 @@ export const TITLE_MAX_LENGTH = 60
 export const TITLE_TRUNCATE_AT = 50
 export const TITLE_TRUNCATED_LENGTH = 47
 
-export const STREAM_MAX_TOKENS = 1024
+export const STREAM_MAX_TOKENS = 4096
 export const SUMMARY_MAX_TOKENS = 2000
 export const SUMMARY_TRANSCRIPT_SLICE = 8000
 export const SUMMARY_MIN_TRANSCRIPT_LENGTH = 20

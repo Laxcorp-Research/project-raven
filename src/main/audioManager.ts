@@ -97,6 +97,8 @@ export class AudioManager {
         log.info('Session saved with', session.transcript.length, 'entries')
       }
 
+      this.transcriptionService.clearTranscript()
+
       this.isRecording = false
       const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
       this.recordingStartTime = null
@@ -120,7 +122,7 @@ export class AudioManager {
     })
 
     ipcMain.handle('audio:get-transcript', async () => {
-      return this.transcriptionService.getFullTranscript()
+      return this.transcriptionService.getFullTranscriptWithInterims()
     })
 
     ipcMain.handle('audio:clear-transcript', async () => {

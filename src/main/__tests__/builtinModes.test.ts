@@ -108,7 +108,7 @@ describe('builtinModes', () => {
       expect(result).toBe(true)
       expect(mockUpdateMode).toHaveBeenCalledWith('mode-interview', {
         name: 'Interview',
-        systemPrompt: expect.stringContaining('expert interview coach'),
+        systemPrompt: expect.stringContaining('coaching the user through a live job interview'),
         icon: '💼',
         color: '#8b5cf6',
       })

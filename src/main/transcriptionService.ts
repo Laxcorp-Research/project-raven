@@ -362,6 +362,24 @@ export class TranscriptionService {
     return this.getFullTranscriptText();
   }
 
+  /**
+   * Returns finalized transcript PLUS any current interim (still-speaking) text.
+   * Interims are labeled so the LLM knows the speaker hasn't finished yet.
+   */
+  getFullTranscriptWithInterims(): string {
+    let text = this.getFullTranscriptText();
+    const displayName = getSetting('displayName') || 'You';
+
+    if (this.systemConnection.currentInterim) {
+      text += `\nThem (still speaking): ${this.systemConnection.currentInterim}`;
+    }
+    if (this.micConnection.currentInterim) {
+      text += `\n${displayName} (still speaking): ${this.micConnection.currentInterim}`;
+    }
+
+    return text;
+  }
+
   getTranscriptEntries(): TranscriptEntry[] {
     return this.transcriptEntries;
   }

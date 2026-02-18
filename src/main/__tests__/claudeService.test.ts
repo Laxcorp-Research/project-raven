@@ -71,7 +71,7 @@ describe('ClaudeService', () => {
       action: 'assist',
     });
 
-    expect(msg).toContain('CURRENT TRANSCRIPT:');
+    expect(msg).toContain('LIVE TRANSCRIPT:');
     expect(msg).toContain('Alice: Hi\nThem: Hello');
   });
 
@@ -87,17 +87,18 @@ describe('ClaudeService', () => {
       action: 'assist',
     });
 
-    expect(msg).toContain('NEW IN TRANSCRIPT');
-    expect(msg).toContain('FULL TRANSCRIPT FOR CONTEXT');
+    expect(msg).toContain('NEW SINCE LAST');
+    expect(msg).toContain('FULL TRANSCRIPT:');
   });
 
-  it('buildUserMessage shows no-transcript message when empty', () => {
+  it('buildUserMessage omits transcript section when empty', () => {
     const msg: string = (service as any).buildUserMessage({
       transcript: '',
       action: 'assist',
     });
 
-    expect(msg).toContain('(No transcript yet');
+    expect(msg).not.toContain('TRANSCRIPT');
+    expect(msg).toContain('Execute the priority system');
   });
 
   it('buildUserMessage appends action prompt for standard actions', () => {
@@ -106,8 +107,8 @@ describe('ClaudeService', () => {
       action: 'recap',
     });
 
-    expect(msg).toContain('REQUEST:');
-    expect(msg).toContain('recap');
+    expect(msg).toContain('Concise recap');
+    expect(msg).toContain('action items');
   });
 
   it('buildUserMessage appends custom prompt for custom action', () => {
@@ -117,8 +118,8 @@ describe('ClaudeService', () => {
       customPrompt: 'What is the budget?',
     });
 
-    expect(msg).toContain('MY QUESTION: What is the budget?');
-    expect(msg).not.toContain('REQUEST:');
+    expect(msg).toContain('USER QUESTION: What is the budget?');
+    expect(msg).not.toContain('Execute the priority system');
   });
 });
 
