@@ -222,6 +222,8 @@ contextBridge.exposeInMainWorld('raven', {
   // Permissions
   permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),
   permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
+  permissionsOpenScreenRecording: () => ipcRenderer.invoke('permissions:open-screen-recording'),
+  permissionsOpenMicrophone: () => ipcRenderer.invoke('permissions:open-microphone'),
   sendOnboardingCompleted: () => ipcRenderer.send('onboarding:completed'),
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
   onStealthChanged: (callback: (enabled: boolean) => void) => {

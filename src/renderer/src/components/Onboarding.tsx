@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2, Eye, EyeOff, Sparkles } from 'lucide-react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
 
@@ -41,20 +41,63 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setError(null)
   }
 
-  const checkMicPermission = async () => {
+  const screenPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (screenPollRef.current) clearInterval(screenPollRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (step === 3) {
+      const fetchStatus = async () => {
+        try {
+          const status = await window.raven.permissionsGetStatus()
+          if (status.microphone === 'granted') setMicPermission('granted')
+          if (status.screen === 'granted') setScreenPermission('granted')
+        } catch { /* ignore */ }
+      }
+      fetchStatus()
+    }
+  }, [step])
+
+  const requestMicPermission = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(t => t.stop())
-      setMicPermission('granted')
+      const granted = await window.raven.permissionsRequestMicrophone()
+      if (granted) {
+        setMicPermission('granted')
+      } else {
+        await window.raven.permissionsOpenMicrophone()
+      }
     } catch {
       setMicPermission('denied')
     }
   }
 
-  const checkScreenPermission = async () => {
+  const requestScreenPermission = async () => {
     try {
-      const available = await window.raven.systemAudioHasPermission()
-      setScreenPermission(available ? 'granted' : 'denied')
+      const hasPermission = await window.raven.systemAudioHasPermission()
+      if (hasPermission) {
+        setScreenPermission('granted')
+        return
+      }
+
+      await window.raven.permissionsOpenScreenRecording()
+
+      if (screenPollRef.current) clearInterval(screenPollRef.current)
+      screenPollRef.current = setInterval(async () => {
+        try {
+          const status = await window.raven.permissionsGetStatus()
+          if (status.screen === 'granted') {
+            setScreenPermission('granted')
+            if (screenPollRef.current) {
+              clearInterval(screenPollRef.current)
+              screenPollRef.current = null
+            }
+          }
+        } catch { /* ignore */ }
+      }, 1500)
     } catch {
       setScreenPermission('denied')
     }
@@ -403,7 +446,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-md">Granted</span>
                     ) : (
                       <button
-                        onClick={checkMicPermission}
+                        onClick={requestMicPermission}
                         className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
                       >
                         Grant
@@ -428,10 +471,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-md">Granted</span>
                     ) : (
                       <button
-                        onClick={checkScreenPermission}
+                        onClick={requestScreenPermission}
                         className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
                       >
-                        Check
+                        Grant
                       </button>
                     )}
                   </div>

@@ -7,7 +7,7 @@
  * GStreamer handles synchronization, resampling, gain control, and buffering.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, systemPreferences } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
@@ -495,13 +495,13 @@ export function registerSystemAudioHandlers(): void {
   })
 
   ipcMain.handle('system-audio:has-permission', () => {
-    if (isMac) return true
+    if (isMac) return systemPreferences.getMediaAccessStatus('screen') === 'granted'
     if (isWindows) return !!loadWindowsModule()?.hasPermission()
     return false
   })
 
   ipcMain.handle('system-audio:request-permission', () => {
-    if (isMac) return true
+    if (isMac) return systemPreferences.getMediaAccessStatus('screen') === 'granted'
     if (isWindows) return !!loadWindowsModule()?.requestPermission()
     return false
   })

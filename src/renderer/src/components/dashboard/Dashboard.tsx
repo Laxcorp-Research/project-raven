@@ -114,11 +114,16 @@ export function Dashboard() {
       }
     }).catch((err) => log.error('Failed to get audio state:', err))
 
+    const unsubTraySettings = window.raven.on('tray:open-settings', () => {
+      setSettingsOpen(true)
+    })
+
     return () => {
       unsub()
       unsubRecording()
       unsubSessionUpdated()
       unsubListUpdated()
+      unsubTraySettings()
     }
   }, [])
 

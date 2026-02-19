@@ -39,9 +39,16 @@ export function ControllerPill({
 }: ControllerPillProps) {
   const [tooltip, setTooltip] = useState<{ text: string; left: number } | null>(null)
   const [clampedLeft, setClampedLeft] = useState<number | null>(null)
+  const [pillHovered, setPillHovered] = useState(false)
+  const [buttonHovered, setButtonHovered] = useState(false)
   const pillRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showPillHover = pillHovered && !buttonHovered
+  const pillBg = showPillHover
+    ? '#25242899'
+    : (stealthEnabled ? '#18171c80' : '#18171ccc')
 
   const clearTooltipHideTimer = () => {
     if (tooltipHideTimerRef.current) {
@@ -87,14 +94,15 @@ export function ControllerPill({
   return (
     <div
       ref={pillRef}
-      className="relative inline-flex items-center rounded-full px-2.5 py-2 gap-2 transition-colors"
+      className="relative inline-flex items-center rounded-full px-[11px] py-[9px] gap-[7px]"
       style={{
         WebkitAppRegion: 'drag',
-        background: stealthEnabled ? '#18171c80' : '#18171ccc',
+        background: pillBg,
         boxShadow: '0 0 0 1px rgba(207,226,255,0.24), 0 -0.5px 0 0 rgba(255,255,255,0.8)',
+        transition: 'background 0.15s ease',
       } as CSSProperties}
-      onMouseEnter={clearTooltipHideTimer}
-      onMouseLeave={scheduleHideTooltip}
+      onMouseEnter={() => { setPillHovered(true); clearTooltipHideTimer() }}
+      onMouseLeave={() => { setPillHovered(false); scheduleHideTooltip() }}
       onMouseDown={() => setTooltip(null)}
     >
       {/* Logo */}
@@ -114,10 +122,16 @@ export function ControllerPill({
       </button>
 
       {/* Hide Button */}
+      <div
+        onPointerEnter={() => setButtonHovered(true)}
+        onPointerLeave={() => setButtonHovered(false)}
+        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <button
         onClick={onHide}
         onMouseEnter={() => setTooltip(null)}
-        className="h-8 flex items-center gap-1 px-3 rounded-full border border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] hover:from-[#3f465a] hover:to-[#2a3142] transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95"
+        className="h-8 flex items-center gap-1 px-3 rounded-full border border-white/15 bg-gradient-to-b from-[#2e3039] to-[#272a31] shadow-[0_-1px_0_0_rgba(255,255,255,0.3),0_17px_5px_0_transparent,0_11px_4px_0_rgba(0,0,0,0.01),0_6px_4px_0_rgba(0,0,0,0.05),0_3px_3px_0_rgba(0,0,0,0.09),0_1px_1px_0_rgba(0,0,0,0.1)] hover:from-[#3a3d49] hover:to-[#343841] transform-gpu transition-all duration-150 active:scale-[0.97]"
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
         {/* Chevron - smaller, Cluely-style */}
@@ -138,14 +152,21 @@ export function ControllerPill({
         </svg>
         <span className="text-xs font-medium text-white/90">Hide</span>
       </button>
+      </div>
 
       {/* Mic / Stop Button */}
+      <div
+        onPointerEnter={() => setButtonHovered(true)}
+        onPointerLeave={() => setButtonHovered(false)}
+        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <button
         onClick={onToggleRecording}
         disabled={isStarting}
         onMouseEnter={(e) => showTooltip(isRecording ? 'Stop Session' : 'Start Session', e.currentTarget)}
         onMouseLeave={clearTooltipHideTimer}
-        className="w-8 h-8 flex items-center justify-center rounded-full border border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] hover:from-[#3f465a] hover:to-[#2a3142] transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-70 disabled:hover:scale-100"
+        className="w-8 h-8 flex items-center justify-center rounded-full border border-white/15 bg-gradient-to-b from-[#2e3039] to-[#272a31] shadow-[0_-1px_0_0_rgba(255,255,255,0.3),0_17px_5px_0_transparent,0_11px_4px_0_rgba(0,0,0,0.01),0_6px_4px_0_rgba(0,0,0,0.05),0_3px_3px_0_rgba(0,0,0,0.09),0_1px_1px_0_rgba(0,0,0,0.1)] hover:from-[#3a3d49] hover:to-[#343841] transform-gpu transition-all duration-150 active:scale-[0.97] disabled:opacity-70"
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         aria-label={isRecording ? 'Stop Session' : 'Start Session'}
       >
@@ -177,19 +198,26 @@ export function ControllerPill({
           </svg>
         )}
       </button>
+      </div>
 
       <span className="text-white/35 text-sm leading-none select-none">|</span>
 
+      <div
+        onPointerEnter={() => setButtonHovered(true)}
+        onPointerLeave={() => setButtonHovered(false)}
+        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <button
         onClick={onToggleStealth}
         onMouseEnter={(e) =>
           showTooltip(stealthEnabled ? 'Raven is Undetectable' : 'Raven is Detectable', e.currentTarget)
         }
         onMouseLeave={clearTooltipHideTimer}
-        className={`w-8 h-8 flex items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95 outline-none focus:outline-none ${
+        className={`w-8 h-8 flex items-center justify-center rounded-full border shadow-[0_-1px_0_0_rgba(255,255,255,0.3),0_17px_5px_0_transparent,0_11px_4px_0_rgba(0,0,0,0.01),0_6px_4px_0_rgba(0,0,0,0.05),0_3px_3px_0_rgba(0,0,0,0.09),0_1px_1px_0_rgba(0,0,0,0.1)] transform-gpu transition-all duration-150 active:scale-[0.97] outline-none focus:outline-none ${
           stealthEnabled
             ? 'border-blue-300/30 bg-gradient-to-b from-blue-500 to-blue-700'
-            : 'border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] hover:from-[#3f465a] hover:to-[#2a3142]'
+            : 'border-white/15 bg-gradient-to-b from-[#2e3039] to-[#272a31] hover:from-[#3a3d49] hover:to-[#343841]'
         }`}
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
         aria-label={stealthEnabled ? 'Turn undetectability off' : 'Turn undetectability on'}
@@ -241,9 +269,16 @@ export function ControllerPill({
           </svg>
         )}
       </button>
+      </div>
 
       {/* Fast/Deep Toggle (Pro only) */}
       {onToggleSmartMode && (
+        <div
+          onPointerEnter={() => setButtonHovered(true)}
+          onPointerLeave={() => setButtonHovered(false)}
+          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+          onClick={(e) => e.stopPropagation()}
+        >
         <button
           onClick={onToggleSmartMode}
           onMouseEnter={(e) =>
@@ -268,24 +303,32 @@ export function ControllerPill({
           )}
           {smartMode ? 'Deep' : 'Fast'}
         </button>
+        </div>
       )}
 
       {/* Incognito Toggle */}
+      <div
+        onPointerEnter={() => setButtonHovered(true)}
+        onPointerLeave={() => setButtonHovered(false)}
+        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <button
         onClick={onToggleIncognito}
         onMouseEnter={(e) =>
           showTooltip(incognitoMode ? 'Incognito ON — Session not saved' : 'Incognito OFF', e.currentTarget)
         }
         onMouseLeave={clearTooltipHideTimer}
-        className={`w-8 h-8 flex items-center justify-center rounded-full border transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95 ${
+        className={`w-8 h-8 flex items-center justify-center rounded-full border transform-gpu transition-all duration-150 active:scale-[0.97] ${
           incognitoMode
             ? 'border-purple-400/30 bg-gradient-to-b from-purple-500/80 to-purple-700/80'
-            : 'border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] hover:from-[#3f465a] hover:to-[#2a3142]'
+            : 'border-white/15 bg-gradient-to-b from-[#2e3039] to-[#272a31] shadow-[0_-1px_0_0_rgba(255,255,255,0.3),0_17px_5px_0_transparent,0_11px_4px_0_rgba(0,0,0,0.01),0_6px_4px_0_rgba(0,0,0,0.05),0_3px_3px_0_rgba(0,0,0,0.09),0_1px_1px_0_rgba(0,0,0,0.1)] hover:from-[#3a3d49] hover:to-[#343841]'
         }`}
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
         <img src={incognitoIcon} alt="Incognito" width={15} height={15} className={incognitoMode ? 'opacity-100' : 'opacity-80'} />
       </button>
+      </div>
 
       {tooltip && (
         <div

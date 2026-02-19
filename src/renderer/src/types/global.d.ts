@@ -189,6 +189,8 @@ declare global {
       }) => void) => () => void;
       permissionsGetStatus: () => Promise<{ microphone: string; screen: string }>;
       permissionsRequestMicrophone: () => Promise<boolean>;
+      permissionsOpenScreenRecording: () => Promise<boolean>;
+      permissionsOpenMicrophone: () => Promise<boolean>;
       sendOnboardingCompleted: () => void;
       sendHotkeyToggleRecording: () => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;

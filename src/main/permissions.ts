@@ -1,4 +1,4 @@
-import { systemPreferences, ipcMain } from 'electron'
+import { systemPreferences, ipcMain, shell } from 'electron'
 import { createLogger } from './logger'
 
 const log = createLogger('Permissions')
@@ -47,6 +47,22 @@ export function checkPermissionsForRecording(): { ok: boolean; missing: string[]
   return { ok: missing.length === 0, missing }
 }
 
+export function openScreenRecordingPreferences(): void {
+  if (!isMac) return
+  log.info('Opening Screen Recording preferences pane...')
+  shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+  )
+}
+
+export function openMicrophonePreferences(): void {
+  if (!isMac) return
+  log.info('Opening Microphone preferences pane...')
+  shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+  )
+}
+
 export function registerPermissionHandlers(): void {
   ipcMain.handle('permissions:get-status', () => {
     return getPermissionStatus()
@@ -54,5 +70,15 @@ export function registerPermissionHandlers(): void {
 
   ipcMain.handle('permissions:request-microphone', async () => {
     return requestMicrophoneAccess()
+  })
+
+  ipcMain.handle('permissions:open-screen-recording', () => {
+    openScreenRecordingPreferences()
+    return true
+  })
+
+  ipcMain.handle('permissions:open-microphone', () => {
+    openMicrophonePreferences()
+    return true
   })
 }

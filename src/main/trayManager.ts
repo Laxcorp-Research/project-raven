@@ -1,7 +1,7 @@
 import { Tray, Menu, nativeImage, app } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { getDashboardWindow, getOverlayWindow, toggleOverlay } from './windowManager'
+import { getDashboardWindow, getOverlayWindow } from './windowManager'
 import { createLogger } from './logger'
 
 const log = createLogger('Tray')
@@ -18,14 +18,21 @@ function getTrayIconPath(recording: boolean): string {
   return join(__dirname, '../../resources/tray', iconName)
 }
 
+function showDashboard(action?: string): void {
+  const dashboard = getDashboardWindow()
+  if (dashboard && !dashboard.isDestroyed()) {
+    dashboard.show()
+    dashboard.focus()
+    if (action) {
+      dashboard.webContents.send(`tray:${action}`)
+    }
+  }
+}
+
 function buildContextMenu(): Menu {
   return Menu.buildFromTemplate([
     {
-      label: 'Show/Hide Overlay',
-      click: () => toggleOverlay(),
-    },
-    {
-      label: isRecordingState ? 'Stop Recording' : 'Start Recording',
+      label: isRecordingState ? 'Stop Listening' : 'Start Listening',
       click: () => {
         const overlay = getOverlayWindow()
         if (overlay && !overlay.isDestroyed()) {
@@ -35,14 +42,12 @@ function buildContextMenu(): Menu {
     },
     { type: 'separator' },
     {
-      label: 'Open Dashboard',
-      click: () => {
-        const dashboard = getDashboardWindow()
-        if (dashboard && !dashboard.isDestroyed()) {
-          dashboard.show()
-          dashboard.focus()
-        }
-      },
+      label: 'View Sessions',
+      click: () => showDashboard(),
+    },
+    {
+      label: 'Settings',
+      click: () => showDashboard('open-settings'),
     },
     { type: 'separator' },
     {
@@ -68,10 +73,6 @@ export function createTray(): void {
 
     tray.setToolTip('Raven')
     tray.setContextMenu(buildContextMenu())
-
-    tray.on('click', () => {
-      toggleOverlay()
-    })
 
     log.info('Tray icon created')
   } catch (err) {
