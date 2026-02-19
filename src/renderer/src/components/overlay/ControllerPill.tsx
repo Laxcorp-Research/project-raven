@@ -6,13 +6,18 @@ import {
   type MouseEvent as ReactMouseEvent
 } from 'react'
 import ravenLogo from '../../../../../logo/raven.svg'
+import incognitoIcon from '../../assets/incognito.svg'
 
 interface ControllerPillProps {
   stealthEnabled: boolean
   isRecording: boolean
   isStarting: boolean
+  incognitoMode: boolean
+  smartMode?: boolean
   onToggleRecording: () => void
   onToggleStealth: () => void
+  onToggleIncognito: () => void
+  onToggleSmartMode?: () => void
   onHide: () => void
   onLogoClick: () => void
   onLogoMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void
@@ -22,14 +27,18 @@ export function ControllerPill({
   stealthEnabled,
   isRecording,
   isStarting,
+  incognitoMode,
+  smartMode,
   onToggleRecording,
   onToggleStealth,
+  onToggleIncognito,
+  onToggleSmartMode,
   onHide,
   onLogoClick,
   onLogoMouseDown
 }: ControllerPillProps) {
   const [tooltip, setTooltip] = useState<{ text: string; left: number } | null>(null)
-  const [_tooltipLeft, setTooltipLeft] = useState<number | null>(null)
+  const [clampedLeft, setClampedLeft] = useState<number | null>(null)
   const pillRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -62,7 +71,7 @@ export function ControllerPill({
 
   useLayoutEffect(() => {
     if (!tooltip || !tooltipRef.current || !pillRef.current) {
-      setTooltipLeft(null)
+      setClampedLeft(null)
       return
     }
 
@@ -72,17 +81,17 @@ export function ControllerPill({
     const half = tooltipWidth / 2
     const minCenter = half + margin
     const maxCenter = Math.max(minCenter, pillWidth - half - margin)
-    const clampedCenter = Math.min(Math.max(tooltip.left, minCenter), maxCenter)
-    setTooltipLeft(clampedCenter)
+    setClampedLeft(Math.min(Math.max(tooltip.left, minCenter), maxCenter))
   }, [tooltip])
 
   return (
     <div
       ref={pillRef}
-      className="relative inline-flex items-center rounded-full px-2.5 py-2 gap-2 transition-colors backdrop-blur-3xl border-[1.5px] border-white/20"
+      className="relative inline-flex items-center rounded-full px-2.5 py-2 gap-2 transition-colors"
       style={{
         WebkitAppRegion: 'drag',
-        backgroundColor: 'rgba(20, 24, 34, 0.70)'
+        background: stealthEnabled ? '#18171c80' : '#18171ccc',
+        boxShadow: '0 0 0 1px rgba(207,226,255,0.24), 0 -0.5px 0 0 rgba(255,255,255,0.8)',
       } as CSSProperties}
       onMouseEnter={clearTooltipHideTimer}
       onMouseLeave={scheduleHideTooltip}
@@ -127,7 +136,7 @@ export function ControllerPill({
             strokeLinejoin="round"
           />
         </svg>
-        <span className="text-[13px] font-medium text-white/90">Hide</span>
+        <span className="text-xs font-medium text-white/90">Hide</span>
       </button>
 
       {/* Mic / Stop Button */}
@@ -233,12 +242,57 @@ export function ControllerPill({
         )}
       </button>
 
+      {/* Fast/Deep Toggle (Pro only) */}
+      {onToggleSmartMode && (
+        <button
+          onClick={onToggleSmartMode}
+          onMouseEnter={(e) =>
+            showTooltip(smartMode ? 'Deep Mode ON' : 'Fast Mode', e.currentTarget)
+          }
+          onMouseLeave={clearTooltipHideTimer}
+          className={`h-6 px-2 flex items-center gap-1 rounded-full text-[11px] font-semibold transition-all duration-150 ${
+            smartMode
+              ? 'bg-yellow-400/20 text-yellow-200/90 border border-yellow-400/30'
+              : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white/70'
+          }`}
+          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        >
+          {smartMode ? (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+            </svg>
+          ) : (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          )}
+          {smartMode ? 'Deep' : 'Fast'}
+        </button>
+      )}
+
+      {/* Incognito Toggle */}
+      <button
+        onClick={onToggleIncognito}
+        onMouseEnter={(e) =>
+          showTooltip(incognitoMode ? 'Incognito ON — Session not saved' : 'Incognito OFF', e.currentTarget)
+        }
+        onMouseLeave={clearTooltipHideTimer}
+        className={`w-8 h-8 flex items-center justify-center rounded-full border transform-gpu transition-all duration-150 hover:scale-[1.04] active:scale-95 ${
+          incognitoMode
+            ? 'border-purple-400/30 bg-gradient-to-b from-purple-500/80 to-purple-700/80'
+            : 'border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)] hover:from-[#3f465a] hover:to-[#2a3142]'
+        }`}
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+      >
+        <img src={incognitoIcon} alt="Incognito" width={15} height={15} className={incognitoMode ? 'opacity-100' : 'opacity-80'} />
+      </button>
+
       {tooltip && (
         <div
           ref={tooltipRef}
           className="absolute bottom-full mb-2 px-3 py-1.5 text-white text-xs font-medium rounded-full whitespace-nowrap z-[100] pointer-events-none border border-white/15 bg-gradient-to-b from-[#353c4e] to-[#202633] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)]"
           style={{
-            left: tooltip.left,
+            left: clampedLeft ?? tooltip.left,
             transform: 'translateX(-50%)'
           }}
         >

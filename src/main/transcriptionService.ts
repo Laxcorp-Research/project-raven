@@ -251,7 +251,6 @@ export class TranscriptionService {
         entry: this.transcriptEntries[this.transcriptEntries.length - 1],
         isFinal: true,
         fullTranscript: this.getFullTranscriptText(),
-        entries: this.transcriptEntries,
       });
     } else {
       state.currentInterim = transcript;
@@ -275,7 +274,6 @@ export class TranscriptionService {
         },
         isFinal: false,
         fullTranscript: this.getFullTranscriptText(),
-        entries: this.transcriptEntries,
         interims: {
           mic: this.micConnection.currentInterim,
           system: this.systemConnection.currentInterim,
@@ -391,6 +389,16 @@ export class TranscriptionService {
       .join('\n');
   }
 
+  getTranscriptBySource(source: 'mic' | 'system' | 'all'): string {
+    const displayName = getSetting('displayName') || 'You';
+    const filtered = source === 'all'
+      ? this.transcriptEntries
+      : this.transcriptEntries.filter(e => e.source === source);
+    return filtered
+      .map(e => `${e.speaker === 'you' ? displayName : 'Them'}: ${e.text}`)
+      .join('\n');
+  }
+
   clearTranscript(): void {
     this.transcriptEntries = [];
     this.micConnection.currentInterim = '';
@@ -401,7 +409,6 @@ export class TranscriptionService {
     entry: TranscriptEntry;
     isFinal: boolean;
     fullTranscript: string;
-    entries: TranscriptEntry[];
     interims?: { mic: string; system: string };
   }): void {
     const payload = data;

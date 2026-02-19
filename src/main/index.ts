@@ -10,7 +10,7 @@ import {
   getOverlayWindow,
   setStealthMode
 } from './windowManager'
-import { getSetting, getStore } from './store'
+import { getSetting, getStore, saveSetting } from './store'
 import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
@@ -20,6 +20,10 @@ import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
+import { createTray, destroyTray } from './trayManager'
+import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
+import { initAnalytics } from './analytics'
+import { registerPermissionHandlers } from './permissions'
 import { createLogger } from './logger'
 
 const log = createLogger('Raven')
@@ -70,7 +74,7 @@ function registerGlobalHotkeys(
       } else {
         overlayWindow.show()
         overlayWindow.focus()
-        overlayWindow.setAlwaysOnTop(true, 'floating', 1)
+        overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
       }
     }
   })
@@ -215,22 +219,31 @@ function boot(): void {
   // Listen for onboarding completion to show overlay for the first time
   ipcMain.on('onboarding:completed', () => {
     log.info('Onboarding completed — showing overlay')
-    // Show overlay with stealth mode OFF so user can see it
-    setStealthMode(false)
+    setStealthMode(true)
     overlay.show()
   })
 
   registerGlobalHotkeys(dashboard, overlay)
+
+  createTray()
+  initAutoUpdater()
+  initAnalytics()
 }
 
 app.whenReady().then(() => {
+  // Set app mode from environment variable (defaults to 'free' for open-source)
+  const appMode = process.env.RAVEN_MODE === 'pro' ? 'pro' : 'free'
+  saveSetting('mode', appMode)
+  log.info(`App mode: ${appMode}`)
+
   // Initialize database
   databaseService.initialize()
   seedBuiltinModes()
 
   registerIpcHandlers()
   registerSystemAudioHandlers()
-  initializeProFeatures()
+  registerPermissionHandlers()
+  void initializeProFeatures()
   boot()
 
   // Session IPC handlers
@@ -669,6 +682,14 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  destroyTray()
+  stopAutoUpdater()
+
+  // Stop active recording: kills audiocapture child process, closes Deepgram WebSockets, saves session
+  audioManager.shutdown().catch((err) => {
+    log.error('Shutdown error:', err)
+  })
+
   // Force-close the dashboard window (bypass the hide-on-close behavior)
   const dashboard = getDashboardWindow()
   if (dashboard && !dashboard.isDestroyed()) {

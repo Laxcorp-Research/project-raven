@@ -39,12 +39,38 @@ export function clearProviderCache(): void {
   cachedConfigKey = '';
 }
 
+const FAST_MODELS: Record<AIProviderName, string> = {
+  anthropic: 'claude-haiku-4-5',
+  openai: 'gpt-5-mini',
+};
+
 export async function getProviderFromStore(): Promise<AIProvider> {
   const { getStore } = await import('../../store');
   const store = getStore();
 
   const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
-  const model = store.get('aiModel', 'claude-sonnet-4-20250514') as string;
+  const model = store.get('aiModel', 'claude-haiku-4-5') as string;
+
+  let apiKey: string;
+  if (provider === 'openai') {
+    apiKey = store.get('openaiApiKey', '') as string;
+  } else {
+    apiKey = store.get('anthropicApiKey', '') as string;
+  }
+
+  if (!apiKey) {
+    throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
+  }
+
+  return getProvider({ provider, model, apiKey });
+}
+
+export async function getFastProvider(): Promise<AIProvider> {
+  const { getStore } = await import('../../store');
+  const store = getStore();
+
+  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
+  const model = FAST_MODELS[provider];
 
   let apiKey: string;
   if (provider === 'openai') {

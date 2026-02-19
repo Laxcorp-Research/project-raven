@@ -9,6 +9,8 @@ import { getSetting } from './store'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
 import { setProcessedAudioCallback, startCapture, stopCapture } from './systemAudioNative'
+import { updateTrayRecordingState } from './trayManager'
+import { checkPermissionsForRecording, requestMicrophoneAccess } from './permissions'
 import { createLogger } from './logger'
 
 const log = createLogger('Audio')
@@ -57,6 +59,24 @@ export class AudioManager {
   private registerIpcHandlers(): void {
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
       log.info('Starting recording...')
+
+      if (process.platform === 'darwin') {
+        const perms = checkPermissionsForRecording()
+        if (!perms.ok) {
+          if (perms.missing.includes('microphone')) {
+            const granted = await requestMicrophoneAccess()
+            if (!granted) {
+              log.error('Microphone permission denied')
+              return { success: false, error: 'Microphone permission is required. Grant access in System Settings → Privacy & Security → Microphone.' }
+            }
+          }
+          if (perms.missing.includes('screen')) {
+            log.error('Screen recording permission denied')
+            return { success: false, error: 'Screen recording permission is required for system audio capture. Grant access in System Settings → Privacy & Security → Screen Recording, then restart the app.' }
+          }
+        }
+      }
+
       const deepgramKey = getSetting('deepgramApiKey')
 
       if (deepgramKey) {
@@ -133,10 +153,15 @@ export class AudioManager {
     ipcMain.handle('audio:get-transcript-entries', async () => {
       return this.transcriptionService.getTranscriptEntries()
     })
+
+    ipcMain.handle('audio:get-transcript-by-source', async (_event, source: 'mic' | 'system' | 'all') => {
+      return this.transcriptionService.getTranscriptBySource(source)
+    })
   }
 
   private broadcastRecordingState(isRecording: boolean, endedSessionId: string | null = null): void {
     const payload = { isRecording, endedSessionId }
+    updateTrayRecordingState(isRecording)
 
     try {
       if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
@@ -157,5 +182,22 @@ export class AudioManager {
 
   getIsRecording(): boolean {
     return this.isRecording
+  }
+
+  async shutdown(): Promise<void> {
+    if (!this.isRecording) return
+
+    log.info('Shutdown: stopping active recording...')
+    stopCapture()
+    await this.transcriptionService.stop()
+
+    const session = sessionManager.endSession()
+    if (session) {
+      log.info('Shutdown: session saved with', session.transcript.length, 'entries')
+    }
+
+    this.transcriptionService.clearTranscript()
+    this.isRecording = false
+    this.recordingStartTime = null
   }
 }

@@ -20,10 +20,12 @@ vi.mock('../services/sessionManager', () => ({
 
 vi.mock('../services/ai/providerFactory', () => ({
   getProviderFromStore: vi.fn(),
+  getFastProvider: vi.fn(),
 }));
 
 vi.mock('../store', () => ({
   getSetting: vi.fn((key: string) => (key === 'displayName' ? 'Alice' : '')),
+  isProMode: vi.fn(() => false),
 }));
 
 vi.mock('../logger', () => ({
@@ -36,7 +38,9 @@ vi.mock('../logger', () => ({
 }));
 
 import { ClaudeService, generateSessionTitle } from '../claudeService';
-import { getProviderFromStore } from '../services/ai/providerFactory';
+import { getProviderFromStore, getFastProvider } from '../services/ai/providerFactory';
+import { isProMode, getSetting } from '../store';
+import { ipcMain } from 'electron';
 
 describe('ClaudeService', () => {
   let service: ClaudeService;
@@ -149,5 +153,77 @@ describe('generateSessionTitle', () => {
 
     await expect(generateSessionTitle('Some transcript'))
       .rejects.toThrow('Invalid title format');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider routing (free vs pro mode)
+// ---------------------------------------------------------------------------
+
+describe('Provider routing based on mode', () => {
+  const mockProvider = {
+    name: 'anthropic' as const,
+    streamResponse: vi.fn(),
+    generateShort: vi.fn(),
+  };
+
+  function getResponseHandler(): (...args: unknown[]) => Promise<void> {
+    const calls = vi.mocked(ipcMain.handle).mock.calls;
+    const entry = calls.find(([channel]) => channel === 'claude:get-response');
+    if (!entry) throw new Error('claude:get-response handler not registered');
+    return entry[1] as (...args: unknown[]) => Promise<void>;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getProviderFromStore).mockResolvedValue(mockProvider as any);
+    vi.mocked(getFastProvider).mockResolvedValue(mockProvider as any);
+    mockProvider.streamResponse.mockResolvedValue(undefined);
+    new ClaudeService(null);
+  });
+
+  it('uses getProviderFromStore in free mode', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'smartMode') return true;
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'test', action: 'assist' });
+
+    expect(getProviderFromStore).toHaveBeenCalled();
+    expect(getFastProvider).not.toHaveBeenCalled();
+  });
+
+  it('uses getFastProvider in pro mode without smartMode', async () => {
+    vi.mocked(isProMode).mockReturnValue(true);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'smartMode') return false;
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'test', action: 'assist' });
+
+    expect(getFastProvider).toHaveBeenCalled();
+    expect(getProviderFromStore).not.toHaveBeenCalled();
+  });
+
+  it('uses getProviderFromStore in pro mode with smartMode enabled', async () => {
+    vi.mocked(isProMode).mockReturnValue(true);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'smartMode') return true;
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'test', action: 'assist' });
+
+    expect(getProviderFromStore).toHaveBeenCalled();
+    expect(getFastProvider).not.toHaveBeenCalled();
   });
 });

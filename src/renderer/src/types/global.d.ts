@@ -187,6 +187,8 @@ declare global {
         error?: string;
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;
+      permissionsGetStatus: () => Promise<{ microphone: string; screen: string }>;
+      permissionsRequestMicrophone: () => Promise<boolean>;
       sendOnboardingCompleted: () => void;
       sendHotkeyToggleRecording: () => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;

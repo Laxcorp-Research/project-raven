@@ -22,7 +22,7 @@ describe('AnthropicProvider', () => {
   let provider: AnthropicProvider
 
   beforeEach(() => {
-    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-20250514')
+    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-6')
   })
 
   it('has name "anthropic"', () => {
@@ -42,7 +42,7 @@ describe('AnthropicProvider', () => {
       expect(result).toBe('Hello World')
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 60,
           messages: [{ role: 'user', content: 'Say hello' }],
         })

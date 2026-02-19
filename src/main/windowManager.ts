@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, nativeTheme } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
@@ -110,8 +110,21 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     }
   })
 
+  // Apply system theme to dashboard
+  const applyTheme = () => {
+    if (!dashboardWindow || dashboardWindow.isDestroyed()) return
+    const isDark = nativeTheme.shouldUseDarkColors
+    dashboardWindow.webContents.send('theme-changed', isDark ? 'dark' : 'light')
+    if (process.platform === 'darwin') {
+      dashboardWindow.setBackgroundColor(isDark ? '#1a1a2e' : '#ffffff')
+    }
+  }
+  nativeTheme.on('updated', applyTheme)
+  dashboardWindow.on('ready-to-show', applyTheme)
+
   dashboardWindow.on('closed', () => {
     dashboardWindow = null
+    nativeTheme.removeListener('updated', applyTheme)
   })
 
   if (rendererURL) {
@@ -124,30 +137,24 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
 }
 
 export function createOverlayWindow(preloadPath: string, rendererURL: string | null): BrowserWindow {
-  const savedBounds = getSetting('overlayBounds')
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
-
-  // Base overlay size for single-line placeholder layout
-  const defaultWidth = OVERLAY_DEFAULT_WIDTH
-  const defaultHeight = OVERLAY_DEFAULT_HEIGHT
-  const defaultX = screenWidth - defaultWidth - OVERLAY_SCREEN_EDGE_OFFSET
-  const defaultY = screenHeight - defaultHeight - OVERLAY_SCREEN_EDGE_OFFSET
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { x, y, width, height } = primaryDisplay.bounds
 
   overlayWindow = new BrowserWindow({
-    width: defaultWidth,
-    height: defaultHeight,
-    x: savedBounds?.x ?? defaultX,
-    y: savedBounds?.y ?? defaultY,
-    minWidth: OVERLAY_MIN_WIDTH,
-    minHeight: OVERLAY_MIN_HEIGHT,
+    x,
+    y,
+    width,
+    height,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     hasShadow: false,
+    roundedCorners: false,
     show: false,
     title: 'Raven Overlay',
+    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -159,35 +166,15 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   // Disable zoom (Ctrl/Cmd +/- and pinch)
   disableZoom(overlayWindow)
 
-  // Keep on top even over full-screen apps
-  overlayWindow.setAlwaysOnTop(true, 'floating', 1)
+  // Force macOS compositor to blend transparency properly
+  overlayWindow.setOpacity(0.99)
+
+  // Highest z-level — visible above fullscreen apps and screen savers
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  overlayWindow.setMovable(true)
 
-  // Save overlay bounds on move/resize
-  overlayWindow.on('resized', () => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      const current = overlayWindow.getBounds()
-      const clamped = clampOverlayBoundsToDisplay(current)
-      if (!areBoundsEqual(current, clamped)) {
-        overlayWindow.setBounds(clamped)
-        return
-      }
-      saveSetting('overlayBounds', clamped)
-    }
-  })
-
-  overlayWindow.on('moved', () => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      const current = overlayWindow.getBounds()
-      const clamped = clampOverlayBoundsToDisplay(current)
-      if (!areBoundsEqual(current, clamped)) {
-        overlayWindow.setBounds(clamped)
-        return
-      }
-      saveSetting('overlayBounds', clamped)
-    }
-  })
+  // Prevent throttling when overlay isn't focused
+  overlayWindow.webContents.setBackgroundThrottling(false)
 
   overlayWindow.on('closed', () => {
     overlayWindow = null

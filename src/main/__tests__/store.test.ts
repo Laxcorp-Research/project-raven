@@ -57,7 +57,7 @@ describe('store', () => {
       transcriptionLanguage: 'en',
       outputLanguage: 'en',
       aiProvider: 'anthropic',
-      aiModel: 'claude-sonnet-4-20250514',
+      aiModel: 'claude-sonnet-4-6',
       openaiApiKey: '',
       activeModeId: null,
       displayName: '',

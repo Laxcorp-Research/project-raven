@@ -22,7 +22,7 @@ describe('OpenAIProvider', () => {
   let provider: OpenAIProvider
 
   beforeEach(() => {
-    provider = new OpenAIProvider('sk-openai-test', 'gpt-4o')
+    provider = new OpenAIProvider('sk-openai-test', 'gpt-5.2')
   })
 
   it('has name "openai"', () => {
@@ -42,7 +42,7 @@ describe('OpenAIProvider', () => {
       expect(result).toBe('Generated text')
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'gpt-4o',
+          model: 'gpt-5.2',
           max_tokens: 60,
           messages: [{ role: 'user', content: 'Generate something' }],
         })

@@ -39,19 +39,18 @@ export interface AIProvider {
 
 export const PROVIDER_MODELS: Record<AIProviderName, string[]> = {
   anthropic: [
+    'claude-sonnet-4-6',
     'claude-sonnet-4-20250514',
-    'claude-3-5-sonnet-20241022',
-    'claude-3-haiku-20240307',
+    'claude-haiku-4-5',
   ],
   openai: [
+    'gpt-5.2',
+    'gpt-5-mini',
     'gpt-4o',
-    'gpt-4o-mini',
-    'gpt-4-turbo',
-    'gpt-3.5-turbo',
   ],
 };
 
 export const DEFAULT_MODELS: Record<AIProviderName, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
-  openai: 'gpt-4o',
+  anthropic: 'claude-haiku-4-5',
+  openai: 'gpt-5-mini',
 };

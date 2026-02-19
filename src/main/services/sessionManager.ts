@@ -19,6 +19,7 @@ class SessionManager {
   private autoSaveInterval: NodeJS.Timeout | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private overlayWindow: BrowserWindow | null = null;
+  private isIncognito = false;
 
   /**
    * Set window references for IPC broadcasts
@@ -37,10 +38,12 @@ class SessionManager {
       this.endSession();
     }
 
+    this.isIncognito = getSetting('incognitoMode') === true;
+
     const resolvedModeId = modeId ?? databaseService.getActiveMode()?.id ?? null;
     const session: Session = {
       id: uuidv4(),
-      title: 'Untitled Session',
+      title: this.isIncognito ? 'Incognito Session' : 'Untitled Session',
       transcript: [],
       aiResponses: [],
       summary: null,
@@ -51,13 +54,16 @@ class SessionManager {
       createdAt: Date.now(),
     };
 
-    this.activeSession = databaseService.createSession(session);
+    if (this.isIncognito) {
+      this.activeSession = session;
+      log.info('Incognito session started (not persisted):', session.id);
+    } else {
+      this.activeSession = databaseService.createSession(session);
+      this.startAutoSave();
+      log.info('Session started:', this.activeSession.id);
+    }
 
-    this.startAutoSave();
-
-    log.info('Session started:', this.activeSession.id);
     this.broadcastSessionUpdate();
-
     return this.activeSession;
   }
 
@@ -110,7 +116,9 @@ class SessionManager {
       return;
     }
 
-    databaseService.addSessionMessage(this.activeSession.id, role, content);
+    if (!this.isIncognito) {
+      databaseService.addSessionMessage(this.activeSession.id, role, content);
+    }
   }
 
   /**
@@ -126,8 +134,21 @@ class SessionManager {
 
     const endedAt = Date.now();
     const durationSeconds = Math.floor((endedAt - this.activeSession.startedAt) / 1000);
-
     const finalTranscript = this.activeSession.transcript.filter((e) => e.isFinal);
+
+    if (this.isIncognito) {
+      const endedSession = {
+        ...this.activeSession,
+        transcript: finalTranscript,
+        durationSeconds,
+        endedAt,
+      };
+      log.info('Incognito session ended (discarded):', this.activeSession.id, 'duration:', durationSeconds, 's');
+      this.activeSession = null;
+      this.isIncognito = false;
+      this.broadcastSessionUpdate();
+      return endedSession;
+    }
 
     databaseService.updateSession(this.activeSession.id, {
       transcript: finalTranscript,
@@ -155,7 +176,6 @@ class SessionManager {
     this.broadcastSessionUpdate();
     this.dashboardWindow?.webContents.send('sessions:list-updated');
 
-    // Generate title + summary asynchronously (don't block the stop flow)
     generateSessionSummary(transcriptText, modeId)
       .then((result) => {
         databaseService.updateSession(sessionId, {
@@ -243,7 +263,7 @@ class SessionManager {
    * Auto-save current session to database
    */
   private saveSession(): void {
-    if (!this.activeSession) return;
+    if (!this.activeSession || this.isIncognito) return;
 
     const durationSeconds = Math.floor((Date.now() - this.activeSession.startedAt) / 1000);
 

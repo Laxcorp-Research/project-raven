@@ -23,7 +23,7 @@ import {
 } from './windowManager'
 
 export function registerIpcHandlers(): void {
-  const OVERLAY_MIN_WIDTH = 520
+  const OVERLAY_MIN_WIDTH = 480
   const OVERLAY_COMPACT_MIN_HEIGHT = 210
   const OVERLAY_COMPACT_TARGET_HEIGHT = 216
   const OVERLAY_EXPANDED_MIN_HEIGHT = 500

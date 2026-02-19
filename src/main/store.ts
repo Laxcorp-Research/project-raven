@@ -71,7 +71,7 @@ const STORE_DEFAULTS: LocalSettings = {
   transcriptionLanguage: 'en',
   outputLanguage: 'en',
   aiProvider: 'anthropic',
-  aiModel: 'claude-sonnet-4-20250514',
+  aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
   activeModeId: null,
   displayName: '',

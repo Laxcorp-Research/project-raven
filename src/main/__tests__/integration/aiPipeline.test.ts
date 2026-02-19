@@ -54,7 +54,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
-        aiModel: 'claude-sonnet-4-20250514',
+        aiModel: 'claude-sonnet-4-6',
         anthropicApiKey: 'sk-ant-integration-test',
       }
       return data[key] ?? defaultVal
@@ -78,7 +78,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'openai',
-        aiModel: 'gpt-4o',
+        aiModel: 'gpt-5.2',
         openaiApiKey: 'sk-openai-integration-test',
       }
       return data[key] ?? defaultVal
@@ -102,7 +102,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
-        aiModel: 'claude-sonnet-4-20250514',
+        aiModel: 'claude-sonnet-4-6',
         anthropicApiKey: 'sk-ant-key',
       }
       return data[key] ?? defaultVal
@@ -122,7 +122,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'openai',
-        aiModel: 'gpt-4o',
+        aiModel: 'gpt-5.2',
         openaiApiKey: 'sk-openai-key',
       }
       return data[key] ?? defaultVal
@@ -142,7 +142,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
-        aiModel: 'claude-sonnet-4-20250514',
+        aiModel: 'claude-sonnet-4-6',
         anthropicApiKey: '',
       }
       return data[key] ?? defaultVal
@@ -157,7 +157,7 @@ describe('AI Pipeline Integration', () => {
     mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
-        aiModel: 'claude-sonnet-4-20250514',
+        aiModel: 'claude-sonnet-4-6',
         anthropicApiKey: 'sk-ant-key',
       }
       return data[key] ?? defaultVal

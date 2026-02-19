@@ -1,11 +1,11 @@
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
-import { getProviderFromStore } from './services/ai/providerFactory';
-import { getSetting } from './store';
+import { getProviderFromStore, getFastProvider } from './services/ai/providerFactory';
+import { getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -103,6 +103,8 @@ const ACTION_PROMPTS: Record<string, string> = {
   'what-should-i-say': 'The other person ("Them") just said or asked something at the END of the transcript. Craft a direct response I can say RIGHT NOW. Use the FULL transcript for context — if they reference something discussed earlier, pull from that. Give me the exact words as a verbatim quote. Make it natural, conversational, and directly responsive.',
   'follow-up': 'Suggest 2-3 follow-up questions I can ask RIGHT NOW. Each must be directly usable — natural spoken language, not formal. Each should advance the conversation in a meaningful direction based on what was just discussed.',
   recap: 'Concise recap of this conversation. Use bullets. Include: key points discussed, decisions made, action items with owners, and anything unresolved. Be specific — names, numbers, commitments.',
+  'fact-check': 'Review the recent claims, statements, and facts mentioned in the transcript. For each significant claim: state the claim, whether it is accurate/inaccurate/unverifiable, and a brief correction or confirmation. Focus on factual assertions (numbers, dates, technical claims), not opinions.',
+  'tell-me-more': 'Expand on your most recent response. Provide deeper detail, additional examples, or alternative perspectives. Do not repeat what you already said — add new information.',
 };
 
 /**
@@ -178,14 +180,19 @@ export class ClaudeService {
       includeScreenshot?: boolean;
     }) => {
       try {
-        const provider = await getProviderFromStore();
-
         if (this.isProcessing) {
           log.debug('Ignoring request while processing is active');
           return;
         }
 
         this.isProcessing = true;
+
+        const useDeepModel = isProMode() && getSetting('smartMode') === true;
+        const provider = useDeepModel
+          ? await getProviderFromStore()
+          : isProMode()
+            ? await getFastProvider()
+            : await getProviderFromStore();
 
         const screenshotAttachment = params.includeScreenshot
           ? await this.captureScreenshotExcludingRaven()
@@ -267,6 +274,11 @@ export class ClaudeService {
           timestamp: Date.now(),
         };
         this.conversation.messages.push(assistantMessage);
+
+        if (this.conversation.messages.length > CONVERSATION_HISTORY_LIMIT) {
+          this.conversation.messages = this.conversation.messages.slice(-CONVERSATION_HISTORY_LIMIT);
+        }
+
         sessionManager.addSessionMessage('assistant', assistantMessage.content);
 
         const userMessageText = params.action === 'custom' && params.customPrompt
@@ -312,6 +324,13 @@ export class ClaudeService {
     });
   }
 
+  private windowTranscript(transcript: string): string {
+    const lines = transcript.split('\n');
+    if (lines.length <= TRANSCRIPT_LINE_LIMIT) return transcript;
+    const kept = lines.slice(-TRANSCRIPT_LINE_LIMIT);
+    return `[...earlier conversation omitted — ${lines.length - TRANSCRIPT_LINE_LIMIT} lines]\n${kept.join('\n')}`;
+  }
+
   private buildUserMessage(params: {
     transcript: string;
     action: string;
@@ -321,14 +340,16 @@ export class ClaudeService {
     let message = '';
 
     if (params.transcript.trim()) {
+      const windowed = this.windowTranscript(params.transcript);
       const newTranscript = params.transcript.slice(this.conversation.lastProcessedTranscriptLength);
 
       if (this.conversation.messages.length === 0) {
-        message += `LIVE TRANSCRIPT:\n${params.transcript}\n\n`;
+        message += `LIVE TRANSCRIPT:\n${windowed}\n\n`;
       } else if (newTranscript.trim()) {
-        message += `NEW SINCE LAST (read this first):\n${newTranscript.trim()}\n\nFULL TRANSCRIPT:\n${params.transcript}\n\n`;
+        const windowedNew = this.windowTranscript(newTranscript);
+        message += `NEW SINCE LAST (read this first):\n${windowedNew.trim()}\n\nFULL TRANSCRIPT:\n${windowed}\n\n`;
       } else {
-        message += `TRANSCRIPT (unchanged):\n${params.transcript}\n\n`;
+        message += `TRANSCRIPT (unchanged):\n${windowed}\n\n`;
       }
     }
 
@@ -386,6 +407,8 @@ export class ClaudeService {
       case 'what-should-i-say': return 'What should I say?';
       case 'follow-up': return 'Follow-up';
       case 'recap': return 'Recap';
+      case 'fact-check': return 'Fact Check';
+      case 'tell-me-more': return 'Tell me more';
       case 'custom': return 'Question';
       default: return 'Assist';
     }

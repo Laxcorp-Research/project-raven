@@ -9,7 +9,9 @@ interface OnboardingProps {
 type AiProvider = 'anthropic' | 'openai'
 
 export function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
+  const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
+  const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [deepgramKey, setDeepgramKey] = useState('')
   const [aiProvider, setAiProvider] = useState<AiProvider>('anthropic')
   const [anthropicKey, setAnthropicKey] = useState('')
@@ -22,19 +24,40 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
+  const TOTAL_STEPS = 5
+
   const handleNext = () => {
-    if (step < 3) {
+    if (step < TOTAL_STEPS) {
       setFadeKey((k) => k + 1)
-      setStep((s) => (s + 1) as 1 | 2 | 3)
+      setStep((s) => Math.min(s + 1, TOTAL_STEPS) as typeof step)
     }
   }
 
   const handleBack = () => {
     if (step > 1) {
       setFadeKey((k) => k + 1)
-      setStep((s) => (s - 1) as 1 | 2 | 3)
+      setStep((s) => Math.max(s - 1, 1) as typeof step)
     }
     setError(null)
+  }
+
+  const checkMicPermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+      setMicPermission('granted')
+    } catch {
+      setMicPermission('denied')
+    }
+  }
+
+  const checkScreenPermission = async () => {
+    try {
+      const available = await window.raven.systemAudioHasPermission()
+      setScreenPermission(available ? 'granted' : 'denied')
+    } catch {
+      setScreenPermission('denied')
+    }
   }
 
   const handleSaveKeys = async () => {
@@ -66,7 +89,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       await window.raven.storeSet('aiProvider', aiProvider)
       await window.raven.storeSet(
         'aiModel',
-        aiProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o'
+        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5-mini'
       )
       if (aiProvider === 'openai') {
         await window.raven.storeSet('openaiApiKey', openaiKey.trim())
@@ -95,7 +118,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       {/* Fixed stepper - always in the same spot */}
       <div className="pb-6 flex justify-center">
         <div className="flex items-center gap-0">
-          {[1, 2, 3].map((s, i) => (
+          {[1, 2, 3, 4, 5].map((s, i) => (
             <div key={s} className="flex items-center">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
@@ -108,7 +131,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               >
                 {s < step ? <Check size={12} strokeWidth={2.5} /> : s}
               </div>
-              {i < 2 && (
+              {i < TOTAL_STEPS - 1 && (
                 <div
                   className={`w-12 h-[2px] mx-2 rounded-full transition-colors duration-300 ${
                     s < step ? 'bg-blue-500' : 'bg-gray-200'
@@ -352,8 +375,132 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             )}
 
-            {/* Step 3: Confirm & Save */}
+            {/* Step 3: Permissions */}
             {step === 3 && (
+              <div className="space-y-5">
+                <div className="text-center mb-1">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Permissions</h2>
+                  <p className="text-xs text-gray-500">
+                    Raven needs microphone and screen access to work.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <svg width="18" height="18" viewBox="0 0 24 24" className="text-blue-600" fill="currentColor">
+                          <path d="M12 3a4 4 0 0 0-4 4v4.5a4 4 0 1 0 8 0V7a4 4 0 0 0-4-4Z" />
+                          <path d="M6.25 11.5a.75.75 0 0 1 .75.75 5 5 0 0 0 10 0 .75.75 0 0 1 1.5 0 6.5 6.5 0 0 1-5.75 6.46V21a.75.75 0 0 1-1.5 0v-2.29A6.5 6.5 0 0 1 5.5 12.25a.75.75 0 0 1 .75-.75Z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Microphone</p>
+                        <p className="text-xs text-gray-500">For capturing your voice</p>
+                      </div>
+                    </div>
+                    {micPermission === 'granted' ? (
+                      <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-md">Granted</span>
+                    ) : (
+                      <button
+                        onClick={checkMicPermission}
+                        className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
+                      >
+                        Grant
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center">
+                        <svg width="18" height="18" viewBox="0 0 24 24" className="text-purple-600" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="2" y="3" width="20" height="14" rx="2" />
+                          <path d="M8 21h8M12 17v4" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Screen Recording</p>
+                        <p className="text-xs text-gray-500">For capturing system audio and screenshots</p>
+                      </div>
+                    </div>
+                    {screenPermission === 'granted' ? (
+                      <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-md">Granted</span>
+                    ) : (
+                      <button
+                        onClick={checkScreenPermission}
+                        className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
+                      >
+                        Check
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-400 text-center">
+                  You can grant permissions later in System Preferences if needed.
+                </p>
+
+                <div className="flex gap-3 pt-1">
+                  <button onClick={handleBack} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
+                    <ArrowLeft size={14} /> Back
+                  </button>
+                  <button onClick={handleNext} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
+                    Next <ArrowRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Shortcut Tutorial */}
+            {step === 4 && (
+              <div className="space-y-5">
+                <div className="text-center mb-1">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Learn the Shortcuts</h2>
+                  <p className="text-xs text-gray-500">
+                    These are the essential keyboard shortcuts you'll use.
+                  </p>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
+                  {[
+                    { keys: [cmdKey, '\\'], label: 'Show / Hide Overlay', description: 'Toggle Raven visibility anytime' },
+                    { keys: [cmdKey, '↵'], label: 'AI Assist', description: 'Screenshot + transcript analysis' },
+                    { keys: [cmdKey, 'R'], label: 'Start / Stop Session', description: 'Begin or end a recording' },
+                    { keys: [cmdKey, '⇧', 'R'], label: 'Clear Conversation', description: 'Reset the AI conversation' },
+                  ].map((shortcut) => (
+                    <div key={shortcut.label} className="flex items-center justify-between py-1">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{shortcut.label}</p>
+                        <p className="text-xs text-gray-500">{shortcut.description}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {shortcut.keys.map((key, ki) => (
+                          <kbd
+                            key={ki}
+                            className="min-w-[26px] h-6 px-1.5 flex items-center justify-center text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded shadow-sm"
+                          >
+                            {key}
+                          </kbd>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button onClick={handleBack} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
+                    <ArrowLeft size={14} /> Back
+                  </button>
+                  <button onClick={handleNext} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
+                    Next <ArrowRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5: Confirm & Save */}
+            {step === 5 && (
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Ready to Go</h2>
@@ -388,7 +535,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       <span className="text-sm text-gray-600">Model</span>
                     </div>
                     <span className="text-xs text-gray-700 font-medium">
-                      {aiProvider === 'anthropic' ? 'Claude Sonnet 4' : 'GPT-4o'}
+                      {aiProvider === 'anthropic' ? 'Claude Haiku 4.5' : 'GPT-5 Mini'}
                     </span>
                   </div>
                   <div className="px-4 py-2.5 flex items-center justify-between">

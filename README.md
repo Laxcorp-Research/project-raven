@@ -59,7 +59,7 @@ src/
 │   │   └── AudioCapture/
 │   ├── windows/           # Windows audio capture (WASAPI, Rust/NAPI-RS)
 │   └── aec/               # GStreamer AEC C++ addon (WebRTC AEC3)
-└── pro/                   # Pro features (auth, sync, billing UI)
+└── pro/                   # (Premium only — not included in this repo)
 ```
 
 ## Platform Support
@@ -74,7 +74,7 @@ src/
 
 ### Prerequisites
 
-- **Node.js 20+** — install via [nvm](https://github.com/nvm-sh/nvm) (the repo includes `.nvmrc`)
+- **Node.js 22+** — install via [nvm](https://github.com/nvm-sh/nvm) (the repo includes `.nvmrc`)
 - **GStreamer** — required for echo cancellation
 - **Deepgram API key** — [get one free](https://console.deepgram.com)
 - **Anthropic or OpenAI API key** — [Anthropic](https://console.anthropic.com) / [OpenAI](https://platform.openai.com)
@@ -91,8 +91,13 @@ src/
 #### Windows-specific
 
 - Windows 10/11
-- Rust toolchain
-- Visual Studio Build Tools
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop development with C++)
+- [Rust toolchain](https://rustup.rs/) (for the WASAPI audio capture module)
+- [GStreamer MSVC 1.24+](https://gstreamer.freedesktop.org/download/) — install the **runtime** and **development** MSI installers. The installer sets the `GSTREAMER_1_0_ROOT_MSVC_X86_64` environment variable automatically; verify it exists after install:
+  ```powershell
+  echo $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
+  # Should output something like C:\gstreamer\1.0\msvc_x86_64\
+  ```
 
 ### Setup
 

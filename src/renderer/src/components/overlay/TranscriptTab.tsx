@@ -30,8 +30,17 @@ export function TranscriptTab() {
     }).catch(() => {});
 
     const unsubTranscript = window.raven.onTranscriptUpdate((data) => {
-      if (data.entries) {
-        setEntries(data.entries);
+      const incoming = (data as unknown as { entry?: TranscriptEntry }).entry
+      if (incoming && data.isFinal) {
+        setEntries(prev => {
+          const last = prev[prev.length - 1]
+          if (last && last.speaker === incoming.speaker && (incoming.timestamp - last.timestamp) < 5000) {
+            const updated = [...prev]
+            updated[updated.length - 1] = { ...last, text: `${last.text} ${incoming.text}`, timestamp: incoming.timestamp }
+            return updated
+          }
+          return [...prev, incoming]
+        })
       }
       if (data.interims) {
         setInterims(data.interims);
@@ -42,6 +51,7 @@ export function TranscriptTab() {
       setIsRecording(state.isRecording);
       if (!state.isRecording) {
         setInterims({ mic: '', system: '' });
+        setEntries([]);
       }
     });
 

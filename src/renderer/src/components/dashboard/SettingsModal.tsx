@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { useAppMode } from '../../hooks/useAppMode'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('Settings')
@@ -310,14 +311,15 @@ function ProfileTab() {
 }
 
 function ApiKeysTab() {
+  const { isPro } = useAppMode()
   const [deepgramKey, setDeepgramKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [showOpenai, setShowOpenai] = useState(false)
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
-  const [aiModel, setAiModel] = useState('claude-sonnet-4-20250514')
+  const [aiModel, setAiModel] = useState('claude-haiku-4-5')
   const [originalAiProvider, setOriginalAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
-  const [originalAiModel, setOriginalAiModel] = useState('claude-sonnet-4-20250514')
+  const [originalAiModel, setOriginalAiModel] = useState('claude-haiku-4-5')
   const [originalOpenaiKey, setOriginalOpenaiKey] = useState('')
   const [showDeepgram, setShowDeepgram] = useState(false)
   const [showAnthropic, setShowAnthropic] = useState(false)
@@ -328,6 +330,8 @@ function ApiKeysTab() {
   const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const modelDropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function loadKeys() {
@@ -356,6 +360,31 @@ function ApiKeysTab() {
     }
     loadKeys()
   }, [])
+
+  useEffect(() => {
+    if (!modelDropdownOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [modelDropdownOpen])
+
+  const modelOptions = aiProvider === 'anthropic'
+    ? [
+        { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (recommended)' },
+        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (powerful)' },
+        { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      ]
+    : [
+        { value: 'gpt-5-mini', label: 'GPT-5 Mini (recommended)' },
+        { value: 'gpt-5.2', label: 'GPT-5.2 (powerful)' },
+        { value: 'gpt-4o', label: 'GPT-4o' },
+      ]
+
+  const selectedModelLabel = modelOptions.find(m => m.value === aiModel)?.label || aiModel
 
   const hasChanges =
     deepgramKey.trim() !== originalDeepgramKey
@@ -465,6 +494,19 @@ function ApiKeysTab() {
       default:
         return null
     }
+  }
+
+  if (isPro) {
+    return (
+      <div className="space-y-6 max-w-lg">
+        <div className="rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 p-4">
+          <h4 className="text-sm font-semibold text-blue-900 mb-1">Pro Mode Active</h4>
+          <p className="text-sm text-blue-700">
+            API keys are managed by your Ciara AI subscription. Use the Fast/Deep toggle on the overlay to switch between speed and quality.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -639,7 +681,7 @@ function ApiKeysTab() {
           <button
             onClick={() => {
               setAiProvider('anthropic')
-              setAiModel('claude-sonnet-4-20250514')
+              setAiModel('claude-haiku-4-5')
               setSaveMessage(null)
             }}
             className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
@@ -654,7 +696,7 @@ function ApiKeysTab() {
           <button
             onClick={() => {
               setAiProvider('openai')
-              setAiModel('gpt-4o')
+              setAiModel('gpt-5-mini')
               setSaveMessage(null)
             }}
             className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
@@ -670,28 +712,37 @@ function ApiKeysTab() {
 
         <div className="space-y-2">
           <label className="block text-xs font-medium text-gray-500">Model</label>
-          <select
-            value={aiModel}
-            onChange={(e) => {
-              setAiModel(e.target.value)
-            }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 bg-white"
-          >
-            {aiProvider === 'anthropic' ? (
-              <>
-                <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (recommended)</option>
-                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-                <option value="claude-3-haiku-20240307">Claude 3 Haiku (fast/cheap)</option>
-              </>
-            ) : (
-              <>
-                <option value="gpt-4o">GPT-4o (recommended)</option>
-                <option value="gpt-4o-mini">GPT-4o Mini (fast/cheap)</option>
-                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (cheapest)</option>
-              </>
+          <div className="relative" ref={modelDropdownRef}>
+            <button
+              onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-left hover:border-gray-400 transition-colors"
+            >
+              <span className="truncate">{selectedModelLabel}</span>
+              <svg className={`w-4 h-4 text-gray-400 flex-shrink-0 ml-2 transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {modelDropdownOpen && (
+              <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                {modelOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setAiModel(opt.value); setModelDropdownOpen(false) }}
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center justify-between hover:bg-gray-50 ${
+                      opt.value === aiModel ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
+                    }`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {opt.value === aiModel && (
+                      <svg className="w-4 h-4 text-blue-600 flex-shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
             )}
-          </select>
+          </div>
         </div>
       </div>
 

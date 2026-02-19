@@ -162,6 +162,17 @@ contextBridge.exposeInMainWorld('raven', {
   getTranscript: () => ipcRenderer.invoke('audio:get-transcript'),
   clearTranscript: () => ipcRenderer.invoke('audio:clear-transcript'),
   getTranscriptEntries: () => ipcRenderer.invoke('audio:get-transcript-entries'),
+  getTranscriptBySource: (source: 'mic' | 'system' | 'all') =>
+    ipcRenderer.invoke('audio:get-transcript-by-source', source),
+  // Auto-update
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  updateGetState: () => ipcRenderer.invoke('update:get-state'),
+  onUpdateStateChanged: (callback: (state: unknown) => void) => {
+    const handler = (_event: unknown, state: unknown) => callback(state)
+    ipcRenderer.on('update:state-changed', handler)
+    return () => ipcRenderer.removeListener('update:state-changed', handler)
+  },
   // Claude AI
   claudeGetResponse: (params: {
     transcript: string;
@@ -197,6 +208,20 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.on('claude:response', handler)
     return () => { ipcRenderer.removeListener('claude:response', handler) }
   },
+  onThemeChanged: (callback: (theme: 'dark' | 'light') => void) => {
+    const handler = (_event: unknown, theme: 'dark' | 'light') => callback(theme)
+    ipcRenderer.on('theme-changed', handler)
+    return () => ipcRenderer.removeListener('theme-changed', handler)
+  },
+  // Analytics
+  analyticsTrack: (name: string, properties?: Record<string, unknown>) =>
+    ipcRenderer.invoke('analytics:track', name, properties),
+  analyticsSetEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('analytics:set-enabled', enabled),
+  analyticsIsEnabled: () => ipcRenderer.invoke('analytics:is-enabled'),
+  // Permissions
+  permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),
+  permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
   sendOnboardingCompleted: () => ipcRenderer.send('onboarding:completed'),
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
   onStealthChanged: (callback: (enabled: boolean) => void) => {

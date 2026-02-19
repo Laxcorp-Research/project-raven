@@ -10,9 +10,9 @@ export const DASHBOARD_DEFAULT_HEIGHT = 700
 export const DASHBOARD_MIN_WIDTH = 1000
 export const DASHBOARD_MIN_HEIGHT = 600
 
-export const OVERLAY_DEFAULT_WIDTH = 520
+export const OVERLAY_DEFAULT_WIDTH = 480
 export const OVERLAY_DEFAULT_HEIGHT = 216
-export const OVERLAY_MIN_WIDTH = 520
+export const OVERLAY_MIN_WIDTH = 480
 export const OVERLAY_MIN_HEIGHT = 210
 export const OVERLAY_SCREEN_EDGE_OFFSET = 20
 
@@ -39,6 +39,7 @@ export const RAG_CHUNK_SIZE = 500
 export const RAG_CHUNK_OVERLAP = 50
 
 export const CONVERSATION_HISTORY_LIMIT = 20
+export const TRANSCRIPT_LINE_LIMIT = 50
 
 // ── Audio / Transcription ────────────────────────────────────────────
 

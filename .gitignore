@@ -66,5 +66,15 @@ Thumbs.db
 # Build artifacts
 release/
 
+# Premium features (not included in open-source release)
+src/pro/
+
 # Project-specific
 RavenPlan.txt
+cluely/
+
+# Old placeholder tray icons (quarantine-locked, replaced by icon*.png)
+resources/tray/trayTemplate.png
+resources/tray/trayTemplate@2x.png
+resources/tray/trayActiveTemplate.png
+resources/tray/trayActiveTemplate@2x.png
