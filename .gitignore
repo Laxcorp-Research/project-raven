@@ -68,6 +68,7 @@ release/
 
 # Premium features (not included in open-source release)
 src/pro/
+backend/
 
 # Project-specific
 RavenPlan.txt
