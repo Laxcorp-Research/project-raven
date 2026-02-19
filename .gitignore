@@ -66,9 +66,9 @@ Thumbs.db
 # Build artifacts
 release/
 
-# Premium features (not included in open-source release)
-src/pro/
-backend/
+# Premium features (tracked on this branch)
+# src/pro/
+# backend/
 
 # Project-specific
 RavenPlan.txt
