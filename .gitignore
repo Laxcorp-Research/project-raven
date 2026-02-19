@@ -69,6 +69,7 @@ release/
 # Premium features (tracked on this branch)
 # src/pro/
 # backend/
+# docs/REPO_STRUCTURE.md
 
 # Project-specific
 RavenPlan.txt

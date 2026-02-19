@@ -19,7 +19,8 @@ export async function initializeProFeatures(): Promise<void> {
   }
 
   try {
-    const { registerAuthHandlers } = await import('../pro/main/authIpc')
+    const proPath = '../pro/main/authIpc'
+    const { registerAuthHandlers } = await import(/* @vite-ignore */ proPath)
     registerAuthHandlers()
     log.info('Pro features initialized')
   } catch {
