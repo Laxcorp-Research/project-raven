@@ -164,20 +164,22 @@ done
 ### 4a: Quick Actions During Recording
 
 **Steps (while recording from Test 3):**
-1. Click "What should I say?" in the overlay
+1. Click "Assist" in the quick action bar (or press `Cmd+Enter`)
 2. Wait for the AI response
-3. Click "Assist" (or press `Cmd+Enter`)
-4. Try "Tell me more" on a response
-5. Try "Fact check" on a response
+3. Click "What should I say?"
+4. Try "Follow-up"
+5. Try "Recap"
+6. On an existing response card, try "Tell me more"
 
 **Check:**
-- [ ] "What should I say?" references the LAST thing the other person said
 - [ ] "Assist" gives a relevant response based on the conversation context
+- [ ] "What should I say?" references the LAST thing the other person said
+- [ ] "Follow-up" asks a relevant follow-up question based on context
+- [ ] "Recap" provides a summary of the conversation so far
 - [ ] Responses stream in (word by word, not all at once)
 - [ ] Markdown renders properly (bold, bullet points, etc.)
-- [ ] "Tell me more" expands on the previous response
-- [ ] "Fact check" verifies claims from the response
-- [ ] Response cards have correct action badges ("Assist", "What should I say?", etc.)
+- [ ] "Tell me more" (on response card) expands on the previous response
+- [ ] Response cards have correct action badges ("Assist", "What should I say?", "Follow-up", "Recap")
 
 ### 4b: Typed Question Override
 
@@ -235,6 +237,7 @@ No API key values should appear in the logs.
 ### 5a: Overlay Appearance
 
 **Check:**
+- [ ] Overlay spawns **centered** on screen (not in a corner)
 - [ ] Glass-like transparency (backdrop blur visible, not opaque black)
 - [ ] Rounded corners on the overlay panel
 - [ ] Raven logo visible on the controller pill
@@ -253,7 +256,7 @@ No API key values should appear in the logs.
 **Check:**
 - [ ] Drag works smoothly (no jitter, no lag)
 - [ ] Resize respects minimum width (480px) and minimum height
-- [ ] Double-click resets to default size
+- [ ] Double-click resets to default size **and re-centers** on screen
 - [ ] Overlay stays within screen bounds (doesn't go off-screen)
 
 ### 5c: Click-Through / Mouse Pass-Through
@@ -273,9 +276,9 @@ No API key values should appear in the logs.
 **Check:**
 - [ ] Raven logo button works (click to toggle expanded/compact view)
 - [ ] Record button shows correct state (red when recording, neutral when stopped)
-- [ ] Stealth toggle icon is visible
-- [ ] Smart mode toggle works (Pro mode only — hidden in open-source)
-- [ ] Incognito mode toggle works
+- [ ] Stealth toggle icon is visible (eye-off icon)
+- [ ] Fast/Deep toggle is **hidden** in open-source mode (visible only with `npm run dev:pro`)
+- [ ] Incognito mode toggle works (hat-and-glasses icon)
 - [ ] Tooltips appear on hover and stay within screen bounds
 - [ ] Hide button hides the overlay (bring back with `Cmd+\`)
 

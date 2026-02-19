@@ -115,7 +115,7 @@ npm install
 ```bash
 cd src/native/aec
 ./build-deps.sh
-npx cmake-js compile --runtime electron --runtime-version <your-electron-version>
+npx cmake-js compile --runtime electron --runtime-version 40.4.1
 cd ../../..
 ```
 
@@ -177,7 +177,7 @@ npm run test:all      # Everything
 The `postinstall` script handles this automatically. If you still see `NODE_MODULE_VERSION` mismatch errors:
 
 ```bash
-npx electron-rebuild -f -w better-sqlite3
+npx @electron/rebuild -f -w better-sqlite3
 ```
 
 **Reset all data (fresh start):**

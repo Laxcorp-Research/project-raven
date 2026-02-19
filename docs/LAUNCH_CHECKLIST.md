@@ -64,10 +64,10 @@ These items are needed when we ship the packaged product. Not blocking for open-
 
 | # | Item | Details | Status |
 |---|------|---------|--------|
-| P-14 | **Authentication backend** | `src/pro/` has client-side code. `raven-backend` (Fastify + Prisma) exists in the parent directory with auth, billing, and AI proxy endpoints. Needs integration testing. | ⚠️ Backend exists, not integrated |
+| P-14 | **Authentication backend** | `src/pro/` has client-side code. `backend/` (Fastify + Prisma) lives in the monorepo on the `premium` branch with auth, billing, and AI proxy endpoints. Needs integration testing. | ⚠️ Backend exists, not integration-tested |
 | P-15 | **License/subscription enforcement** | Pro features gated by `proLoader` — but actual license validation against a backend is not implemented. | ❌ Not implemented |
-| P-16 | **Cloud sync** | Session sync, settings sync across devices. Client stubs exist but no backend. | ❌ Not implemented |
-| P-17 | **Billing integration** | Stripe/Paddle integration for subscription management. | ❌ Not implemented |
+| P-16 | **Cloud sync** | Session sync, settings sync across devices. Client stubs exist, backend endpoints exist in `backend/`. Needs end-to-end wiring. | ⚠️ Stubs exist both sides |
+| P-17 | **Billing integration** | Stripe/Paddle integration for subscription management. Backend has Stripe webhook stubs. | ❌ Not implemented |
 
 ---
 
@@ -114,6 +114,14 @@ These affect both open-source and premium and should be solid before either ship
 6. ~~C-2~~ ✅ Deepgram reconnection already implemented
 7. ~~C-6~~ ✅ Screen-share invisibility bug fixed (stealth was disabled on first launch)
 8. ~~C-11~~ ✅ Graceful shutdown added (audioManager.shutdown() on quit)
+9. ✅ AI models updated — defaults are fast models (Claude Haiku 4.5, GPT-5 Mini), deep models available in pro mode (Claude Sonnet 4.6, GPT-5.2)
+10. ✅ Overlay spawns centered on screen (was bottom-right)
+11. ✅ Overlay min/default width aligned to 480px across main + renderer
+12. ✅ Fast/Deep model toggle implemented (pro-only, hidden in open-source)
+13. ✅ Open-core repo structure set up (public + private repos, feature gating via `RAVEN_MODE`)
+14. ✅ Backend integrated into monorepo on `premium` branch (`backend/`)
+15. ✅ Custom AI model dropdown in settings (matches mic dropdown styling)
+16. ✅ Incognito icon replaced with custom hat-and-glasses SVG
 
 **Still needs runtime testing:**
 1. O-4 — Fresh clone test (the single most important validation)
