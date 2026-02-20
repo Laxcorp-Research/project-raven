@@ -28,6 +28,21 @@ interface ScreenshotAttachment {
   previewData: string;
 }
 
+let getServerSystemPrompt: (() => Promise<string | null>) | null = null
+let getServerActionPrompt: ((action: string) => Promise<string | null>) | null = null
+
+async function loadProPromptService(): Promise<void> {
+  if (!isProMode()) return
+  try {
+    const mod = await import(/* @vite-ignore */ '../pro/main/promptService')
+    getServerSystemPrompt = mod.getServerSystemPrompt
+    getServerActionPrompt = mod.getServerActionPrompt
+  } catch {
+    // src/pro/ not available
+  }
+}
+void loadProPromptService()
+
 const buildSystemPrompt = (modePrompt?: string, ragChunks?: Array<{ chunkText: string; fileName: string; score: number }>): string => {
   let prompt = `You are Raven, the user's real-time AI co-pilot. You can see the user's screen (when a screenshot is attached) and the live audio transcript of the conversation (when provided).
 
@@ -198,7 +213,7 @@ export class ClaudeService {
           ? await this.captureScreenshotExcludingRaven()
           : null;
 
-        const userMessageContent = this.buildUserMessage(params);
+        const userMessageContent = await this.buildUserMessage(params);
         const assistantMessageId = this.generateId();
         const userMessage: ChatMessage = {
           id: this.generateId(),
@@ -241,9 +256,17 @@ export class ClaudeService {
 
         let fullResponse = '';
 
+        let systemPrompt: string
+        if (getServerSystemPrompt) {
+          const serverPrompt = await getServerSystemPrompt()
+          systemPrompt = serverPrompt || buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined)
+        } else {
+          systemPrompt = buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined)
+        }
+
         await provider.streamResponse(
           {
-            system: buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined),
+            system: systemPrompt,
             messages: aiMessages,
             maxTokens: STREAM_MAX_TOKENS,
           },
@@ -331,12 +354,12 @@ export class ClaudeService {
     return `[...earlier conversation omitted — ${lines.length - TRANSCRIPT_LINE_LIMIT} lines]\n${kept.join('\n')}`;
   }
 
-  private buildUserMessage(params: {
+  private async buildUserMessage(params: {
     transcript: string;
     action: string;
     customPrompt?: string;
     includeScreenshot?: boolean;
-  }): string {
+  }): Promise<string> {
     let message = '';
 
     if (params.transcript.trim()) {
@@ -356,7 +379,11 @@ export class ClaudeService {
     if (params.action === 'custom' && params.customPrompt) {
       message += `USER QUESTION: ${params.customPrompt}`;
     } else {
-      message += ACTION_PROMPTS[params.action] || ACTION_PROMPTS.assist;
+      let actionPrompt: string | null = null
+      if (getServerActionPrompt) {
+        actionPrompt = await getServerActionPrompt(params.action)
+      }
+      message += actionPrompt || ACTION_PROMPTS[params.action] || ACTION_PROMPTS.assist;
     }
 
     if (params.includeScreenshot) {

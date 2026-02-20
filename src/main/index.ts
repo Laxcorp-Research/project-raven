@@ -20,11 +20,12 @@ import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
-import { createTray, destroyTray } from './trayManager'
+import { createTray, destroyTray, setTrayOnboarding } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics } from './analytics'
 import { registerPermissionHandlers } from './permissions'
 import { createLogger } from './logger'
+import { isProMode } from './store'
 
 const log = createLogger('Raven')
 const ipcLog = createLogger('IPC')
@@ -39,6 +40,32 @@ let testTranscriptionCleanup: (() => void) | null = null
 
 // Enable screen capture on macOS
 app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
+
+// Register raven:// protocol + macOS open-url listener early (before app.whenReady)
+async function initDeepLinksEarly(): Promise<void> {
+  try {
+    const { registerProtocol, registerOpenUrlHandler } = await import(
+      /* @vite-ignore */ '../pro/main/deepLink'
+    )
+    registerProtocol()
+    registerOpenUrlHandler()
+  } catch {
+    // src/pro/ not present (open-source build) — skip silently
+  }
+}
+void initDeepLinksEarly()
+
+// Single-instance lock + second-instance handler — must run AFTER app is ready
+async function initDeepLinksReady(): Promise<void> {
+  try {
+    const { setupDeepLinkHandlers } = await import(
+      /* @vite-ignore */ '../pro/main/deepLink'
+    )
+    setupDeepLinkHandlers()
+  } catch {
+    // src/pro/ not present — skip
+  }
+}
 
 ipcMain.handle('desktop:get-sources', async () => {
   try {
@@ -200,31 +227,39 @@ function boot(): void {
 
   audioManager.setWindows(dashboard, overlay)
 
-  // Only show overlay after onboarding is complete
   const onboardingDone = getSetting('onboardingComplete')
-  if (onboardingDone) {
+  const appMode = getSetting('mode')
+
+  // For pro mode, overlay should only appear if the user is both onboarded AND authenticated.
+  const proAuthenticated = appMode !== 'pro' || !!getSetting('auth_tokens')
+  const shouldEnableOverlay = !!onboardingDone && proAuthenticated
+
+  if (shouldEnableOverlay) {
     dashboard.on('ready-to-show', () => {
       setTimeout(() => {
         overlay.show()
       }, OVERLAY_SHOW_DELAY_MS)
     })
 
-    // Apply stealth mode from saved settings
     const stealthEnabled = getSetting('stealthEnabled')
     if (stealthEnabled) {
       setStealthMode(true)
     }
+
+    registerGlobalHotkeys(dashboard, overlay)
   }
 
-  // Listen for onboarding completion to show overlay for the first time
   ipcMain.on('onboarding:completed', () => {
     log.info('Onboarding completed — showing overlay')
     setStealthMode(true)
     overlay.show()
+    registerGlobalHotkeys(dashboard, overlay)
+    setTrayOnboarding(false)
   })
 
-  registerGlobalHotkeys(dashboard, overlay)
-
+  if (!shouldEnableOverlay) {
+    setTrayOnboarding(true)
+  }
   createTray()
   initAutoUpdater()
   initAnalytics()
@@ -244,6 +279,7 @@ app.whenReady().then(() => {
   registerSystemAudioHandlers()
   registerPermissionHandlers()
   void initializeProFeatures()
+  void initDeepLinksReady()
   boot()
 
   // Session IPC handlers
@@ -501,6 +537,43 @@ app.whenReady().then(() => {
     const { saveSetting } = await import('./store')
     saveSetting('profilePicturePath', destPath)
 
+    return destPath
+  })
+
+  ipcMain.handle('profile:select-picture-raw', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const fsMod = await import('fs')
+    const pathMod = await import('path')
+    const data = fsMod.readFileSync(result.filePaths[0])
+    const ext = pathMod.extname(result.filePaths[0]).toLowerCase().replace('.', '')
+    const mime = ext === 'jpg' ? 'jpeg' : ext
+    return `data:image/${mime};base64,${data.toString('base64')}`
+  })
+
+  ipcMain.handle('profile:save-picture-data', async (_event, dataUrl: string) => {
+    const fsMod = await import('fs')
+    const pathMod = await import('path')
+    const appDataPath = app.getPath('userData')
+    const profileDir = pathMod.join(appDataPath, 'profile')
+    if (!fsMod.existsSync(profileDir)) {
+      fsMod.mkdirSync(profileDir, { recursive: true })
+    }
+    const matches = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/)
+    if (!matches) return null
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
+    const buffer = Buffer.from(matches[2], 'base64')
+    const destPath = pathMod.join(profileDir, `avatar.${ext}`)
+    fsMod.writeFileSync(destPath, buffer)
+
+    const { saveSetting } = await import('./store')
+    saveSetting('profilePicturePath', destPath)
     return destPath
   })
 

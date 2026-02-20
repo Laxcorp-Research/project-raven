@@ -18,8 +18,11 @@ contextBridge.exposeInMainWorld('raven', {
   validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) =>
     ipcRenderer.invoke('validate-keys', deepgramKey, aiProvider, aiKey),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   profileSelectPicture: () => ipcRenderer.invoke('profile:select-picture'),
+  profileSelectPictureRaw: () => ipcRenderer.invoke('profile:select-picture-raw'),
+  profileSavePictureData: (dataUrl: string) => ipcRenderer.invoke('profile:save-picture-data', dataUrl),
   profileGetPictureData: (filePath: string) => ipcRenderer.invoke('profile:get-picture-data', filePath),
   profileRemovePicture: () => ipcRenderer.invoke('profile:remove-picture'),
   windowToggleOverlay: () => ipcRenderer.invoke('window:toggle-overlay'),
@@ -219,6 +222,21 @@ contextBridge.exposeInMainWorld('raven', {
   analyticsSetEnabled: (enabled: boolean) =>
     ipcRenderer.invoke('analytics:set-enabled', enabled),
   analyticsIsEnabled: () => ipcRenderer.invoke('analytics:is-enabled'),
+  // Auth (pro mode — handlers registered dynamically by proLoader)
+  authIsBackendConfigured: () => ipcRenderer.invoke('auth:is-backend-configured'),
+  authIsAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
+  authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
+  authStartBrowserLogin: () => ipcRenderer.invoke('auth:start-browser-login'),
+  authCancelBrowserLogin: () => ipcRenderer.invoke('auth:cancel-browser-login'),
+  authLogin: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
+  authSignup: (email: string, password: string, name: string) =>
+    ipcRenderer.invoke('auth:signup', email, password, name),
+  authStartGoogleLogin: () => ipcRenderer.invoke('auth:start-google-login'),
+  authStartAppleLogin: () => ipcRenderer.invoke('auth:start-apple-login'),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
+  authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
+  authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
   // Permissions
   permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),
   permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),

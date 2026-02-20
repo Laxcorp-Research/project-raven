@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, nativeTheme } from 'electron'
+import { BrowserWindow, screen, nativeTheme, session } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
@@ -8,6 +8,32 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+/** Apply Content-Security-Policy headers to restrict renderer capabilities. */
+function applyCSP(win: BrowserWindow): void {
+  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob: https://*.googleusercontent.com",
+            "font-src 'self' data:",
+            "connect-src 'self' https://*.raven.app https://*.deepgram.com wss://*.deepgram.com https://api.anthropic.com https://api.openai.com",
+            "media-src 'self' blob:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+          ].join('; '),
+        ],
+      },
+    })
+  })
+}
 
 /** Block Ctrl/Cmd +/-/0 and pinch-to-zoom so the app feels native. */
 function disableZoom(win: BrowserWindow): void {
@@ -78,12 +104,21 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     }
   })
 
-  // Disable zoom (Ctrl/Cmd +/- and pinch)
+  applyCSP(dashboardWindow)
   disableZoom(dashboardWindow)
+
+  dashboardWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://') && !url.startsWith('http://localhost')) {
+      event.preventDefault()
+    }
+  })
+  dashboardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
   // Save window bounds on move/resize
   dashboardWindow.on('resized', () => {
@@ -159,11 +194,13 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     }
   })
 
-  // Disable zoom (Ctrl/Cmd +/- and pinch)
+  applyCSP(overlayWindow)
   disableZoom(overlayWindow)
 
   // Force macOS compositor to blend transparency properly

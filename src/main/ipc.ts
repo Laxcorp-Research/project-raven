@@ -114,6 +114,10 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('app:quit', () => {
+    app.quit()
+  })
+
   ipcMain.handle('app:get-version', () => {
     return app.getVersion()
   })

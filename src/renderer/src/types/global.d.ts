@@ -69,11 +69,35 @@ declare global {
       planIsFree: () => Promise<boolean>;
       planIsPro: () => Promise<boolean>;
       resetAll: () => Promise<boolean>;
+      // Auth (pro mode)
+      authIsBackendConfigured: () => Promise<boolean>;
+      authIsAuthenticated: () => Promise<boolean>;
+      authGetCurrentUser: () => Promise<{
+        id: string;
+        email: string;
+        name: string | null;
+        avatarUrl: string | null;
+        plan: 'FREE' | 'PRO' | 'TEAM';
+        subscriptionStatus: string;
+      } | null>;
+      authStartBrowserLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authCancelBrowserLogin: () => Promise<{ success: boolean }>;
+      authLogin: (email: string, password: string) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authSignup: (email: string, password: string, name: string) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authStartGoogleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authLogout: () => Promise<{ success: boolean }>;
+      authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
+      authGetManagedKeys: () => Promise<{ deepgram: string; anthropic: string; openai: string } | null>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
       validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;
+      quitApp: () => Promise<void>;
       getAppVersion: () => Promise<string>;
       profileSelectPicture: () => Promise<string | null>;
+      profileSelectPictureRaw: () => Promise<string | null>;
+      profileSavePictureData: (dataUrl: string) => Promise<string | null>;
       profileGetPictureData: (filePath: string) => Promise<string | null>;
       profileRemovePicture: () => Promise<boolean>;
       windowToggleOverlay: () => Promise<boolean>;

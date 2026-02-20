@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText } from 'lucide-react'
+import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
+import { useAppMode } from '../../hooks/useAppMode'
 
 interface SearchResult {
   id: string
@@ -46,24 +47,39 @@ function getInitials(name: string): string {
 }
 
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
+  const { isPro } = useAppMode()
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [displayName, setDisplayName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
   const [profilePicData, setProfilePicData] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadProfile()
-  }, [])
+  }, [isPro])
 
   async function loadProfile() {
+    try {
+      const authUser = await window.raven.authGetCurrentUser()
+      if (authUser) {
+        setDisplayName(authUser.name || '')
+        setUserEmail(authUser.email || '')
+        setAvatarUrl(authUser.avatarUrl || null)
+        return
+      }
+    } catch { /* not in pro mode or not authenticated */ }
+
     const name = (await window.raven.storeGet('displayName')) as string
     const picPath = (await window.raven.storeGet('profilePicturePath')) as string
     setDisplayName(name || '')
+    setUserEmail('')
+    setAvatarUrl(null)
     if (picPath) {
       const data = await window.raven.profileGetPictureData(picPath)
       setProfilePicData(data)
@@ -73,9 +89,12 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   }
 
   useEffect(() => {
-    const interval = setInterval(loadProfile, 5000)
+    const interval = setInterval(loadProfile, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [isPro])
+
+  const hasAvatar = avatarUrl || profilePicData
+  const avatarSrc = avatarUrl || profilePicData
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -181,8 +200,8 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
               onClick={() => setUserMenuOpen(!userMenuOpen)}
               className="w-8 h-8 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ring-1 ring-gray-200 hover:ring-2 hover:ring-blue-300 hover:shadow-md hover:scale-105 active:scale-95"
             >
-              {profilePicData ? (
-                <img src={profilePicData} alt="" className="w-full h-full object-cover" />
+              {hasAvatar ? (
+                <img src={avatarSrc!} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
                   {getInitials(displayName) || (
@@ -198,8 +217,8 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
               <div className="absolute top-full right-0 mt-2 w-60 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden z-50">
                 <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 ring-1 ring-gray-200">
-                    {profilePicData ? (
-                      <img src={profilePicData} alt="" className="w-full h-full object-cover" />
+                    {hasAvatar ? (
+                      <img src={avatarSrc!} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
                         {getInitials(displayName) || (
@@ -214,7 +233,9 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                     <p className="text-sm font-semibold text-gray-900 truncate">
                       {displayName || 'Raven User'}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">Local account</p>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      {userEmail || 'Local account'}
+                    </p>
                   </div>
                 </div>
 
@@ -245,6 +266,32 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                   >
                     <HelpCircle size={16} className="text-gray-400 shrink-0" />
                     <span>Get Help</span>
+                  </button>
+                </div>
+
+                <div className="border-t border-gray-200 py-1.5">
+                  {isPro && userEmail && (
+                    <button
+                      onClick={async () => {
+                        setUserMenuOpen(false)
+                        await window.raven.authLogout()
+                        window.location.reload()
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3 transition-colors"
+                    >
+                      <LogOut size={16} className="text-gray-400 shrink-0" />
+                      <span>Sign out</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      window.raven.quitApp()
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
+                  >
+                    <Power size={16} className="text-red-400 shrink-0" />
+                    <span>Quit Raven</span>
                   </button>
                 </div>
               </div>

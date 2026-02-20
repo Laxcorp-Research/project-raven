@@ -3,10 +3,20 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.laxcorpresearch.raven",
   "asar": true,
+  "asarUnpack": [
+    "**/*.node",
+    "**/audiocapture"
+  ],
   "productName": "Raven",
   "directories": {
     "output": "release/${version}"
   },
+  "protocols": [
+    {
+      "name": "Raven",
+      "schemes": ["raven"]
+    }
+  ],
   "files": [
     "dist",
     "dist-electron"

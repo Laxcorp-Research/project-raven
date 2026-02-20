@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { createLogger } from './lib/logger'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard } from './components/dashboard/Dashboard'
@@ -6,37 +6,73 @@ import { OverlayWindow } from './components/overlay/OverlayWindow'
 
 const log = createLogger('App')
 
+type AppView = 'loading' | 'overlay' | 'onboarding-free' | 'onboarding-pro' | 'dashboard'
+
+function ProOnboardingFallback(_props: { alreadyAuthenticated: boolean; onComplete: () => void }): JSX.Element {
+  return <div />
+}
+
+const ProOnboarding = lazy(async () => {
+  try {
+    const mod = await import(/* @vite-ignore */ '../../pro/renderer/onboarding/ProOnboarding')
+    return { default: mod.ProOnboarding }
+  } catch {
+    return { default: ProOnboardingFallback }
+  }
+})
+
 function App(): JSX.Element {
-  const [loading, setLoading] = useState(true)
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [windowType, setWindowType] = useState<'dashboard' | 'overlay' | 'unknown'>('unknown')
+  const [view, setView] = useState<AppView>('loading')
+  const [proAuthenticated, setProAuthenticated] = useState(false)
 
   useEffect(() => {
     async function init() {
       try {
         const type = await window.raven.windowGetType()
-        setWindowType(type)
 
-        if (type === 'dashboard') {
-          const settings = await window.raven.storeGetAll()
-          const onboarded = settings.onboardingComplete as boolean
+        if (type === 'overlay') {
+          setView('overlay')
+          return
+        }
+
+        const isPro = await window.raven.planIsPro()
+        const settings = await window.raven.storeGetAll()
+        const onboarded = settings.onboardingComplete as boolean
+
+        if (isPro) {
+          let authenticated = false
+          try {
+            authenticated = await window.raven.authIsAuthenticated()
+          } catch {
+            // Auth IPC not registered (shouldn't happen in pro mode)
+          }
+
+          if (!authenticated) {
+            setProAuthenticated(false)
+            setView('onboarding-pro')
+          } else if (!onboarded) {
+            setProAuthenticated(true)
+            setView('onboarding-pro')
+          } else {
+            setView('dashboard')
+          }
+        } else {
           const hasKeys = await window.raven.apiKeysHas()
-
           if (!onboarded || !hasKeys) {
-            setShowOnboarding(true)
+            setView('onboarding-free')
+          } else {
+            setView('dashboard')
           }
         }
       } catch (err) {
         log.error('Failed to initialize:', err)
-        setWindowType('dashboard')
-        setShowOnboarding(true)
+        setView('onboarding-free')
       }
-      setLoading(false)
     }
     init()
   }, [])
 
-  if (loading) {
+  if (view === 'loading') {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
         <div className="text-gray-400">Loading...</div>
@@ -44,15 +80,33 @@ function App(): JSX.Element {
     )
   }
 
-  if (windowType === 'overlay') {
+  if (view === 'overlay') {
     return <OverlayWindow />
   }
 
-  if (showOnboarding) {
+  if (view === 'onboarding-pro') {
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-screen bg-white">
+          <div className="text-gray-400">Loading...</div>
+        </div>
+      }>
+        <ProOnboarding
+          alreadyAuthenticated={proAuthenticated}
+          onComplete={() => {
+            setView('dashboard')
+            window.raven.sendOnboardingCompleted()
+          }}
+        />
+      </Suspense>
+    )
+  }
+
+  if (view === 'onboarding-free') {
     return (
       <Onboarding
         onComplete={() => {
-          setShowOnboarding(false)
+          setView('dashboard')
           window.raven.sendOnboardingCompleted()
         }}
       />

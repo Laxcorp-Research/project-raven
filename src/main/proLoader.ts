@@ -19,11 +19,12 @@ export async function initializeProFeatures(): Promise<void> {
   }
 
   try {
-    const proPath = '../pro/main/authIpc'
-    const { registerAuthHandlers } = await import(/* @vite-ignore */ proPath)
+    const { registerAuthHandlers } = await import(
+      /* @vite-ignore */ '../pro/main/authIpc'
+    )
     registerAuthHandlers()
     log.info('Pro features initialized')
-  } catch {
-    log.warn('Pro mode requested but src/pro/ not found — running without premium features')
+  } catch (err) {
+    log.warn('Pro mode requested but src/pro/ not found — running without premium features', err)
   }
 }

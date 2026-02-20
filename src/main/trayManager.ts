@@ -9,6 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let tray: Tray | null = null
 let isRecordingState = false
+let isOnboarding = false
 
 function getTrayIconPath(recording: boolean): string {
   const iconName = recording ? 'iconActiveTemplate.png' : 'iconTemplate.png'
@@ -30,6 +31,15 @@ function showDashboard(action?: string): void {
 }
 
 function buildContextMenu(): Menu {
+  if (isOnboarding) {
+    return Menu.buildFromTemplate([
+      {
+        label: 'Quit Raven',
+        click: () => app.quit(),
+      },
+    ])
+  }
+
   return Menu.buildFromTemplate([
     {
       label: isRecordingState ? 'Stop Listening' : 'Start Listening',
@@ -103,6 +113,13 @@ export function setTrayVisibility(visible: boolean): void {
   if (!visible) {
     tray.destroy()
     tray = null
+  }
+}
+
+export function setTrayOnboarding(onboarding: boolean): void {
+  isOnboarding = onboarding
+  if (tray) {
+    tray.setContextMenu(buildContextMenu())
   }
 }
 
