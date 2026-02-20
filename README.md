@@ -21,6 +21,7 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 - **RAG** — Upload local documents, embedded with `@xenova/transformers`, and reference them in AI context
 - **Sessions** — Auto-saved with full transcript, AI responses, and summaries
 - **Modes** — Customizable AI behavior profiles with system prompts and quick actions
+- **Profile picture editor** — Crop, zoom, and pan before saving your avatar
 - **Pro features** — Optional auth, billing, and sync for a paid tier (connects to a separate backend)
 
 ## Architecture
@@ -54,12 +55,11 @@ src/
 │       ├── components/    #   Dashboard, overlay, settings, onboarding
 │       └── ...
 ├── preload/               # Electron preload scripts (context bridge)
-├── native/
-│   ├── swift/             # macOS audio capture (ScreenCaptureKit + CoreAudio)
-│   │   └── AudioCapture/
-│   ├── windows/           # Windows audio capture (WASAPI, Rust/NAPI-RS)
-│   └── aec/               # GStreamer AEC C++ addon (WebRTC AEC3)
-└── pro/                   # (Premium only — not included in this repo)
+└── native/
+    ├── swift/             # macOS audio capture (ScreenCaptureKit + CoreAudio)
+    │   └── AudioCapture/
+    ├── windows/           # Windows audio capture (WASAPI, Rust/NAPI-RS)
+    └── aec/               # GStreamer AEC C++ addon (WebRTC AEC3)
 ```
 
 ## Platform Support

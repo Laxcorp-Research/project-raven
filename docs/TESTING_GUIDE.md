@@ -1,6 +1,6 @@
 # Raven Manual Testing Guide
 
-Step-by-step runtime tests for the open-source launch. Every test includes what to do, what to look for, where to look, and what to log.
+Step-by-step runtime tests for both the open-source and premium app. Every test includes what to do, what to look for, where to look, and what to log.
 
 ---
 
@@ -39,12 +39,13 @@ done
 | `[SessionManager]` | Session lifecycle | `Session started`, `Session ended` with duration | `Session ended` with 0 entries |
 | `[Database]` | SQLite persistence | `Initialized successfully`, `Created session`, `Updated session` | Any errors |
 | `[Tray]` | System tray | `Tray icon created` | `Tray icon not found`, `Failed to create tray` |
+| `[Auth]` | Premium auth (pro mode only) | `Backend configured`, `User authenticated` | `No backend configured`, `Token refresh failed` |
 
 ---
 
-## Test 1: First Launch & Onboarding
+## Test 1: First Launch & Onboarding (Open-Source)
 
-**Goal:** Verify a new user can set up the app from scratch.
+**Goal:** Verify a new user can set up the free app from scratch.
 
 **Steps:**
 1. Reset all data first:
@@ -73,6 +74,75 @@ done
 - Blank tray icon (icon not loaded)
 - Overlay doesn't appear after onboarding
 - `Hotkeys registered` shows any `false` values
+
+---
+
+## Test 1b: First Launch & Onboarding (Premium)
+
+**Goal:** Verify the full premium onboarding flow works end-to-end.
+
+**Prerequisites:** Backend running (`cd backend && npm run dev`), PostgreSQL running.
+
+**Steps:**
+1. Reset all data:
+   ```bash
+   rm -rf ~/Library/Application\ Support/project-raven/
+   ```
+2. Run `npm run dev:pro`
+
+### Step 1 — Welcome Screen
+- [ ] Raven logo and "Welcome to Raven" message displayed
+- [ ] "Get Started" button present
+- [ ] Settings gear icon in top-right with "Quit Raven" option
+- [ ] Tray menu only shows "Quit Raven" (simplified for onboarding)
+- [ ] `Cmd+\` does NOT open the overlay (hotkeys suppressed)
+
+### Step 2 — Authentication
+- [ ] Clicking "Get Started" opens browser for Google login
+- [ ] "Waiting for sign in..." screen shown with "Go back" button
+- [ ] Google OAuth consent screen loads in browser
+- [ ] After login, browser shows "Opening Raven" page with your name/email/avatar
+- [ ] Browser tab attempts to auto-close
+- [ ] App receives auth callback and advances to permissions
+
+### Step 3 — Permissions
+- [ ] Shows "Welcome, [Your Name]!" (personalized greeting)
+- [ ] Microphone and Screen Recording permission status shown
+- [ ] If already granted, shows green "Granted" state
+- [ ] Does NOT auto-advance even if both permissions are already granted
+- [ ] "Next" button advances to overlay tour
+- [ ] No "Back" button (user is already authenticated)
+
+### Step 4 — Overlay Tour
+- [ ] Shows 10 interactive steps with the overlay pill mock
+- [ ] Step 1: "Your Control Center" — pill overview
+- [ ] Step 2: "Hide" — hide button highlighted
+- [ ] Step 3: "Start Session" — mic button in default state (mic icon)
+- [ ] Step 4: "Stop Session" — mic button in active state (stop icon, green)
+- [ ] Step 5: "Detectable" — stealth button off state
+- [ ] Step 6: "Undetectable" — stealth button on state (teal/green)
+- [ ] Step 7: "Fast Mode" — smart toggle in fast state
+- [ ] Step 8: "Deep Mode" — smart toggle in deep state (purple)
+- [ ] Step 9: "Incognito Off" — incognito off
+- [ ] Step 10: "Incognito On" — incognito on (amber)
+- [ ] No step numbering (no "1/10", "2/10")
+- [ ] Descriptions are single-line
+- [ ] Button visuals match actual overlay colors and icons
+
+### Step 5 — Keyboard Shortcuts
+- [ ] All hotkeys shown with proper key glyphs (`⌘`, `\`, `↵`, etc.)
+- [ ] Key icons are readable size inside kbd boxes
+
+### Step 6 — Done
+- [ ] "Raven is ready. Start a session and let your AI co-pilot handle the rest." on one line
+- [ ] "Open Dashboard" button works
+- [ ] After clicking, overlay appears and tray menu shows full options
+- [ ] `Cmd+\` now works (hotkeys enabled)
+
+### Auth Edge Cases
+- [ ] "Go back" on waiting screen cancels auth cleanly (no timeout error)
+- [ ] Re-clicking "Get Started" after cancellation starts fresh auth flow
+- [ ] Closing/restarting app during onboarding resumes at appropriate step
 
 ---
 
@@ -450,19 +520,69 @@ No API key values should appear in the logs.
 
 ---
 
-## Test 12: Edge Cases
+## Test 12: Dashboard Settings
 
-### 12a: No Internet During Recording
+**Goal:** Verify all settings tabs work correctly.
+
+### 12a: Profile Tab
+
+**Check (free mode):**
+- [ ] Can upload profile picture (crop editor opens)
+- [ ] Crop editor: zoom slider works, drag to reposition, Reset/Cancel/Apply
+- [ ] Can change and remove profile picture
+- [ ] Can edit display name
+- [ ] "Where your profile is used" info box displayed
+
+**Check (premium mode):**
+- [ ] Google avatar shown by default
+- [ ] Can upload custom picture (overrides Google avatar)
+- [ ] Display name pre-filled from Google, editable
+- [ ] Account email shown (read-only)
+- [ ] "Password & Security" section with Update button → opens reset link modal
+- [ ] "Delete Account" section → opens confirmation modal with subscription warning
+
+### 12b: Audio Tab
+
+**Check:**
+- [ ] Microphone dropdown shows available devices
+- [ ] Default mic shows as "Default - MacBook Pro Microphone" (no duplicate "Default")
+- [ ] Test Microphone button works (shows waveform bars + live transcription)
+- [ ] Capture meeting audio toggle saves state
+
+### 12c: Language Tab
+- [ ] Transcription language dropdown works
+- [ ] Output language dropdown works
+
+### 12d: Hotkeys Tab
+- [ ] All shortcuts listed with correct key glyphs
+
+### 12e: About Tab
+- [ ] Version number displayed
+- [ ] GitHub, Issues, Discussions links work
+
+### 12f: Header User Menu (Premium)
+
+**Check:**
+- [ ] Avatar and name shown in header
+- [ ] Clicking opens dropdown with name, email
+- [ ] "Sign out" button works (logs out and reloads)
+- [ ] "Quit Raven" button works
+
+---
+
+## Test 13: Edge Cases
+
+### 13a: No Internet During Recording
 1. Start recording
 2. Disconnect WiFi
 3. Reconnect after 10 seconds
 
 **Check:**
 - [ ] Transcript pauses during disconnect
-- [ ] Deepgram reconnects after WiFi returns (check logs for `reconnecting` and `reconnected successfully`)
+- [ ] Deepgram reconnects after WiFi returns
 - [ ] No app crash
 
-### 12b: Very Long Single Utterance
+### 13b: Very Long Single Utterance
 1. Speak continuously for 60+ seconds without pausing
 
 **Check:**
@@ -470,7 +590,7 @@ No API key values should appear in the logs.
 - [ ] Final result appears once you pause
 - [ ] No text loss
 
-### 12c: Rapid Start/Stop
+### 13c: Rapid Start/Stop
 1. Start recording
 2. Immediately stop (within 2 seconds)
 3. Start again
@@ -480,6 +600,24 @@ No API key values should appear in the logs.
 - [ ] No crashes or errors
 - [ ] Each start/stop creates a clean session
 - [ ] No orphan processes
+
+### 13d: Auth Timeout (Premium)
+1. Click "Get Started" on welcome screen
+2. Wait without logging in for 5+ minutes
+
+**Check:**
+- [ ] Eventually shows timeout message
+- [ ] Can retry by clicking "Get Started" again
+
+### 13e: Auth Cancellation (Premium)
+1. Click "Get Started"
+2. Immediately click "Go back"
+3. Click "Get Started" again
+4. Complete login
+
+**Check:**
+- [ ] No timeout error on the second attempt
+- [ ] Login completes successfully
 
 ---
 
@@ -504,6 +642,9 @@ grep "AEC health" ~/Desktop/raven-test-log.txt | tail -5
 
 # Permission denials
 grep -i "denied\|permission" ~/Desktop/raven-test-log.txt
+
+# Auth issues (premium)
+grep -i "\[Auth\]" ~/Desktop/raven-test-log.txt
 
 # Reconnection attempts
 grep -i "reconnect" ~/Desktop/raven-test-log.txt

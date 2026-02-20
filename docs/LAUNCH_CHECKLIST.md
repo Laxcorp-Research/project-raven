@@ -40,34 +40,68 @@ These are blocking items before the open-source repo goes public.
 
 ## Premium / Packaged App (DMG/EXE)
 
-These items are needed when we ship the packaged product. Not blocking for open-source launch.
+### Authentication & Onboarding
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| P-20 | **Google OAuth login** | Browser-based PKCE flow → Google consent → `raven://` deep link redirect → token exchange → user created in DB. | ✅ Implemented |
+| P-21 | **Email/password auth** | Web-based signup/login pages served by backend. Passwords hashed with bcrypt. | ✅ Implemented |
+| P-22 | **OAuth redirect page** | Cluely-style "Opening Raven" page with user info, sign out option, auto-tab-close. | ✅ Implemented |
+| P-23 | **Deep linking (`raven://`)** | Custom protocol registered in Electron. Handles auth callback codes. | ✅ Implemented |
+| P-24 | **Token storage security** | Auth tokens encrypted with `safeStorage` API. Profile data in encrypted electron-store. Passwords never stored client-side. | ✅ Verified |
+| P-25 | **Multi-step onboarding** | Welcome → Browser auth → Permissions (mic + screen) → Overlay tour → Keyboard shortcuts → Done. | ✅ Implemented |
+| P-26 | **Permissions screen** | Shows real macOS permission status. Granted state shown but user must click Next manually. No auto-advance. No back button (user is already authenticated). | ✅ Implemented |
+| P-27 | **Overlay tour** | 10-step interactive tour showing all button states (start/stop session, detectable/undetectable, fast/deep, incognito on/off). Button visuals match actual overlay. No step numbering. | ✅ Implemented |
+| P-28 | **Keyboard shortcuts step** | Shows all hotkeys with actual key glyphs (`⌘`, `\`, etc.). | ✅ Implemented |
+| P-29 | **Onboarding settings gear** | Settings icon with "Quit Raven" dropdown, aligned with step indicator. | ✅ Implemented |
+| P-30 | **Overlay suppressed during onboarding** | Overlay window and global hotkeys disabled until onboarding completes. | ✅ Implemented |
+| P-31 | **Tray simplified during onboarding** | Only "Quit Raven" shown in tray menu during onboarding. Full menu after completion. | ✅ Implemented |
+| P-32 | **Auth cancellation** | "Go back" button on waiting screen cancels browser auth cleanly. No timeout race conditions. | ✅ Fixed |
+| P-33 | **Browser tab auto-close** | Auth browser tab attempts to close after redirect. Shows "Opening Raven" page if it can't. | ✅ Implemented |
+
+### Dashboard & Settings (Premium)
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| P-34 | **Dashboard header auth** | Shows Google account avatar, name, email. Falls back to local profile for free users. | ✅ Implemented |
+| P-35 | **User menu dropdown** | Displays user name/email, "Sign out" (pro only), "Quit Raven". | ✅ Implemented |
+| P-36 | **Profile picture crop editor** | Image crop/edit modal with zoom slider, drag-to-pan, dashed crop boundary, Reset/Cancel/Apply. Minimum zoom fills crop area. Output saved as 512x512 PNG. | ✅ Implemented |
+| P-37 | **Profile picture management** | Upload/change/remove buttons. Google avatar shown by default for authenticated users. Custom upload overrides Google avatar. | ✅ Implemented |
+| P-38 | **Display name editable** | Pre-filled with Google name for authenticated users. Editable and saved locally. | ✅ Implemented |
+| P-39 | **Account email display** | Read-only email field for authenticated users. | ✅ Implemented |
+| P-40 | **Password & Security section** | "Update" button opens modal to send password reset link to user's email. | ✅ Implemented |
+| P-41 | **Delete Account section** | "Delete my account" button with confirmation modal. Prompts to cancel subscription first. | ✅ Implemented |
+| P-42 | **CSP for Google avatars** | `img-src` includes `https://*.googleusercontent.com`. | ✅ Fixed |
+| P-43 | **Audio settings label fix** | Default microphone no longer shows "Default - Default - ..." duplication. | ✅ Fixed |
 
 ### Packaging & Distribution
 
 | # | Item | Details | Status |
 |---|------|---------|--------|
-| P-1 | **electron-builder config** | `npm run build` runs `electron-builder`. Need to verify the builder config in `package.json` includes all native addons, resources, and platform-specific settings. | ❌ Not configured |
-| P-2 | **GStreamer native module bundling** | `raven-aec.node` + all `.dylib`/`.dll` dependencies must be copied into `resources/`. Code already looks for `process.resourcesPath/raven-aec.node` and `process.resourcesPath/gstreamer-1.0/` — but we need the builder to actually put them there. | ❌ Not configured |
-| P-3 | **Swift binary bundling (macOS)** | The `audiocapture` binary (from `swift build -c release`) must be included in the `.app` bundle at the path `systemAudioNative.ts` expects. | ❌ Not configured |
+| P-1 | **electron-builder config** | `npm run build` runs `electron-builder`. Need to verify the builder config includes all native addons, resources, and platform-specific settings. | ❌ Not configured |
+| P-2 | **GStreamer native module bundling** | `raven-aec.node` + all `.dylib`/`.dll` dependencies must be copied into `resources/`. | ❌ Not configured |
+| P-3 | **Swift binary bundling (macOS)** | The `audiocapture` binary must be included in the `.app` bundle. | ❌ Not configured |
 | P-4 | **Windows WASAPI module bundling** | The Rust NAPI module (`.node` file) must be included in the packaged app. | ❌ Not configured |
-| P-5 | **better-sqlite3 bundling** | Native module must be rebuilt for the packaged Electron ABI. `@electron/rebuild` handles this in dev, but electron-builder needs `afterPack` or `extraResources` config. | ❌ Not configured |
-| P-6 | **macOS code signing & notarization** | Required for Gatekeeper. Without this, users see "app is damaged" or "unidentified developer" warnings. Needs Apple Developer account + `electron-builder` signing config. | ❌ Not set up |
-| P-7 | **Windows code signing** | EV certificate for SmartScreen trust. Without it, Windows Defender flags the installer. | ❌ Not set up |
-| P-8 | **Auto-updater feed** | `electron-updater` is integrated but needs a GitHub Releases feed or S3 bucket configured in `package.json` `publish` field. | ❌ No feed configured |
-| P-9 | **Tray icon proper template images** | Using actual Raven logo resized to 16x16 + @2x. Functional for both open-source and premium. | ✅ Done |
+| P-5 | **better-sqlite3 bundling** | Native module must be rebuilt for the packaged Electron ABI. | ❌ Not configured |
+| P-6 | **macOS code signing & notarization** | Required for Gatekeeper. Needs Apple Developer account + `electron-builder` signing config. | ❌ Not set up |
+| P-7 | **Windows code signing** | EV certificate for SmartScreen trust. | ❌ Not set up |
+| P-8 | **Auto-updater feed** | `electron-updater` is integrated but needs a GitHub Releases feed or S3 bucket. | ❌ No feed configured |
+| P-9 | **Tray icon proper template images** | Using actual Raven logo resized to 16x16 + @2x. | ✅ Done |
 | P-10 | **DMG installer design** | Background image, icon positions, drag-to-Applications layout. | ❌ Not designed |
-| P-11 | **Windows installer (NSIS/MSI)** | Proper install/uninstall, Start Menu shortcuts, file associations if needed. | ❌ Not configured |
-| P-12 | **Crash reporting** | Sentry or similar. In open-source mode we log to console only. Packaged app needs remote crash reporting. | ❌ Not integrated |
+| P-11 | **Windows installer (NSIS/MSI)** | Proper install/uninstall, Start Menu shortcuts. | ❌ Not configured |
+| P-12 | **Crash reporting** | Sentry or similar. | ❌ Not integrated |
 | P-13 | **Analytics / telemetry** | `analytics.ts` is a stub. Needs real Mixpanel/PostHog integration with opt-in consent. | ❌ Stub only |
 
 ### Pro Features (Backend Required)
 
 | # | Item | Details | Status |
 |---|------|---------|--------|
-| P-14 | **Authentication backend** | `src/pro/` has client-side code. `backend/` (Fastify + Prisma) lives in the monorepo on the `premium` branch with auth, billing, and AI proxy endpoints. Needs integration testing. | ⚠️ Backend exists, not integration-tested |
-| P-15 | **License/subscription enforcement** | Pro features gated by `proLoader` — but actual license validation against a backend is not implemented. | ❌ Not implemented |
-| P-16 | **Cloud sync** | Session sync, settings sync across devices. Client stubs exist, backend endpoints exist in `backend/`. Needs end-to-end wiring. | ⚠️ Stubs exist both sides |
-| P-17 | **Billing integration** | Stripe/Paddle integration for subscription management. Backend has Stripe webhook stubs. | ❌ Not implemented |
+| P-14 | **Authentication backend** | Fastify + Prisma backend with email/password auth, Google OAuth, PKCE token exchange. | ✅ Implemented |
+| P-15 | **License/subscription enforcement** | Pro features gated by `proLoader`. Actual license validation against backend not fully wired. | ⚠️ Partially implemented |
+| P-16 | **Cloud sync** | Session sync, settings sync across devices. Client stubs + backend endpoints exist. | ⚠️ Stubs exist both sides |
+| P-17 | **Billing integration** | Stripe webhook stubs in backend. Billing tab not yet in settings sidebar. | ⚠️ Backend stubs only |
+| P-18 | **General settings tab** | Launch on login, theme selection, version check. Not yet implemented. | ❌ Not implemented |
+| P-19 | **Sidebar support section** | Tutorial, Changelog, Help Center, Report a Bug links in settings sidebar. | ❌ Not implemented |
 
 ---
 
@@ -80,26 +114,26 @@ These affect both open-source and premium and should be solid before either ship
 | # | Item | Details | Status |
 |---|------|---------|--------|
 | C-1 | **Transcript merging correctness** | Same-speaker utterances within 5s are merged. Verify no text duplication or loss at merge boundaries. | ⚠️ Tested briefly, needs longer session |
-| C-2 | **Deepgram WebSocket reconnection** | Already implemented: `attemptReconnect()` with 3 retries, exponential backoff (1s, 2s, 3s). Triggers on unexpected close (code ≠ 1000) while session active. | ✅ Implemented |
-| C-3 | **AI streaming error recovery** | If Claude/OpenAI API returns 429 (rate limit) or 500 mid-stream, does the UI show a useful error? Does it recover on retry? | ⚠️ Error shown, no auto-retry |
-| C-4 | **Session persistence integrity** | Start recording, talk for 5 min, stop, quit app, reopen — verify session appears in dashboard with full transcript and AI responses. | ❌ Not formally tested |
-| C-5 | **Overlay click-through** | With `setIgnoreMouseEvents(true)`, the overlay must not intercept clicks meant for the meeting app underneath. Verify on Zoom/Teams/Meet. | ⚠️ Works in dev, needs more testing |
-| C-6 | **Overlay invisible to screen share** | Fixed: `setContentProtection(true)` now correctly applied on both first launch and subsequent launches. Was broken — onboarding handler called `setStealthMode(false)`. Config: `type: 'panel'` + `screen-saver` z-level + `setContentProtection`. | ✅ Fixed (needs per-app verification) |
+| C-2 | **Deepgram WebSocket reconnection** | Already implemented: `attemptReconnect()` with 3 retries, exponential backoff (1s, 2s, 3s). | ✅ Implemented |
+| C-3 | **AI streaming error recovery** | If Claude/OpenAI API returns 429 or 500 mid-stream, does the UI show a useful error? | ⚠️ Error shown, no auto-retry |
+| C-4 | **Session persistence integrity** | Start recording, talk for 5 min, stop, quit app, reopen — verify session appears with full transcript. | ❌ Not formally tested |
+| C-5 | **Overlay click-through** | With `setIgnoreMouseEvents(true)`, the overlay must not intercept clicks meant for the app underneath. | ⚠️ Works in dev, needs more testing |
+| C-6 | **Overlay invisible to screen share** | `setContentProtection(true)` correctly applied. Config: `type: 'panel'` + `screen-saver` z-level. | ✅ Fixed (needs per-app verification) |
 | C-7 | **Multiple monitor support** | Overlay should follow the correct screen if user has multiple displays. | ❌ Not tested |
-| C-8 | **Dark mode consistency** | `nativeTheme` detection is integrated. Verify dashboard switches themes correctly when macOS appearance changes. | ❌ Not tested |
-| C-9 | **RAG document upload** | Upload a PDF/text file, ask AI a question referencing it. Verify embeddings are created and context is used. | ❌ Not formally tested |
-| C-10 | **Keyboard shortcuts on all platforms** | All shortcuts (`Cmd+\`, `Cmd+R`, `Cmd+Enter`, etc.) must work. On Windows, `Ctrl` equivalents. | ❌ Windows not tested |
-| C-11 | **Graceful shutdown** | Fixed: `audioManager.shutdown()` now called in `before-quit` handler. Kills `audiocapture` child process, closes Deepgram WebSockets, saves session to DB. | ✅ Fixed (needs runtime verification) |
+| C-8 | **Dark mode consistency** | `nativeTheme` detection is integrated. Verify dashboard switches themes correctly. | ❌ Not tested |
+| C-9 | **RAG document upload** | Upload a PDF/text file, ask AI a question referencing it. | ❌ Not formally tested |
+| C-10 | **Keyboard shortcuts on all platforms** | All shortcuts must work. On Windows, `Ctrl` equivalents. | ❌ Windows not tested |
+| C-11 | **Graceful shutdown** | `audioManager.shutdown()` called in `before-quit` handler. Kills `audiocapture`, closes Deepgram WebSockets, saves session. | ✅ Fixed (needs runtime verification) |
 
 ### LLM / Prompt Quality
 
 | # | Item | Details | Status |
 |---|------|---------|--------|
-| C-12 | **Priority system works correctly** | User types a question while recording → AI answers the question (not the transcript). Verify the OVERRIDE RULE kicks in. | ⚠️ Designed, needs live test |
-| C-13 | **Screenshot interpretation accuracy** | `Cmd+Enter` with no session → AI focuses on screen content. With session → AI uses both transcript + screen. | ⚠️ Designed, needs live test |
-| C-14 | **Math/aptitude rendering** | KaTeX rendering for math problems. Send a screenshot of a math problem, verify answer uses proper notation and is correct. | ❌ Not tested |
-| C-15 | **Action prompts: "What should I say?"** | Uses full transcript context, references the last thing the other person said. Verify it doesn't reference stale content. | ⚠️ Designed, needs live test |
-| C-16 | **Mode prompts** | Switch to Interview mode → AI uses STAR structure. Switch to Sales → AI references objection handling. Verify mode-specific behavior. | ❌ Not live tested |
+| C-12 | **Priority system works correctly** | User types a question while recording → AI answers the question (not the transcript). | ⚠️ Designed, needs live test |
+| C-13 | **Screenshot interpretation accuracy** | `Cmd+Enter` with no session → AI focuses on screen content. With session → AI uses both. | ⚠️ Designed, needs live test |
+| C-14 | **Math/aptitude rendering** | KaTeX rendering for math problems. | ❌ Not tested |
+| C-15 | **Action prompts: "What should I say?"** | Uses full transcript context, references the last thing the other person said. | ⚠️ Designed, needs live test |
+| C-16 | **Mode prompts** | Switch to Interview mode → AI uses STAR structure. Verify mode-specific behavior. | ❌ Not live tested |
 
 ---
 
@@ -112,16 +146,29 @@ These affect both open-source and premium and should be solid before either ship
 4. ~~O-15~~ ✅ API key security audited — clean
 5. ~~O-17~~ ✅ Tray icons using actual Raven logo (16x16 + @2x)
 6. ~~C-2~~ ✅ Deepgram reconnection already implemented
-7. ~~C-6~~ ✅ Screen-share invisibility bug fixed (stealth was disabled on first launch)
-8. ~~C-11~~ ✅ Graceful shutdown added (audioManager.shutdown() on quit)
-9. ✅ AI models updated — defaults are fast models (Claude Haiku 4.5, GPT-5 Mini), deep models available in pro mode (Claude Sonnet 4.6, GPT-5.2)
-10. ✅ Overlay spawns centered on screen (was bottom-right)
-11. ✅ Overlay min/default width aligned to 480px across main + renderer
-12. ✅ Fast/Deep model toggle implemented (pro-only, hidden in open-source)
-13. ✅ Open-core repo structure set up (public + private repos, feature gating via `RAVEN_MODE`)
-14. ✅ Backend integrated into monorepo on `premium` branch (`backend/`)
-15. ✅ Custom AI model dropdown in settings (matches mic dropdown styling)
-16. ✅ Incognito icon replaced with custom hat-and-glasses SVG
+7. ~~C-6~~ ✅ Screen-share invisibility bug fixed
+8. ~~C-11~~ ✅ Graceful shutdown added
+9. ✅ AI models updated — defaults are fast models (Claude Haiku 4.5, GPT-5 Mini)
+10. ✅ Overlay spawns centered on screen
+11. ✅ Fast/Deep model toggle implemented (pro-only, hidden in open-source)
+12. ✅ Open-core repo structure set up (public + private repos, feature gating)
+13. ✅ Backend integrated into monorepo on `premium` branch
+14. ✅ Custom AI model dropdown in settings
+15. ✅ Incognito icon replaced with custom hat-and-glasses SVG
+
+**Premium features implemented (this session):**
+16. ✅ Google OAuth with PKCE flow and deep linking
+17. ✅ Multi-step onboarding (welcome → auth → permissions → tour → shortcuts → done)
+18. ✅ Overlay tour with 10 interactive steps matching actual button states
+19. ✅ Profile picture crop/edit modal (zoom, pan, apply)
+20. ✅ Dashboard header with authenticated user data and sign out
+21. ✅ Settings profile: password reset, delete account, unified free/pro UI
+22. ✅ Onboarding-aware tray menu and hotkey suppression
+23. ✅ Backend: OAuth routes, web auth pages, redirect pages
+24. ✅ CSP updated for Google avatar URLs
+25. ✅ Audio settings "Default" label duplication fixed
+26. ✅ Auth token encryption with safeStorage
+27. ✅ Browser tab auto-close after auth redirect
 
 **Still needs runtime testing:**
 1. O-4 — Fresh clone test (the single most important validation)
@@ -132,7 +179,13 @@ These affect both open-source and premium and should be solid before either ship
 6. O-8 — Long session transcript accuracy
 7. C-12 through C-16 — LLM quality validation
 
+**Still needs implementation:**
+8. P-18 — General settings tab (launch on login, theme, version)
+9. P-19 — Sidebar support section (tutorial, changelog, help center)
+10. P-17 — Billing integration (Stripe)
+11. P-1 through P-11 — Packaging and distribution
+
 **Nice to have:**
-8. O-3 — Device hot-swap (edge case)
-9. C-7 — Multi-monitor
-10. C-8 — Dark mode
+12. O-3 — Device hot-swap (edge case)
+13. C-7 — Multi-monitor
+14. C-8 — Dark mode
