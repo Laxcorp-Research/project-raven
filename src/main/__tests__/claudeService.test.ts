@@ -69,8 +69,8 @@ describe('ClaudeService', () => {
   // buildUserMessage (private)
   // ---------------------------------------------------------------------------
 
-  it('buildUserMessage includes full transcript on first call', () => {
-    const msg: string = (service as any).buildUserMessage({
+  it('buildUserMessage includes full transcript on first call', async () => {
+    const msg: string = await (service as any).buildUserMessage({
       transcript: 'Alice: Hi\nThem: Hello',
       action: 'assist',
     });
@@ -79,14 +79,14 @@ describe('ClaudeService', () => {
     expect(msg).toContain('Alice: Hi\nThem: Hello');
   });
 
-  it('buildUserMessage shows new transcript content on subsequent calls', () => {
+  it('buildUserMessage shows new transcript content on subsequent calls', async () => {
     // Simulate a previous exchange so messages.length > 0
     (service as any).conversation.messages.push({
       id: '1', role: 'user', content: 'test', timestamp: 1,
     });
     (service as any).conversation.lastProcessedTranscriptLength = 10;
 
-    const msg: string = (service as any).buildUserMessage({
+    const msg: string = await (service as any).buildUserMessage({
       transcript: 'Old stuff. Brand new content here',
       action: 'assist',
     });
@@ -95,8 +95,8 @@ describe('ClaudeService', () => {
     expect(msg).toContain('FULL TRANSCRIPT:');
   });
 
-  it('buildUserMessage omits transcript section when empty', () => {
-    const msg: string = (service as any).buildUserMessage({
+  it('buildUserMessage omits transcript section when empty', async () => {
+    const msg: string = await (service as any).buildUserMessage({
       transcript: '',
       action: 'assist',
     });
@@ -105,8 +105,8 @@ describe('ClaudeService', () => {
     expect(msg).toContain('Execute the priority system');
   });
 
-  it('buildUserMessage appends action prompt for standard actions', () => {
-    const msg: string = (service as any).buildUserMessage({
+  it('buildUserMessage appends action prompt for standard actions', async () => {
+    const msg: string = await (service as any).buildUserMessage({
       transcript: 'some text',
       action: 'recap',
     });
@@ -115,8 +115,8 @@ describe('ClaudeService', () => {
     expect(msg).toContain('action items');
   });
 
-  it('buildUserMessage appends custom prompt for custom action', () => {
-    const msg: string = (service as any).buildUserMessage({
+  it('buildUserMessage appends custom prompt for custom action', async () => {
+    const msg: string = await (service as any).buildUserMessage({
       transcript: 'some text',
       action: 'custom',
       customPrompt: 'What is the budget?',
