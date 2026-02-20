@@ -103,6 +103,18 @@ These are blocking items before the open-source repo goes public.
 | P-18 | **General settings tab** | Launch on login, theme selection, version check. Not yet implemented. | ❌ Not implemented |
 | P-19 | **Sidebar support section** | Tutorial, Changelog, Help Center, Report a Bug links in settings sidebar. | ❌ Not implemented |
 
+### CI/CD and Server-Side Prompts
+
+| # | Item | Details | Status |
+|---|------|---------|--------|
+| P-44 | **Backend deploy CI/CD** | `deploy-backend.yml` — triggers on push to `premium`, builds ARM64 Docker image via buildx, pushes to ECR, deploys to ECS, runs Prisma migrations, smoke-tests `/health`. | ✅ Implemented |
+| P-45 | **Electron release CI/CD** | `release-electron.yml` — triggers on `v*` tags, builds TypeScript+Vite then electron-builder, uploads to S3, creates GitHub Release. Artifact paths fixed for `release/${version}/` output. | ✅ Implemented |
+| P-46 | **GitHub secrets documented** | `.github/SECRETS.md` — all required secrets, variables, environments, and IAM policy documented. | ✅ Documented |
+| P-47 | **Server-side prompts schema** | `Prompt` model added to Prisma schema with `@@unique([type, key])`. Migration `0002_add_prompts_table` created. | ✅ Implemented |
+| P-48 | **Server-side prompts API** | `GET /api/prompts/system` returns system prompt + 6 action prompts. `GET /api/prompts/mode/:id` returns mode-specific prompt. Both require Bearer auth. | ✅ Implemented |
+| P-49 | **Prompts seed script** | `backend/src/seed.ts` (compiled, runs via ECS) and `backend/prisma/seed.ts` (local dev). Idempotent via upsert. | ✅ Implemented |
+| P-50 | **Staging deployed & verified** | Backend live at `https://api-staging.raven.ciaraai.com`. Prompts API verified: 3822-char system prompt + 6 action prompts, HTTP 200. | ✅ Deployed |
+
 ---
 
 ## Common (Both Versions)
@@ -178,6 +190,15 @@ These affect both open-source and premium and should be solid before either ship
 5. O-6/O-7 — Native build from source
 6. O-8 — Long session transcript accuracy
 7. C-12 through C-16 — LLM quality validation
+
+**CI/CD and Server Prompts (latest session):**
+28. ✅ Backend deploy CI/CD pipeline (`deploy-backend.yml`) — ARM64 buildx, ECR, ECS, migrations
+29. ✅ Electron release CI/CD pipeline (`release-electron.yml`) — TypeScript+Vite build, artifact paths fixed
+30. ✅ GitHub Actions secrets & variables documented (`.github/SECRETS.md`)
+31. ✅ Server-side prompts Prisma model + migration (`0002_add_prompts_table`)
+32. ✅ Prompts API routes (`GET /api/prompts/system`, `GET /api/prompts/mode/:id`)
+33. ✅ Prompts seed script (idempotent, system prompt + 6 action prompts)
+34. ✅ Staging deployed and verified end-to-end (`https://api-staging.raven.ciaraai.com`)
 
 **Still needs implementation:**
 8. P-18 — General settings tab (launch on login, theme, version)
