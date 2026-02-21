@@ -36,6 +36,7 @@ vi.mock('../services/summaryService', () => ({
 
 vi.mock('../store', () => ({
   getSetting: vi.fn(() => ''),
+  isProMode: vi.fn(() => false),
 }));
 
 vi.mock('../logger', () => ({

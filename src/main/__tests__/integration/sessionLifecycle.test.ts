@@ -68,6 +68,7 @@ vi.mock('../../store', () => ({
   })),
   getSetting: vi.fn(),
   saveSetting: vi.fn(),
+  isProMode: vi.fn(() => false),
 }))
 
 vi.mock('electron', () => ({
