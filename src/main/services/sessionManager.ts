@@ -8,7 +8,7 @@ import { databaseService, type Session, type TranscriptEntry, type AIResponse } 
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
-import { getSetting } from '../store';
+import { getSetting, isProMode } from '../store';
 import { createLogger } from '../logger';
 import { SESSION_AUTOSAVE_INTERVAL_MS } from '../constants';
 
@@ -183,9 +183,11 @@ class SessionManager {
           summary: result.summary,
         });
         this.dashboardWindow?.webContents.send('sessions:list-updated');
+        this.syncSessionToCloud(sessionId);
       })
       .catch((err) => {
         log.error('Async summary generation failed:', err);
+        this.syncSessionToCloud(sessionId);
       });
 
     return endedSession;
@@ -306,6 +308,38 @@ class SessionManager {
 
     this.dashboardWindow?.webContents.send('session:updated', sessionInfo);
     this.overlayWindow?.webContents.send('session:updated', sessionInfo);
+  }
+
+  /**
+   * Queue a completed session for cloud sync (pro mode only).
+   * Reads the latest version from SQLite (which includes title/summary)
+   * and converts to the format expected by the backend.
+   */
+  private syncSessionToCloud(sessionId: string): void {
+    if (!isProMode()) return
+
+    try {
+      const session = databaseService.getSession(sessionId)
+      if (!session) return
+
+      import(/* @vite-ignore */ '../../pro/main/syncService')
+        .then(({ queueSessionForSync }) => {
+          queueSessionForSync({
+            id: session.id,
+            title: session.title,
+            summary: session.summary ?? undefined,
+            transcriptJson: JSON.stringify(session.transcript),
+            aiResponsesJson: JSON.stringify(session.aiResponses),
+            modeId: session.modeId ?? undefined,
+            durationSeconds: session.durationSeconds,
+            startedAt: new Date(session.startedAt).toISOString(),
+            endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : undefined,
+          })
+        })
+        .catch(() => {})
+    } catch {
+      // src/pro/ not available — graceful no-op
+    }
   }
 
   /**

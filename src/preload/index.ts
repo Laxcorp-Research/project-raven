@@ -237,6 +237,15 @@ contextBridge.exposeInMainWorld('raven', {
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
+  // Sync (pro mode — handlers registered dynamically by proLoader)
+  syncGetStatus: () => ipcRenderer.invoke('sync:get-status'),
+  syncTrigger: () => ipcRenderer.invoke('sync:trigger'),
+  syncGetLog: () => ipcRenderer.invoke('sync:get-log'),
+  onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean }) => void) => {
+    const handler = (_event: unknown, data: { phase: string; synced: number; total: number; done: boolean }) => callback(data)
+    ipcRenderer.on('sync:progress', handler)
+    return () => ipcRenderer.removeListener('sync:progress', handler)
+  },
   // Permissions
   permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),
   permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),

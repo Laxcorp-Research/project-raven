@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power } from 'lucide-react'
+import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, Cloud, CloudOff, RefreshCw, AlertTriangle } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { useAppMode } from '../../hooks/useAppMode'
@@ -59,10 +59,21 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [syncStatus, setSyncStatus] = useState<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number } | null>(null)
+  const [syncing, setSyncing] = useState(false)
+
+  const loadSyncStatus = useCallback(async () => {
+    if (!isPro) return
+    try {
+      const status = await window.raven.syncGetStatus()
+      setSyncStatus(status)
+    } catch { /* sync not available */ }
+  }, [isPro])
 
   useEffect(() => {
     loadProfile()
-  }, [isPro])
+    loadSyncStatus()
+  }, [isPro, loadSyncStatus])
 
   async function loadProfile() {
     try {
@@ -177,6 +188,51 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
               {stealth ? 'Raven is Undetectable' : 'Raven is Detectable'}
             </div>
           </div>
+
+          {/* Cloud sync indicator (pro only) */}
+          {isPro && syncStatus && (
+            <div className="relative group">
+              <button
+                onClick={async () => {
+                  setSyncing(true)
+                  try {
+                    await window.raven.syncTrigger()
+                    await loadSyncStatus()
+                  } catch { /* ignore */ }
+                  setSyncing(false)
+                }}
+                disabled={syncing}
+                className={`p-2.5 rounded-full transition-colors ${
+                  syncStatus.consecutiveFailures >= 3
+                    ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                    : syncStatus.queueSize > 0
+                      ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+                }`}
+              >
+                {syncing ? (
+                  <RefreshCw size={18} className="animate-spin" />
+                ) : syncStatus.consecutiveFailures >= 3 ? (
+                  <AlertTriangle size={18} />
+                ) : syncStatus.queueSize > 0 ? (
+                  <CloudOff size={18} />
+                ) : (
+                  <Cloud size={18} />
+                )}
+              </button>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                {syncing
+                  ? 'Syncing...'
+                  : syncStatus.consecutiveFailures >= 3
+                    ? 'Sync failing — click to retry'
+                    : syncStatus.queueSize > 0
+                      ? `${syncStatus.queueSize} session${syncStatus.queueSize > 1 ? 's' : ''} pending sync`
+                      : syncStatus.lastSyncAt
+                        ? `Synced ${new Date(syncStatus.lastSyncAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                        : 'Cloud sync active'}
+              </div>
+            </div>
+          )}
 
           {/* Start/Stop button */}
           {isRecording ? (

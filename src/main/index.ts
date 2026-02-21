@@ -10,7 +10,7 @@ import {
   getOverlayWindow,
   setStealthMode
 } from './windowManager'
-import { getSetting, getStore, saveSetting } from './store'
+import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
 import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
@@ -228,11 +228,15 @@ function boot(): void {
   audioManager.setWindows(dashboard, overlay)
 
   const onboardingDone = getSetting('onboardingComplete')
-  const appMode = getSetting('mode')
+  const isPro = isProMode()
 
-  // For pro mode, overlay should only appear if the user is both onboarded AND authenticated.
-  const proAuthenticated = appMode !== 'pro' || !!getSetting('auth_tokens')
-  const shouldEnableOverlay = !!onboardingDone && proAuthenticated
+  // Overlay should only show when the user is fully set up:
+  // - Free mode: onboarding done AND API keys configured
+  // - Pro mode: onboarding done AND authenticated (tokens exist)
+  const isFullyReady = isPro
+    ? !!onboardingDone && !!getSetting('auth_tokens')
+    : !!onboardingDone && hasApiKeys()
+  const shouldEnableOverlay = isFullyReady
 
   if (shouldEnableOverlay) {
     dashboard.on('ready-to-show', () => {
@@ -318,6 +322,11 @@ app.whenReady().then(() => {
       BrowserWindow.getAllWindows().forEach((win) => {
         win.webContents.send('sessions:list-updated')
       })
+      if (isProMode()) {
+        import(/* @vite-ignore */ '../pro/main/syncService')
+          .then(({ deleteSessionFromBackend }) => deleteSessionFromBackend(id))
+          .catch(() => {})
+      }
     }
     return deleted
   })

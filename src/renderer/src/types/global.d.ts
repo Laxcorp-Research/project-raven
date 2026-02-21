@@ -211,6 +211,10 @@ declare global {
         error?: string;
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;
+      syncGetStatus: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number }>;
+      syncTrigger: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number; merged: number }>;
+      syncGetLog: () => Promise<Array<{ timestamp: string; status: string; sessionsSynced: number; durationMs: number }>>;
+      onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean }) => void) => () => void;
       permissionsGetStatus: () => Promise<{ microphone: string; screen: string }>;
       permissionsRequestMicrophone: () => Promise<boolean>;
       permissionsOpenScreenRecording: () => Promise<boolean>;

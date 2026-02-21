@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Cloud } from 'lucide-react'
 import { createLogger } from '../../lib/logger'
 import { Header } from './Header'
+import { useAppMode } from '../../hooks/useAppMode'
 
 const log = createLogger('Dashboard')
 import { SessionList } from './SessionList'
@@ -28,8 +30,10 @@ interface SessionDetailData {
 }
 
 export function Dashboard() {
+  const { isPro } = useAppMode()
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number; done: boolean } | null>(null)
   const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
@@ -128,6 +132,23 @@ export function Dashboard() {
   }, [])
 
   useEffect(() => {
+    if (!isPro) return
+    try {
+      const unsub = window.raven.onSyncProgress((data) => {
+        if (data.done) {
+          setTimeout(() => setSyncProgress(null), 3000)
+          setSyncProgress({ synced: data.total, total: data.total, done: true })
+        } else {
+          setSyncProgress({ synced: data.synced, total: data.total, done: false })
+        }
+      })
+      return unsub
+    } catch {
+      // sync not available
+    }
+  }, [isPro])
+
+  useEffect(() => {
     if (!activeSession) {
       setRecordingDuration(0)
       return
@@ -222,6 +243,30 @@ export function Dashboard() {
         onSearchSubmit={handleSearchSubmit}
         onSessionSelect={handleSessionSelect}
       />
+
+      {syncProgress && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-blue-50 border-b border-blue-100">
+          <Cloud size={16} className="text-blue-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between text-xs text-blue-700 mb-1">
+              <span>
+                {syncProgress.done
+                  ? `Uploaded ${syncProgress.total} session${syncProgress.total > 1 ? 's' : ''} to cloud`
+                  : `Uploading sessions to cloud... ${syncProgress.synced} of ${syncProgress.total}`}
+              </span>
+              <span className="text-blue-500">
+                {syncProgress.done ? 'Done' : `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%`}
+              </span>
+            </div>
+            <div className="w-full h-1 bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${syncProgress.done ? 'bg-green-500' : 'bg-blue-500'}`}
+                style={{ width: `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {selectedSession ? (

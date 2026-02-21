@@ -22,7 +22,19 @@ export async function initializeProFeatures(): Promise<void> {
     const { registerAuthHandlers } = await import(
       /* @vite-ignore */ '../pro/main/authIpc'
     )
-    registerAuthHandlers()
+    await registerAuthHandlers()
+
+    const { registerSyncHandlers } = await import(
+      /* @vite-ignore */ '../pro/main/syncIpc'
+    )
+    registerSyncHandlers()
+
+    const { processSyncQueue, pullAndMergeRemoteSessions } = await import(
+      /* @vite-ignore */ '../pro/main/syncService'
+    )
+    processSyncQueue().catch(() => {})
+    pullAndMergeRemoteSessions().catch(() => {})
+
     log.info('Pro features initialized')
   } catch (err) {
     log.warn('Pro mode requested but src/pro/ not found — running without premium features', err)
