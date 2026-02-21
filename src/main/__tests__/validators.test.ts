@@ -170,15 +170,18 @@ describe('validateKeys', () => {
     expect(result).toEqual({ valid: true })
   })
 
-  it('returns deepgram error first when both fail', async () => {
+  it('returns both errors when both fail', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
 
     const result = await validateKeys('dg-bad', 'openai', 'sk-openai-bad')
 
-    expect(result).toEqual({ valid: false, error: 'Invalid Deepgram API key.' })
+    expect(result.valid).toBe(false)
+    expect(result.deepgramError).toBeDefined()
+    expect(result.aiError).toBeDefined()
+    expect(result.error).toBe('Invalid Deepgram, OpenAI keys.')
   })
 
-  it('returns AI key error when only AI key fails', async () => {
+  it('returns only AI error when only AI key fails', async () => {
     const mockFetch = vi.fn()
       .mockImplementation((url: string) => {
         if (url.includes('deepgram')) {
@@ -190,6 +193,9 @@ describe('validateKeys', () => {
 
     const result = await validateKeys('dg-good', 'openai', 'sk-openai-bad')
 
-    expect(result).toEqual({ valid: false, error: 'Invalid OpenAI API key.' })
+    expect(result.valid).toBe(false)
+    expect(result.deepgramError).toBeUndefined()
+    expect(result.aiError).toBeDefined()
+    expect(result.error).toBe('Invalid OpenAI key.')
   })
 })

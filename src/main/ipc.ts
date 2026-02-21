@@ -277,4 +277,26 @@ export function registerIpcHandlers(): void {
       }
     }
   })
+
+  if (!isProMode()) {
+    const noopNull = () => null
+    const noopFalse = () => false
+    const noopObj = () => ({})
+    ipcMain.handle('auth:is-backend-configured', noopFalse)
+    ipcMain.handle('auth:is-authenticated', noopFalse)
+    ipcMain.handle('auth:get-current-user', noopNull)
+    ipcMain.handle('auth:start-browser-login', noopNull)
+    ipcMain.handle('auth:cancel-browser-login', noopNull)
+    ipcMain.handle('auth:login', noopNull)
+    ipcMain.handle('auth:signup', noopNull)
+    ipcMain.handle('auth:start-google-login', noopNull)
+    ipcMain.handle('auth:start-apple-login', noopNull)
+    ipcMain.handle('auth:logout', noopNull)
+    ipcMain.handle('auth:fetch-profile', noopNull)
+    ipcMain.handle('auth:get-subscription', noopObj)
+    ipcMain.handle('auth:get-managed-keys', noopNull)
+    ipcMain.handle('sync:get-status', () => ({ lastSyncAt: null, queueSize: 0, consecutiveFailures: 0 }))
+    ipcMain.handle('sync:trigger', noopObj)
+    ipcMain.handle('sync:get-log', () => [])
+  }
 }

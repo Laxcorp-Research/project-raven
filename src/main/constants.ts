@@ -5,9 +5,9 @@
 
 // ── Window Dimensions ────────────────────────────────────────────────
 
-export const DASHBOARD_DEFAULT_WIDTH = 1000
+export const DASHBOARD_DEFAULT_WIDTH = 1040
 export const DASHBOARD_DEFAULT_HEIGHT = 700
-export const DASHBOARD_MIN_WIDTH = 1000
+export const DASHBOARD_MIN_WIDTH = 1040
 export const DASHBOARD_MIN_HEIGHT = 600
 
 export const OVERLAY_DEFAULT_WIDTH = 480

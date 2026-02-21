@@ -100,7 +100,7 @@ export async function validateKeys(
   deepgramKey: string,
   aiProvider: 'anthropic' | 'openai',
   aiKey: string
-): Promise<{ valid: boolean; error?: string }> {
+): Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string }> {
   const aiValidation = aiProvider === 'openai'
     ? validateOpenAIKey(aiKey)
     : validateAnthropicKey(aiKey)
@@ -110,12 +110,16 @@ export async function validateKeys(
     aiValidation
   ])
 
-  if (!deepgramResult.valid) {
-    return deepgramResult
-  }
+  const deepgramError = deepgramResult.valid ? undefined : (deepgramResult.error || 'Invalid Deepgram key.')
+  const aiError = aiResult.valid ? undefined : (aiResult.error || `Invalid ${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} key.`)
 
-  if (!aiResult.valid) {
-    return aiResult
+  if (deepgramError || aiError) {
+    const invalidKeys = [
+      deepgramError ? 'Deepgram' : null,
+      aiError ? (aiProvider === 'openai' ? 'OpenAI' : 'Anthropic') : null,
+    ].filter(Boolean)
+    const error = `Invalid ${invalidKeys.join(', ')} key${invalidKeys.length > 1 ? 's' : ''}.`
+    return { valid: false, error, deepgramError, aiError }
   }
 
   return { valid: true }

@@ -17,6 +17,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [deepgramInvalid, setDeepgramInvalid] = useState(false)
+  const [aiKeyInvalid, setAiKeyInvalid] = useState(false)
   const [validating, setValidating] = useState(false)
   const [fadeKey, setFadeKey] = useState(0)
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
@@ -26,9 +28,44 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const TOTAL_STEPS = 5
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    if (step === 2) {
+      if (!deepgramKey.trim() || !aiKey.trim()) {
+        setError('Both API keys are required.')
+        setDeepgramInvalid(!deepgramKey.trim())
+        setAiKeyInvalid(!aiKey.trim())
+        return
+      }
+      setValidating(true)
+      setError(null)
+      setDeepgramInvalid(false)
+      setAiKeyInvalid(false)
+      try {
+        const result = await window.raven.validateKeys(
+          deepgramKey.trim(),
+          aiProvider,
+          aiKey.trim()
+        )
+        if (!result.valid) {
+          setError(result.error || 'Invalid API keys.')
+          setDeepgramInvalid(!!result.deepgramError)
+          setAiKeyInvalid(!!result.aiError)
+          setValidating(false)
+          return
+        }
+      } catch {
+        setError('Failed to validate keys. Check your internet connection.')
+        setValidating(false)
+        return
+      }
+      setValidating(false)
+      setDeepgramInvalid(false)
+      setAiKeyInvalid(false)
+    }
+
     if (step < TOTAL_STEPS) {
       setFadeKey((k) => k + 1)
+      setError(null)
       setStep((s) => Math.min(s + 1, TOTAL_STEPS) as typeof step)
     }
   }
@@ -104,27 +141,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   }
 
   const handleSaveKeys = async () => {
-    if (!deepgramKey.trim() || !aiKey.trim()) {
-      setError('Both API keys are required.')
-      return
-    }
-
     setValidating(true)
     setError(null)
 
     try {
-      const result = await window.raven.validateKeys(
-        deepgramKey.trim(),
-        aiProvider,
-        aiKey.trim()
-      )
-
-      if (!result.valid) {
-        setError(result.error || 'Invalid API keys.')
-        setValidating(false)
-        return
-      }
-
       await window.raven.apiKeysSave(
         deepgramKey.trim(),
         aiProvider === 'anthropic' ? anthropicKey.trim() : ''
@@ -249,9 +269,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       <input
                         type={showDeepgramKey ? 'text' : 'password'}
                         value={deepgramKey}
-                        onChange={(e) => setDeepgramKey(e.target.value)}
+                        onChange={(e) => { setDeepgramKey(e.target.value); setDeepgramInvalid(false); setError(null) }}
                         placeholder="Enter your Deepgram API key"
-                        className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                        className={`w-full px-3 py-2.5 pr-10 bg-white border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 transition-colors ${
+                          deepgramInvalid
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        }`}
                       />
                       {deepgramKey && (
                         <button
@@ -320,9 +344,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         <input
                           type={showAiKey ? 'text' : 'password'}
                           value={anthropicKey}
-                          onChange={(e) => setAnthropicKey(e.target.value)}
+                          onChange={(e) => { setAnthropicKey(e.target.value); setAiKeyInvalid(false); setError(null) }}
                           placeholder="sk-ant-..."
-                          className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                          className={`w-full px-3 py-2.5 pr-10 bg-white border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 transition-colors ${
+                            aiKeyInvalid
+                              ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          }`}
                         />
                         {anthropicKey && (
                           <button
@@ -358,9 +386,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         <input
                           type={showAiKey ? 'text' : 'password'}
                           value={openaiKey}
-                          onChange={(e) => setOpenaiKey(e.target.value)}
+                          onChange={(e) => { setOpenaiKey(e.target.value); setAiKeyInvalid(false); setError(null) }}
                           placeholder="sk-..."
-                          className="w-full px-3 py-2.5 pr-10 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                          className={`w-full px-3 py-2.5 pr-10 bg-white border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 transition-colors ${
+                            aiKeyInvalid
+                              ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                          }`}
                         />
                         {openaiKey && (
                           <button
@@ -408,11 +440,20 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </button>
                   <button
                     onClick={handleNext}
-                    disabled={!deepgramKey.trim() || !aiKey.trim()}
+                    disabled={!deepgramKey.trim() || !aiKey.trim() || validating}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium shadow-sm transition-all"
                   >
-                    Next
-                    <ArrowRight size={14} />
+                    {validating ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Validating...
+                      </>
+                    ) : (
+                      <>
+                        Next
+                        <ArrowRight size={14} />
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -547,7 +588,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Ready to Go</h2>
-                  <p className="text-xs text-gray-500">We'll validate your keys before saving.</p>
+                  <p className="text-xs text-gray-500">Your keys have been validated. You're all set.</p>
                 </div>
 
                 {/* Summary card */}
