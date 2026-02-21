@@ -87,6 +87,7 @@ declare global {
       authStartGoogleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authLogout: () => Promise<{ success: boolean }>;
+      onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => () => void;
       authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; anthropic: string; openai: string } | null>;

@@ -37,7 +37,17 @@ function App(): JSX.Element {
 
         const isPro = await window.raven.planIsPro()
         const settings = await window.raven.storeGetAll()
-        const onboarded = settings.onboardingComplete as boolean
+        const onboarded = isPro
+          ? (settings.proOnboardingComplete || settings.onboardingComplete) as boolean
+          : settings.onboardingComplete as boolean
+
+        log.info('App init:', {
+          isPro,
+          proOnboardingComplete: settings.proOnboardingComplete,
+          onboardingComplete: settings.onboardingComplete,
+          onboarded,
+          proOnboardingStep: settings.proOnboardingStep,
+        })
 
         if (isPro) {
           let authenticated = false
@@ -46,6 +56,8 @@ function App(): JSX.Element {
           } catch {
             // Auth IPC not registered (shouldn't happen in pro mode)
           }
+
+          log.info('Auth check:', { authenticated })
 
           if (!authenticated) {
             setProAuthenticated(false)
@@ -70,6 +82,19 @@ function App(): JSX.Element {
       }
     }
     init()
+
+    try {
+      const unsub = window.raven.onAuthLoginCompleted((data) => {
+        if (data.success) {
+          log.info('Auth login completed via deep link — updating state')
+          setProAuthenticated(true)
+          setView('onboarding-pro')
+        }
+      })
+      return unsub
+    } catch {
+      // not in pro mode
+    }
   }, [])
 
   if (view === 'loading') {

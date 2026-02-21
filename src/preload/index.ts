@@ -234,6 +234,11 @@ contextBridge.exposeInMainWorld('raven', {
   authStartGoogleLogin: () => ipcRenderer.invoke('auth:start-google-login'),
   authStartAppleLogin: () => ipcRenderer.invoke('auth:start-apple-login'),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
+  onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => {
+    const handler = (_event: unknown, data: { success: boolean; user?: unknown }) => callback(data)
+    ipcRenderer.on('auth:login-completed', handler)
+    return () => ipcRenderer.removeListener('auth:login-completed', handler)
+  },
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),

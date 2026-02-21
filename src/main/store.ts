@@ -28,6 +28,8 @@ export interface LocalSettings {
 
   // Onboarding
   onboardingComplete: boolean;
+  proOnboardingComplete: boolean;
+  proOnboardingStep: string;
 
   // Window state
   dashboardBounds: { x: number; y: number; width: number; height: number } | null;
@@ -63,6 +65,8 @@ const STORE_DEFAULTS: LocalSettings = {
   anthropicApiKey: '',
   apiKeysConfigured: false,
   onboardingComplete: false,
+  proOnboardingComplete: false,
+  proOnboardingStep: '',
   dashboardBounds: null,
   overlayBounds: null,
   stealthEnabled: true,
@@ -146,6 +150,8 @@ export function getAllSettings(): LocalSettings {
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
+    proOnboardingComplete: store.get('proOnboardingComplete'),
+    proOnboardingStep: store.get('proOnboardingStep'),
   };
 }
 
