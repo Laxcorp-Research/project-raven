@@ -8,7 +8,8 @@ import {
   createOverlayWindow,
   getDashboardWindow,
   getOverlayWindow,
-  setStealthMode
+  setStealthMode,
+  registerStealthTrayCallbacks
 } from './windowManager'
 import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
 import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
@@ -20,7 +21,7 @@ import { sessionManager } from './services/sessionManager'
 import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
-import { createTray, destroyTray, setTrayOnboarding } from './trayManager'
+import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics } from './analytics'
 import { registerPermissionHandlers } from './permissions'
@@ -227,12 +228,11 @@ function boot(): void {
 
   audioManager.setWindows(dashboard, overlay)
 
-  const onboardingDone = getSetting('onboardingComplete')
   const isPro = isProMode()
+  const onboardingDone = isPro
+    ? (getSetting('proOnboardingComplete') || getSetting('onboardingComplete'))
+    : getSetting('onboardingComplete')
 
-  // Overlay should only show when the user is fully set up:
-  // - Free mode: onboarding done AND API keys configured
-  // - Pro mode: onboarding done AND authenticated (tokens exist)
   const isFullyReady = isPro
     ? !!onboardingDone && !!getSetting('auth_tokens')
     : !!onboardingDone && hasApiKeys()
@@ -260,6 +260,11 @@ function boot(): void {
     registerGlobalHotkeys(dashboard, overlay)
     setTrayOnboarding(false)
   })
+
+  registerStealthTrayCallbacks(
+    () => setTrayVisibility(false),
+    () => createTray()
+  )
 
   if (!shouldEnableOverlay) {
     setTrayOnboarding(true)

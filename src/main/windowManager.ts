@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, screen, nativeTheme, session } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
@@ -8,6 +8,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+
+const stealthTrayCallbacks: { hide?: () => void; show?: () => void } = {}
+
+export function registerStealthTrayCallbacks(hide: () => void, show: () => void): void {
+  stealthTrayCallbacks.hide = hide
+  stealthTrayCallbacks.show = show
+}
 
 /** Apply Content-Security-Policy headers to restrict renderer capabilities. */
 function applyCSP(win: BrowserWindow): void {
@@ -250,15 +257,26 @@ export function hideOverlay(): void {
 }
 
 export function setStealthMode(enabled: boolean): void {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-  overlayWindow.setContentProtection(enabled)
-  saveSetting('stealthEnabled', enabled)
-
-  // Notify both windows of stealth change
   if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.setContentProtection(enabled)
     overlayWindow.webContents.send('stealth-changed', enabled)
   }
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.setContentProtection(enabled)
     dashboardWindow.webContents.send('stealth-changed', enabled)
   }
+
+  if (enabled) {
+    if (stealthTrayCallbacks.hide) stealthTrayCallbacks.hide()
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide()
+    }
+  } else {
+    if (stealthTrayCallbacks.show) stealthTrayCallbacks.show()
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.show()
+    }
+  }
+
+  saveSetting('stealthEnabled', enabled)
 }
