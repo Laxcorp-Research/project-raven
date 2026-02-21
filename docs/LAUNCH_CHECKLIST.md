@@ -98,7 +98,7 @@ These are blocking items before the open-source repo goes public.
 |---|------|---------|--------|
 | P-14 | **Authentication backend** | Fastify + Prisma backend with email/password auth, Google OAuth, PKCE token exchange. | ✅ Implemented |
 | P-15 | **License/subscription enforcement** | Pro features gated by `proLoader`. Actual license validation against backend not fully wired. | ⚠️ Partially implemented |
-| P-16 | **Cloud sync** | Session sync, settings sync across devices. Client stubs + backend endpoints exist. | ⚠️ Stubs exist both sides |
+| P-16 | **Cloud sync** | End-to-end wired: push on session end, pull on app launch, batch upload (20/batch), periodic sync (15 min), offline queue, delete sync, progress banner UI, sync log (last 50 events), failure notification after 3 consecutive failures. Authorization-safe upserts with ownership checks. | ✅ Implemented |
 | P-17 | **Billing integration** | Stripe webhook stubs in backend. Billing tab not yet in settings sidebar. | ⚠️ Backend stubs only |
 | P-18 | **General settings tab** | Launch on login, theme selection, version check. Not yet implemented. | ❌ Not implemented |
 | P-19 | **Sidebar support section** | Tutorial, Changelog, Help Center, Report a Bug links in settings sidebar. | ❌ Not implemented |
@@ -114,6 +114,11 @@ These are blocking items before the open-source repo goes public.
 | P-48 | **Server-side prompts API** | `GET /api/prompts/system` returns system prompt + 6 action prompts. `GET /api/prompts/mode/:id` returns mode-specific prompt. Both require Bearer auth. | ✅ Implemented |
 | P-49 | **Prompts seed script** | `backend/src/seed.ts` (compiled, runs via ECS) and `backend/prisma/seed.ts` (local dev). Idempotent via upsert. | ✅ Implemented |
 | P-50 | **Staging deployed & verified** | Backend live at `https://api-staging.raven.ciaraai.com`. Prompts API verified: 3822-char system prompt + 6 action prompts, HTTP 200. | ✅ Deployed |
+| P-51 | **Cloud sync security hardening** | Authorization bypass fixed (ownership check on all upserts). Input validation schemas on all session routes. Batch cap (20 client / 50 server). Body limit 10MB. Gzip compression. `[userId, syncedAt]` index added. | ✅ Implemented |
+| P-52 | **Auth token validation on startup** | `initAuth()` now validates tokens on launch: tries access token → refresh token → clears auth if both fail. No more stuck half-authenticated state. | ✅ Fixed |
+| P-53 | **Overlay/tray onboarding fix** | Free mode: overlay + full tray suppressed until both `onboardingComplete` AND `hasApiKeys()`. Prevents overlay showing during onboarding if config was partially reset. | ✅ Fixed |
+| P-54 | **Session route tests** | 16 tests: authorization bypass prevention (6), input validation (8), auth enforcement (2). Plus 13 prompts tests. 29 backend tests total. | ✅ Implemented |
+| P-55 | **`dev:pro:staging` script** | `npm run dev:pro:staging` connects to AWS staging backend directly. | ✅ Added |
 
 ---
 
@@ -199,6 +204,18 @@ These affect both open-source and premium and should be solid before either ship
 32. ✅ Prompts API routes (`GET /api/prompts/system`, `GET /api/prompts/mode/:id`)
 33. ✅ Prompts seed script (idempotent, system prompt + 6 action prompts)
 34. ✅ Staging deployed and verified end-to-end (`https://api-staging.raven.ciaraai.com`)
+
+**Cloud sync and hardening:**
+35. ✅ Cloud sync end-to-end: push on session end, pull on launch, batch upload, periodic sync, offline queue
+36. ✅ Sync progress banner UI (uploading X of Y sessions, progress bar, auto-dismiss)
+37. ✅ Sync security: authorization-safe upserts, input validation schemas, batch cap, body limit, gzip
+38. ✅ Sync observability: last-50-event log, consecutive failure tracking, payload size metrics
+39. ✅ Auth token validation on startup (auto-refresh or clear expired tokens — no more stuck state)
+40. ✅ Overlay/tray onboarding fix (free mode suppresses overlay until API keys configured)
+41. ✅ Session route tests (16 tests: auth bypass, validation, enforcement)
+42. ✅ `dev:pro:staging` script for testing against AWS staging
+43. ✅ Database index `[userId, syncedAt]` for incremental sync queries
+44. ✅ Migration `0003_add_synced_at_index`
 
 **Still needs implementation:**
 8. P-18 — General settings tab (launch on login, theme, version)
