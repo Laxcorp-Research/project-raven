@@ -70,7 +70,7 @@ release/
 src/pro/
 backend/
 infra/
-docs/
+docs/*.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml
