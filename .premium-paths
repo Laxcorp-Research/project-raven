@@ -21,7 +21,6 @@ docs/TESTING_GUIDE.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml
 build/entitlements.mac.plist
-scripts/sync-to-opensource.sh
 
 ---
 
