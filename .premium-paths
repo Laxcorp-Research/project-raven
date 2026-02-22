@@ -1,6 +1,10 @@
-# Paths that should ONLY exist on the premium branch.
-# Used by: scripts/sync-to-opensource.sh, .github/workflows/ci.yml
+# Premium-only paths — used by sync script and CI guard.
 # Update this file when adding new premium-only directories or files.
+#
+# Section 1: MUST NOT EXIST on main (CI guard fails if found)
+# Section 2: After "---", files that exist on BOTH branches but
+#            must NOT be synced (different content on each branch).
+#            Sync script skips these. CI guard ignores them.
 
 # Premium-only directories
 src/pro/
@@ -19,8 +23,10 @@ docs/TESTING_GUIDE.md
 build/entitlements.mac.plist
 scripts/sync-to-opensource.sh
 
-# Files that MUST stay different between branches
-# (main has premium paths blocked; premium has them tracked)
+---
+
+# Files that exist on BOTH branches but with different content.
+# Sync script skips these. CI guard does NOT check these.
 .gitignore
 electron-builder.json5
 package.json

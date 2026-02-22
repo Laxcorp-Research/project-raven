@@ -28,6 +28,7 @@ jobs:
           fi
           FOUND=""
           while IFS= read -r line; do
+            [ "$line" = "---" ] && break
             line="${line%%#*}"
             line="$(echo "$line" | xargs)"
             [ -z "$line" ] && continue
