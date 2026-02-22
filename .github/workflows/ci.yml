@@ -2,17 +2,43 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - premium
+      - main
   pull_request:
-    branches: [main]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-and-test:
-    name: Lint & Test
+  guard-premium-files:
+    name: Guard Premium Files
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if premium-only files are present
+        run: |
+          FOUND=""
+          for path in src/pro backend infra .github/SECRETS.md .github/workflows/deploy-backend.yml .github/workflows/release-electron.yml docs/REPO_STRUCTURE.md; do
+            if [ -e "$path" ]; then
+              echo "ERROR: Premium-only path found: $path"
+              FOUND="$FOUND $path"
+            fi
+          done
+          if [ -n "$FOUND" ]; then
+            echo ""
+            echo "These paths should only exist on the premium branch."
+            echo "Remove them before pushing to origin/main."
+            exit 1
+          fi
+          echo "No premium files found — OK"
+
+  test-electron:
+    name: Electron Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -21,34 +47,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Type check
         run: npx tsc --noEmit
 
-      - name: Run unit & integration tests
-        run: npx vitest run --reporter=verbose
+      - name: Run tests
+        run: npx vitest run
 
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 14
-
-  build:
-    name: Build (${{ matrix.os }})
-    needs: lint-and-test
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/premium'
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - uses: actions/checkout@v4
@@ -56,11 +73,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npx tsc && npx vite build && npx electron-builder --publish never
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
