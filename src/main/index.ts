@@ -136,22 +136,11 @@ function registerGlobalHotkeys(
     }
   })
 
-  // Move Window: Cmd/Ctrl + Arrow Keys
-  const moveUpRegistered = globalShortcut.register(`${modifier}+Up`, () => {
-    moveOverlayWindow(overlayWindow, 'up')
-  })
-
-  const moveDownRegistered = globalShortcut.register(`${modifier}+Down`, () => {
-    moveOverlayWindow(overlayWindow, 'down')
-  })
-
-  const moveLeftRegistered = globalShortcut.register(`${modifier}+Left`, () => {
-    moveOverlayWindow(overlayWindow, 'left')
-  })
-
-  const moveRightRegistered = globalShortcut.register(`${modifier}+Right`, () => {
-    moveOverlayWindow(overlayWindow, 'right')
-  })
+  // Move Window: Cmd/Ctrl + Arrow Keys (requires Accessibility permission on macOS)
+  globalShortcut.register(`${modifier}+Up`, () => moveOverlayWindow(overlayWindow, 'up'))
+  globalShortcut.register(`${modifier}+Down`, () => moveOverlayWindow(overlayWindow, 'down'))
+  globalShortcut.register(`${modifier}+Left`, () => moveOverlayWindow(overlayWindow, 'left'))
+  globalShortcut.register(`${modifier}+Right`, () => moveOverlayWindow(overlayWindow, 'right'))
 
   // Scroll: Cmd/Ctrl + Shift + Arrow Keys
   const scrollUpRegistered = globalShortcut.register(`${modifier}+Shift+Up`, () => {
@@ -171,13 +160,11 @@ function registerGlobalHotkeys(
     aiSuggestion: aiRegistered,
     recording: recordingRegistered,
     clear: clearRegistered,
-    moveUp: moveUpRegistered,
-    moveDown: moveDownRegistered,
-    moveLeft: moveLeftRegistered,
-    moveRight: moveRightRegistered,
     scrollUp: scrollUpRegistered,
     scrollDown: scrollDownRegistered
   })
+
+  // Window move (Cmd+Arrow) registered above — requires Accessibility permission on macOS
 }
 
 function moveOverlayWindow(

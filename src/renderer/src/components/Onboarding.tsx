@@ -12,6 +12,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
+  const [accessibilityPermission, setAccessibilityPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [deepgramKey, setDeepgramKey] = useState('')
   const [aiProvider, setAiProvider] = useState<AiProvider>('anthropic')
   const [anthropicKey, setAnthropicKey] = useState('')
@@ -93,9 +94,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           const status = await window.raven.permissionsGetStatus()
           if (status.microphone === 'granted') setMicPermission('granted')
           if (status.screen === 'granted') setScreenPermission('granted')
+          if (status.accessibility === 'granted') setAccessibilityPermission('granted')
         } catch { /* ignore */ }
       }
       fetchStatus()
+      const pollId = setInterval(fetchStatus, 2000)
+      return () => clearInterval(pollId)
     }
   }, [step])
 
@@ -465,7 +469,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Permissions</h2>
                   <p className="text-xs text-gray-500">
-                    Raven needs microphone and screen access to work.
+                    Raven needs these permissions to work properly.
                   </p>
                 </div>
 
@@ -513,6 +517,39 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     ) : (
                       <button
                         onClick={requestScreenPermission}
+                        className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
+                      >
+                        Grant
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <svg width="18" height="18" viewBox="0 0 24 24" className="text-amber-600" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10" />
+                          <circle cx="12" cy="12" r="3" />
+                          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Accessibility</p>
+                        <p className="text-xs text-gray-500">For keyboard shortcuts to move the overlay</p>
+                      </div>
+                    </div>
+                    {accessibilityPermission === 'granted' ? (
+                      <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-md">Granted</span>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          const granted = await window.raven.permissionsRequestAccessibility()
+                          if (granted) {
+                            setAccessibilityPermission('granted')
+                          } else {
+                            await window.raven.permissionsOpenAccessibility()
+                          }
+                        }}
                         className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
                       >
                         Grant

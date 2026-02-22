@@ -42,6 +42,9 @@ export function registerIpcHandlers(): void {
     'store:set',
     (_event, key: keyof LocalSettings, value: LocalSettings[keyof LocalSettings]) => {
       saveSetting(key, value)
+      if (key === 'openOnLogin') {
+        app.setLoginItemSettings({ openAtLogin: !!value })
+      }
       return true
     }
   )
@@ -175,6 +178,29 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  ipcMain.handle('window:move-overlay', (_event, direction: 'up' | 'down' | 'left' | 'right') => {
+    const overlay = getOverlayWindow()
+    if (!overlay || overlay.isDestroyed()) return false
+
+    const bounds = overlay.getBounds()
+    const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
+    const workArea = display.workArea
+    const step = 50
+
+    let newX = bounds.x
+    let newY = bounds.y
+
+    switch (direction) {
+      case 'up': newY = Math.max(workArea.y, bounds.y - step); break
+      case 'down': newY = Math.min(workArea.y + workArea.height - bounds.height, bounds.y + step); break
+      case 'left': newX = Math.max(workArea.x, bounds.x - step); break
+      case 'right': newX = Math.min(workArea.x + workArea.width - bounds.width, bounds.x + step); break
+    }
+
+    overlay.setBounds({ ...bounds, x: newX, y: newY })
+    return true
+  })
+
   ipcMain.handle('window:set-ignore-mouse-events', (_event, ignore: boolean) => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return false
@@ -282,19 +308,27 @@ export function registerIpcHandlers(): void {
     const noopNull = () => null
     const noopFalse = () => false
     const noopObj = () => ({})
+    const noopResult = () => ({ success: false })
     ipcMain.handle('auth:is-backend-configured', noopFalse)
     ipcMain.handle('auth:is-authenticated', noopFalse)
     ipcMain.handle('auth:get-current-user', noopNull)
-    ipcMain.handle('auth:start-browser-login', noopNull)
-    ipcMain.handle('auth:cancel-browser-login', noopNull)
-    ipcMain.handle('auth:login', noopNull)
-    ipcMain.handle('auth:signup', noopNull)
-    ipcMain.handle('auth:start-google-login', noopNull)
-    ipcMain.handle('auth:start-apple-login', noopNull)
-    ipcMain.handle('auth:logout', noopNull)
-    ipcMain.handle('auth:fetch-profile', noopNull)
-    ipcMain.handle('auth:get-subscription', noopObj)
+    ipcMain.handle('auth:start-browser-login', noopResult)
+    ipcMain.handle('auth:cancel-browser-login', noopResult)
+    ipcMain.handle('auth:login', noopResult)
+    ipcMain.handle('auth:signup', noopResult)
+    ipcMain.handle('auth:start-google-login', noopResult)
+    ipcMain.handle('auth:start-apple-login', noopResult)
+    ipcMain.handle('auth:logout', noopResult)
+    ipcMain.handle('auth:fetch-profile', noopResult)
+    ipcMain.handle('auth:get-subscription', () => ({ plan: 'FREE', status: 'ACTIVE', currentPeriodEnd: null }))
     ipcMain.handle('auth:get-managed-keys', noopNull)
+    ipcMain.handle('auth:open-checkout', noopResult)
+    ipcMain.handle('auth:open-billing-portal', noopResult)
+    ipcMain.handle('proxy:get-usage', () => ({ plan: 'FREE', used: 0, limit: 5, remaining: 5, sessionsUsed: 0, sessionLimit: 1, sessionMaxSeconds: 180, resetAt: null }))
+    ipcMain.handle('proxy:check-session', () => ({ allowed: true, plan: 'FREE', sessionMaxSeconds: 180, sessionsUsed: 0, sessionLimit: 1, resetAt: null }))
+    ipcMain.handle('proxy:start-session', () => ({ allowed: true, sessionMaxSeconds: 180 }))
+    ipcMain.handle('proxy:get-transcription-token', noopNull)
+    ipcMain.handle('proxy:analyze-session', noopNull)
     ipcMain.handle('sync:get-status', () => ({ lastSyncAt: null, queueSize: 0, consecutiveFailures: 0 }))
     ipcMain.handle('sync:trigger', noopObj)
     ipcMain.handle('sync:get-log', () => [])

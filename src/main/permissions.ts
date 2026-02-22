@@ -8,17 +8,27 @@ const isMac = process.platform === 'darwin'
 export interface PermissionStatus {
   microphone: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
   screen: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
+  accessibility: 'granted' | 'denied'
 }
 
 export function getPermissionStatus(): PermissionStatus {
   if (!isMac) {
-    return { microphone: 'granted', screen: 'granted' }
+    return { microphone: 'granted', screen: 'granted', accessibility: 'granted' }
   }
 
   return {
     microphone: systemPreferences.getMediaAccessStatus('microphone'),
     screen: systemPreferences.getMediaAccessStatus('screen'),
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'denied',
   }
+}
+
+export function requestAccessibilityAccess(): boolean {
+  if (!isMac) return true
+  log.info('Requesting Accessibility permission...')
+  const granted = systemPreferences.isTrustedAccessibilityClient(true)
+  log.info(`Accessibility permission ${granted ? 'granted' : 'prompt shown'}`)
+  return granted
 }
 
 export async function requestMicrophoneAccess(): Promise<boolean> {
@@ -63,6 +73,14 @@ export function openMicrophonePreferences(): void {
   )
 }
 
+export function openAccessibilityPreferences(): void {
+  if (!isMac) return
+  log.info('Opening Accessibility preferences pane...')
+  shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+  )
+}
+
 export function registerPermissionHandlers(): void {
   ipcMain.handle('permissions:get-status', () => {
     return getPermissionStatus()
@@ -79,6 +97,15 @@ export function registerPermissionHandlers(): void {
 
   ipcMain.handle('permissions:open-microphone', () => {
     openMicrophonePreferences()
+    return true
+  })
+
+  ipcMain.handle('permissions:request-accessibility', () => {
+    return requestAccessibilityAccess()
+  })
+
+  ipcMain.handle('permissions:open-accessibility', () => {
+    openAccessibilityPreferences()
     return true
   })
 }

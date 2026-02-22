@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('raven', {
   windowShowOverlay: () => ipcRenderer.invoke('window:show-overlay'),
   windowAutoSizeOverlay: (mode: 'compact' | 'expanded') =>
     ipcRenderer.invoke('window:auto-size-overlay', mode),
+  windowMoveOverlay: (direction: 'up' | 'down' | 'left' | 'right') =>
+    ipcRenderer.invoke('window:move-overlay', direction),
   windowSetIgnoreMouseEvents: (ignore: boolean) =>
     ipcRenderer.invoke('window:set-ignore-mouse-events', ignore),
   windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
@@ -196,6 +198,7 @@ contextBridge.exposeInMainWorld('raven', {
     text?: string
     fullText?: string
     error?: string
+    limitInfo?: { used: number; limit: number; resetAt: string }
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
   }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as {
@@ -206,6 +209,7 @@ contextBridge.exposeInMainWorld('raven', {
       text?: string
       fullText?: string
       error?: string
+      limitInfo?: { used: number; limit: number; resetAt: string }
       requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
     })
     ipcRenderer.on('claude:response', handler)
@@ -242,6 +246,17 @@ contextBridge.exposeInMainWorld('raven', {
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
+  authOpenCheckout: (plan: 'PRO' | 'TEAM') => ipcRenderer.invoke('auth:open-checkout', plan),
+  authOpenBillingPortal: () => ipcRenderer.invoke('auth:open-billing-portal'),
+  proxyGetUsage: () => ipcRenderer.invoke('proxy:get-usage'),
+  proxyCheckSession: () => ipcRenderer.invoke('proxy:check-session'),
+  onSessionLimit: (callback: (data: { type: string }) => void) => {
+    const handler = (_event: unknown, data: { type: string }) => callback(data)
+    ipcRenderer.on('audio:session-limit', handler)
+    return () => ipcRenderer.removeListener('audio:session-limit', handler)
+  },
+  proxyAnalyzeSession: (params: { transcript: string; features: string[]; sessionId?: string }) =>
+    ipcRenderer.invoke('proxy:analyze-session', params),
   // Sync (pro mode — handlers registered dynamically by proLoader)
   syncGetStatus: () => ipcRenderer.invoke('sync:get-status'),
   syncTrigger: () => ipcRenderer.invoke('sync:trigger'),
@@ -256,6 +271,8 @@ contextBridge.exposeInMainWorld('raven', {
   permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
   permissionsOpenScreenRecording: () => ipcRenderer.invoke('permissions:open-screen-recording'),
   permissionsOpenMicrophone: () => ipcRenderer.invoke('permissions:open-microphone'),
+  permissionsRequestAccessibility: () => ipcRenderer.invoke('permissions:request-accessibility'),
+  permissionsOpenAccessibility: () => ipcRenderer.invoke('permissions:open-accessibility'),
   sendOnboardingCompleted: () => ipcRenderer.send('onboarding:completed'),
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
   onStealthChanged: (callback: (enabled: boolean) => void) => {

@@ -130,6 +130,7 @@ export function OverlayWindow() {
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hoveredResponseId, setHoveredResponseId] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<NotificationData[]>([])
+  const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number; resetAt: string } | null>(null)
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
@@ -234,6 +235,7 @@ export function OverlayWindow() {
       if (data.type === 'start') {
         requestInFlightRef.current = true
         setIsLoadingResponse(true)
+        setLimitInfo(null)
         const entryId = data.messageId || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
         setActiveResponseId(entryId)
         activeResponseIdRef.current = entryId
@@ -281,21 +283,27 @@ export function OverlayWindow() {
       } else if (data.type === 'error') {
         requestInFlightRef.current = false
         setIsLoadingResponse(false)
-        setResponses((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-            content: data.error || 'Something went wrong',
-            action: 'Error',
-            badgeVariant: 'system',
-            hasScreenshot: false
-          }
-        ])
+
+        if (data.error === 'LIMIT_REACHED' && data.limitInfo) {
+          setLimitInfo(data.limitInfo)
+        } else {
+          setResponses((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+              content: data.error || 'Something went wrong',
+              action: 'Error',
+              badgeVariant: 'system',
+              hasScreenshot: false
+            }
+          ])
+        }
         setActiveResponseId(null)
         activeResponseIdRef.current = null
       } else if (data.type === 'cleared') {
         requestInFlightRef.current = false
         setResponses([])
+        setLimitInfo(null)
         setActiveResponseId(null)
         activeResponseIdRef.current = null
         setHoveredMessageId(null)
@@ -307,12 +315,21 @@ export function OverlayWindow() {
       await handleAssist()
     })
 
+    const unsubSessionLimit = window.raven.onSessionLimit(() => {
+      setLimitInfo({
+        used: 1,
+        limit: 1,
+        resetAt: '',
+      })
+    })
+
     return () => {
       unsubStealth()
       unsubRecording()
       unsubNotification()
       unsubClaude()
       unsubAi()
+      unsubSessionLimit()
       clearHideXTimer()
       resizeCleanupRef.current?.()
       if (copiedResetTimerRef.current) {
@@ -422,7 +439,12 @@ export function OverlayWindow() {
       await window.raven.claudeClearHistory?.()
 
       try {
-        await window.raven.audioStartRecording()
+        const result = await window.raven.audioStartRecording() as { success: boolean; code?: string; error?: string }
+        if (result && !result.success && result.code === 'SESSION_LIMIT') {
+          setLimitInfo({ used: 1, limit: 1, resetAt: '' })
+          setIsStarting(false)
+          return
+        }
         await new Promise(resolve => setTimeout(resolve, 3000))
         setIsStarting(false)
       } catch (err) {
@@ -1062,6 +1084,30 @@ export function OverlayWindow() {
                 <div className="flex items-center gap-1.5 text-white/40 py-2">
                   <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" />
                   <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                </div>
+              )}
+
+              {limitInfo && (
+                <div className="rounded-xl bg-gradient-to-r from-purple-600/90 to-blue-600/90 p-4 text-white shadow-lg mt-2">
+                  <p className="text-sm font-medium mb-1">
+                    {limitInfo.limit === 1
+                      ? 'Your free session has ended.'
+                      : `You\u2019ve used all ${limitInfo.limit} free AI responses for today.`}
+                  </p>
+                  <p className="text-xs text-white/70 mb-3">
+                    Upgrade to Raven Pro for unlimited meetings and AI.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => window.raven.authOpenCheckout('PRO')}
+                      className="px-4 py-1.5 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
+                      style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                    >
+                      Upgrade Now
+                    </button>
+                    <span className="text-xs text-white/50">Resets tomorrow</span>
+                  </div>
                 </div>
               )}
             </div>
