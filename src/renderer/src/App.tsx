@@ -8,12 +8,14 @@ const log = createLogger('App')
 
 type AppView = 'loading' | 'overlay' | 'onboarding-free' | 'onboarding-pro' | 'dashboard'
 
-function ProOnboardingFallback(_props: { alreadyAuthenticated: boolean; onComplete: () => void }): JSX.Element {
+type ProOnboardingProps = { alreadyAuthenticated: boolean; onComplete: () => void }
+
+function ProOnboardingFallback(_props: ProOnboardingProps): JSX.Element {
   return <div />
 }
 
 const proOnboardingModule = '../../pro/renderer/onboarding/ProOnboarding'
-const ProOnboarding = lazy(async () => {
+const ProOnboarding = lazy<React.ComponentType<ProOnboardingProps>>(async () => {
   try {
     const mod = await import(/* @vite-ignore */ proOnboardingModule)
     return { default: mod.ProOnboarding }
