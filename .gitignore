@@ -66,10 +66,14 @@ Thumbs.db
 # Build artifacts
 release/
 
-# Premium features (tracked on this branch)
-# src/pro/
-# backend/
-# docs/REPO_STRUCTURE.md
+# Premium features (only tracked on the premium branch)
+src/pro/
+backend/
+infra/
+docs/REPO_STRUCTURE.md
+.github/SECRETS.md
+.github/workflows/deploy-backend.yml
+.github/workflows/release-electron.yml
 
 # Project-specific
 RavenPlan.txt
