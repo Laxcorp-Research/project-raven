@@ -257,6 +257,7 @@ declare global {
       onHotkeyClearConversation: (callback: () => void) => () => void;
       onHotkeyScrollUp: (callback: () => void) => () => void;
       onHotkeyScrollDown: (callback: () => void) => () => void;
+      onHotkeyMove: (callback: (direction: 'up' | 'down' | 'left' | 'right') => void) => () => void;
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
 
       // Legacy overlay API (used by Settings.tsx, TitleBar.tsx, InputBar.tsx)

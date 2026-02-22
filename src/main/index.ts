@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer, screen } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import type WebSocket from 'ws'
@@ -12,7 +12,7 @@ import {
   registerStealthTrayCallbacks
 } from './windowManager'
 import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
-import { OVERLAY_SHOW_DELAY_MS, WINDOW_MOVE_STEP_PX, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
+import { OVERLAY_SHOW_DELAY_MS, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
 import { AudioManager } from './audioManager'
 import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers } from './systemAudioNative'
@@ -136,11 +136,27 @@ function registerGlobalHotkeys(
     }
   })
 
-  // Move Window: Cmd/Ctrl + Arrow Keys (requires Accessibility permission on macOS)
-  globalShortcut.register(`${modifier}+Up`, () => moveOverlayWindow(overlayWindow, 'up'))
-  globalShortcut.register(`${modifier}+Down`, () => moveOverlayWindow(overlayWindow, 'down'))
-  globalShortcut.register(`${modifier}+Left`, () => moveOverlayWindow(overlayWindow, 'left'))
-  globalShortcut.register(`${modifier}+Right`, () => moveOverlayWindow(overlayWindow, 'right'))
+  // Move Overlay Panel: Cmd/Ctrl + Arrow Keys (sends to renderer to adjust CSS position)
+  globalShortcut.register(`${modifier}+Up`, () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('hotkey:move', 'up')
+    }
+  })
+  globalShortcut.register(`${modifier}+Down`, () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('hotkey:move', 'down')
+    }
+  })
+  globalShortcut.register(`${modifier}+Left`, () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('hotkey:move', 'left')
+    }
+  })
+  globalShortcut.register(`${modifier}+Right`, () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('hotkey:move', 'right')
+    }
+  })
 
   // Scroll: Cmd/Ctrl + Shift + Arrow Keys
   const scrollUpRegistered = globalShortcut.register(`${modifier}+Shift+Up`, () => {
@@ -167,37 +183,6 @@ function registerGlobalHotkeys(
   // Window move (Cmd+Arrow) registered above — requires Accessibility permission on macOS
 }
 
-function moveOverlayWindow(
-  overlayWindow: BrowserWindow | null,
-  direction: 'up' | 'down' | 'left' | 'right'
-): void {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
-
-  const bounds = overlayWindow.getBounds()
-  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
-  const workArea = display.workArea
-  const step = WINDOW_MOVE_STEP_PX
-
-  let newX = bounds.x
-  let newY = bounds.y
-
-  switch (direction) {
-    case 'up':
-      newY = Math.max(workArea.y, bounds.y - step)
-      break
-    case 'down':
-      newY = Math.min(workArea.y + workArea.height - bounds.height, bounds.y + step)
-      break
-    case 'left':
-      newX = Math.max(workArea.x, bounds.x - step)
-      break
-    case 'right':
-      newX = Math.min(workArea.x + workArea.width - bounds.width, bounds.x + step)
-      break
-  }
-
-  overlayWindow.setBounds({ ...bounds, x: newX, y: newY })
-}
 
 function boot(): void {
   const rendererURL = process.env.VITE_DEV_SERVER_URL || null

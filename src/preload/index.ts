@@ -305,6 +305,11 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.on('hotkey:scroll-down', handler)
     return () => ipcRenderer.removeListener('hotkey:scroll-down', handler)
   },
+  onHotkeyMove: (callback: (direction: 'up' | 'down' | 'left' | 'right') => void) => {
+    const handler = (_event: unknown, direction: 'up' | 'down' | 'left' | 'right') => callback(direction)
+    ipcRenderer.on('hotkey:move', handler)
+    return () => ipcRenderer.removeListener('hotkey:move', handler)
+  },
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
     ipcRenderer.on(channel, handler)

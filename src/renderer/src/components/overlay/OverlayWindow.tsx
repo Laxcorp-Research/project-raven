@@ -370,35 +370,28 @@ export function OverlayWindow() {
   }, [isOverInteractiveUi, setOverlayMouseIgnore])
 
   useEffect(() => {
-    let cancelled = false
-    let inFlight = false
+    const MOVE_STEP = 50
+    const unsub = window.raven.onHotkeyMove((direction: 'up' | 'down' | 'left' | 'right') => {
+      const vw = window.innerWidth
+      const vh = window.innerHeight
 
-    const syncMouseCapture = async () => {
-      if (cancelled || inFlight) return
-      inFlight = true
-      try {
-        const cursorPoint = await window.raven.windowGetCursorPoint()
-        if (cancelled) return
-
-        const shouldCapture = isOverInteractiveUi(cursorPoint.x, cursorPoint.y)
-        setOverlayMouseIgnore(!shouldCapture)
-      } catch {
-        // Ignore transient IPC failures; next poll will recover.
-      } finally {
-        inFlight = false
+      switch (direction) {
+        case 'up':
+          setPanelBottom(prev => Math.min(prev + MOVE_STEP, vh - (panelHeight ?? OVERLAY_DEFAULT_COMPACT_HEIGHT)))
+          break
+        case 'down':
+          setPanelBottom(prev => Math.max(prev - MOVE_STEP, 0))
+          break
+        case 'left':
+          setPanelRight(prev => Math.min(prev + MOVE_STEP, vw - panelWidth))
+          break
+        case 'right':
+          setPanelRight(prev => Math.max(prev - MOVE_STEP, 0))
+          break
       }
-    }
-
-    void syncMouseCapture()
-    const intervalId = window.setInterval(() => {
-      void syncMouseCapture()
-    }, 100)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(intervalId)
-    }
-  }, [isOverInteractiveUi, setOverlayMouseIgnore])
+    })
+    return () => unsub()
+  }, [panelWidth, panelHeight])
 
   useEffect(() => {
     if (!responseAreaRef.current) return
@@ -625,13 +618,11 @@ export function OverlayWindow() {
 
   const handlePanelMouseEnter = () => {
     clearHideXTimer()
-    setOverlayMouseIgnore(false)
     setIsHoveringPanel(true)
   }
 
   const handlePanelMouseLeave = () => {
     clearHideXTimer()
-    setOverlayMouseIgnore(true)
     hideXTimerRef.current = setTimeout(() => {
       setIsHoveringPanel(false)
     }, 220)
@@ -773,9 +764,6 @@ export function OverlayWindow() {
           WebkitAppRegion: 'drag',
           transform: stealthEnabled ? 'translateY(-10px)' : 'translateY(0)'
         } as CSSProperties}
-        onMouseEnter={() => setOverlayMouseIgnore(false)}
-        onMouseMove={() => setOverlayMouseIgnore(false)}
-        onMouseLeave={() => setOverlayMouseIgnore(true)}
       >
         <ControllerPill
           stealthEnabled={stealthEnabled}
