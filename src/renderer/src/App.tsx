@@ -12,9 +12,10 @@ function ProOnboardingFallback(_props: { alreadyAuthenticated: boolean; onComple
   return <div />
 }
 
+const proOnboardingModule = '../../pro/renderer/onboarding/ProOnboarding'
 const ProOnboarding = lazy(async () => {
   try {
-    const mod = await import(/* @vite-ignore */ '../../pro/renderer/onboarding/ProOnboarding')
+    const mod = await import(/* @vite-ignore */ proOnboardingModule)
     return { default: mod.ProOnboarding }
   } catch {
     return { default: ProOnboardingFallback }
