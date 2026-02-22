@@ -30,3 +30,4 @@ build/entitlements.mac.plist
 electron-builder.json5
 package.json
 package-lock.json
+vitest.config.ts
