@@ -22,27 +22,21 @@ jobs:
 
       - name: Fail if premium-only files are present
         run: |
+          if [ ! -f .premium-paths ]; then
+            echo "No .premium-paths file — skipping guard"
+            exit 0
+          fi
           FOUND=""
-          for path in \
-            src/pro \
-            backend \
-            infra \
-            CLuely \
-            cluely \
-            docs/REPO_STRUCTURE.md \
-            docs/LAUNCH_CHECKLIST.md \
-            docs/TESTING_GUIDE.md \
-            .github/SECRETS.md \
-            .github/workflows/deploy-backend.yml \
-            .github/workflows/release-electron.yml \
-            build/entitlements.mac.plist \
-            scripts/sync-to-opensource.sh \
-          ; do
+          while IFS= read -r line; do
+            line="${line%%#*}"
+            line="$(echo "$line" | xargs)"
+            [ -z "$line" ] && continue
+            path="${line%/}"
             if [ -e "$path" ]; then
               echo "ERROR: Premium-only path found: $path"
               FOUND="$FOUND $path"
             fi
-          done
+          done < .premium-paths
           if [ -n "$FOUND" ]; then
             echo ""
             echo "These paths should only exist on the premium branch."
