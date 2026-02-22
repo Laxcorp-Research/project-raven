@@ -23,7 +23,21 @@ jobs:
       - name: Fail if premium-only files are present
         run: |
           FOUND=""
-          for path in src/pro backend infra .github/SECRETS.md .github/workflows/deploy-backend.yml .github/workflows/release-electron.yml docs/REPO_STRUCTURE.md docs/LAUNCH_CHECKLIST.md docs/TESTING_GUIDE.md; do
+          for path in \
+            src/pro \
+            backend \
+            infra \
+            CLuely \
+            cluely \
+            docs/REPO_STRUCTURE.md \
+            docs/LAUNCH_CHECKLIST.md \
+            docs/TESTING_GUIDE.md \
+            .github/SECRETS.md \
+            .github/workflows/deploy-backend.yml \
+            .github/workflows/release-electron.yml \
+            build/entitlements.mac.plist \
+            scripts/sync-to-opensource.sh \
+          ; do
             if [ -e "$path" ]; then
               echo "ERROR: Premium-only path found: $path"
               FOUND="$FOUND $path"
