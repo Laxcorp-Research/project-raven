@@ -10,8 +10,7 @@
 src/pro/
 backend/
 infra/
-CLuely/
-cluely/
+.cursor/
 
 # Premium-only files
 docs/REPO_STRUCTURE.md

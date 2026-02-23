@@ -311,6 +311,13 @@ contextBridge.exposeInMainWorld('raven', {
     return () => ipcRenderer.removeListener('hotkey:move', handler)
   },
   on: (channel: string, callback: (...args: unknown[]) => void) => {
+    const ALLOWED_CHANNELS = [
+      'overlay:notification',
+      'tray:open-settings',
+    ]
+    if (!ALLOWED_CHANNELS.includes(channel)) {
+      return () => {}
+    }
     const handler = (_event: unknown, ...args: unknown[]) => callback(...args)
     ipcRenderer.on(channel, handler)
     return () => ipcRenderer.removeListener(channel, handler)
