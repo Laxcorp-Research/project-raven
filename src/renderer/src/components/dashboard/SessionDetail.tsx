@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import ravenLogo from '../../../../../logo/raven.svg'
+import { useAppMode } from '../../hooks/useAppMode'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('SessionDetail')
@@ -37,11 +38,12 @@ interface SessionDetailProps {
   onUpdateTitle?: (sessionId: string, newTitle: string) => void
 }
 
-type Tab = 'summary' | 'transcript' | 'usage'
+type Tab = 'summary' | 'transcript' | 'usage' | 'insights'
 
 const MAX_TITLE_LENGTH = 200
 
 export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailProps) {
+  const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
@@ -53,6 +55,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     summary: { left: 0, width: 0 },
     transcript: { left: 0, width: 0 },
     usage: { left: 0, width: 0 },
+    insights: { left: 0, width: 0 },
   })
   const [messages, setMessages] = useState<SessionMessage[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -62,6 +65,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const summaryTabRef = useRef<HTMLButtonElement>(null)
   const transcriptTabRef = useRef<HTMLButtonElement>(null)
   const usageTabRef = useRef<HTMLButtonElement>(null)
+  const insightsTabRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     window.raven.storeGet('displayName').then((name) => {
@@ -119,6 +123,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
             left: usageTabRef.current.offsetLeft,
             width: usageTabRef.current.offsetWidth,
           },
+          insights: insightsTabRef.current
+            ? { left: insightsTabRef.current.offsetLeft, width: insightsTabRef.current.offsetWidth }
+            : { left: 0, width: 0 },
         })
       }
     }
@@ -353,6 +360,19 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
             >
               Usage
             </button>
+            {isPro && (
+              <button
+                ref={insightsTabRef}
+                onClick={() => setActiveTab('insights')}
+                className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                  activeTab === 'insights'
+                    ? 'text-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Insights
+              </button>
+            )}
           </div>
         </div>
 
@@ -382,6 +402,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               )}
               {activeTab === 'usage' && (
                 <UsageTab messages={messages} loading={loadingMessages} />
+              )}
+              {activeTab === 'insights' && (
+                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} />
               )}
             </div>
           </div>
@@ -580,6 +603,146 @@ function formatTimestamp(timestamp: number): string {
     minute: '2-digit',
     hour12: true,
   })
+}
+
+function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: string; transcript: string; hasTranscript: boolean }) {
+  const [insights, setInsights] = useState<Record<string, string | null>>({
+    summary: null,
+    actionItems: null,
+    topics: null,
+    sentiment: null,
+  })
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [expandedSection, setExpandedSection] = useState<string | null>('summary')
+
+  const handleAnalyze = async () => {
+    if (!hasTranscript) return
+    setIsAnalyzing(true)
+    setError(null)
+
+    try {
+      const result = await window.raven.proxyAnalyzeSession({
+        transcript,
+        features: ['summary', 'action_items', 'topics', 'sentiment'],
+        sessionId,
+      })
+
+      if (result?.error) {
+        setError(result.error)
+      } else if (result) {
+        setInsights({
+          summary: (result.summary as string) || null,
+          actionItems: (result.actionItems as string) || null,
+          topics: (result.topics as string) || null,
+          sentiment: (result.sentiment as string) || null,
+        })
+        setExpandedSection('summary')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis failed')
+    }
+
+    setIsAnalyzing(false)
+  }
+
+  const hasInsights = Object.values(insights).some(v => v !== null)
+
+  if (!hasTranscript) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-400 text-lg">No transcript to analyze</p>
+        <p className="text-sm text-gray-400 mt-1">Record a session first</p>
+      </div>
+    )
+  }
+
+  if (!hasInsights) {
+    return (
+      <div className="text-center py-12">
+        <div className="mb-4">
+          <svg className="w-12 h-12 mx-auto text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+          </svg>
+        </div>
+        <h3 className="text-gray-900 font-medium mb-2">AI-Powered Meeting Insights</h3>
+        <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
+          Generate a summary, action items, topic analysis, and sentiment breakdown from your meeting transcript.
+        </p>
+        <button
+          onClick={handleAnalyze}
+          disabled={isAnalyzing}
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+        >
+          {isAnalyzing ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            'Generate Insights'
+          )}
+        </button>
+        {error && (
+          <p className="text-red-500 text-sm mt-3">{error}</p>
+        )}
+      </div>
+    )
+  }
+
+  const sections = [
+    { key: 'summary', title: 'Summary', icon: '📋' },
+    { key: 'actionItems', title: 'Action Items', icon: '✅' },
+    { key: 'topics', title: 'Topics', icon: '💡' },
+    { key: 'sentiment', title: 'Sentiment', icon: '📊' },
+  ]
+
+  return (
+    <div className="space-y-3 max-w-3xl">
+      {sections.map(({ key, title, icon }) => {
+        const content = insights[key]
+        if (!content) return null
+        const isExpanded = expandedSection === key
+
+        return (
+          <div key={key} className="border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setExpandedSection(isExpanded ? null : key)}
+              className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+            >
+              <span className="flex items-center gap-2.5 text-sm font-medium text-gray-900">
+                <span>{icon}</span>
+                {title}
+              </span>
+              <svg
+                className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {isExpanded && (
+              <div className="px-5 pb-4 border-t border-gray-100">
+                <div className="pt-3 text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                  <Markdown>{content}</Markdown>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <div className="pt-2">
+        <button
+          onClick={handleAnalyze}
+          disabled={isAnalyzing}
+          className="text-sm text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+        >
+          {isAnalyzing ? 'Re-analyzing...' : 'Re-analyze'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function UsageTab({ messages, loading }: { messages: SessionMessage[]; loading: boolean }) {

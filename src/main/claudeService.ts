@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
-import { getProviderFromStore, getFastProvider } from './services/ai/providerFactory';
+import { getProviderFromStore, getFastProvider, getProProvider, getProFastProvider } from './services/ai/providerFactory';
 import { getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
@@ -202,12 +202,13 @@ export class ClaudeService {
 
         this.isProcessing = true;
 
-        const useDeepModel = isProMode() && getSetting('smartMode') === true;
-        const provider = useDeepModel
-          ? await getProviderFromStore()
-          : isProMode()
-            ? await getFastProvider()
-            : await getProviderFromStore();
+        let provider;
+        if (isProMode()) {
+          const useDeepModel = getSetting('smartMode') === true;
+          provider = useDeepModel ? await getProProvider() : await getProFastProvider();
+        } else {
+          provider = await getProviderFromStore();
+        }
 
         const screenshotAttachment = params.includeScreenshot
           ? await this.captureScreenshotExcludingRaven()
@@ -327,6 +328,22 @@ export class ClaudeService {
 
       } catch (error: unknown) {
         this.isProcessing = false;
+
+        // Check for usage limit error from the backend proxy
+        if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'LIMIT_REACHED') {
+          const limitErr = error as { used: number; limit: number; resetAt: string };
+          this.broadcast({
+            type: 'error',
+            error: 'LIMIT_REACHED',
+            limitInfo: {
+              used: limitErr.used,
+              limit: limitErr.limit,
+              resetAt: limitErr.resetAt,
+            },
+          });
+          return;
+        }
+
         const msg = error instanceof Error ? error.message : String(error);
         log.error('Error:', error);
         this.broadcastError(msg || 'Failed to get AI response.');
@@ -510,6 +527,7 @@ export class ClaudeService {
     text?: string;
     fullText?: string;
     error?: string;
+    limitInfo?: { used: number; limit: number; resetAt: string };
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
   }): void {
     try {

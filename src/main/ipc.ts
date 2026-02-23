@@ -332,5 +332,12 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('sync:get-status', () => ({ lastSyncAt: null, queueSize: 0, consecutiveFailures: 0 }))
     ipcMain.handle('sync:trigger', noopObj)
     ipcMain.handle('sync:get-log', () => [])
+
+    ipcMain.handle('recall:is-available', noopFalse)
+    ipcMain.handle('recall:get-detected-meetings', () => [])
+    ipcMain.handle('recall:get-state', () => ({ isRecording: false, windowId: null, sdkReady: false }))
+    ipcMain.handle('recall:start-meeting-recording', noopResult)
+    ipcMain.handle('recall:start-adhoc-recording', noopResult)
+    ipcMain.handle('recall:stop-recording', noopResult)
   }
 }

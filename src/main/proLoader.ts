@@ -35,6 +35,28 @@ export async function initializeProFeatures(): Promise<void> {
     processSyncQueue().catch(() => {})
     pullAndMergeRemoteSessions().catch(() => {})
 
+    // Initialize Recall AI Desktop SDK for premium audio capture
+    try {
+      const { initRecallSdk, getRecallService } = await import(
+        /* @vite-ignore */ '../pro/main/recallService'
+      )
+      const sdkReady = await initRecallSdk()
+      if (sdkReady) {
+        const recallService = getRecallService()
+        await recallService.setupEventListeners()
+        log.info('Recall SDK ready — meeting detection active')
+      } else {
+        log.info('Recall SDK not available — will use native audio capture')
+      }
+
+      const { registerRecallHandlers } = await import(
+        /* @vite-ignore */ '../pro/main/recallIpc'
+      )
+      registerRecallHandlers()
+    } catch (err) {
+      log.warn('Recall SDK initialization failed (non-fatal):', err)
+    }
+
     log.info('Pro features initialized')
   } catch (err) {
     log.warn('Pro mode requested but src/pro/ not found — running without premium features', err)

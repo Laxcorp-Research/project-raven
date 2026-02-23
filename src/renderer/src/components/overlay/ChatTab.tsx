@@ -8,12 +8,19 @@ interface ChatMessage {
   timestamp: number;
 }
 
+interface LimitInfo {
+  used: number;
+  limit: number;
+  resetAt: string;
+}
+
 export function ChatTab() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const [_streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [limitInfo, setLimitInfo] = useState<LimitInfo | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +33,7 @@ export function ChatTab() {
         setMessages((prev) => [...prev, data.userMessage!]);
         setIsLoading(true);
         setError('');
+        setLimitInfo(null);
         setStreamingMessage('');
         setStreamingMessageId(data.userMessage!.id + '-response');
       } else if (data.type === 'delta') {
@@ -37,7 +45,13 @@ export function ChatTab() {
         setStreamingMessageId(null);
         setIsLoading(false);
       } else if (data.type === 'error') {
-        setError(data.error || 'Something went wrong');
+        if (data.error === 'LIMIT_REACHED' && data.limitInfo) {
+          setLimitInfo(data.limitInfo);
+          setError('');
+        } else {
+          setError(data.error || 'Something went wrong');
+          setLimitInfo(null);
+        }
         setIsLoading(false);
         setStreamingMessage('');
         setStreamingMessageId(null);
@@ -45,6 +59,7 @@ export function ChatTab() {
         setMessages([]);
         setStreamingMessage('');
         setError('');
+        setLimitInfo(null);
       }
     });
 
@@ -117,7 +132,28 @@ export function ChatTab() {
         </div>
       )}
 
-      {error && (
+      {limitInfo && (
+        <div className="mx-1 rounded-xl bg-gradient-to-r from-purple-600/90 to-blue-600/90 p-4 text-white shadow-lg">
+          <p className="text-sm font-medium mb-1">
+            You&apos;ve used all {limitInfo.limit} free AI responses for today.
+          </p>
+          <p className="text-xs text-white/70 mb-3">
+            Upgrade to Raven Pro for unlimited access.
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.raven.authOpenCheckout('PRO')}
+              className="px-4 py-1.5 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
+            >
+              Upgrade Now
+            </button>
+            <span className="text-xs text-white/50">Resets tomorrow</span>
+          </div>
+        </div>
+      )}
+
+      {error && !limitInfo && (
         <div className="flex justify-center">
           <div className="bg-red-500/20 text-red-400 text-sm px-4 py-2 rounded-lg">
             {error}

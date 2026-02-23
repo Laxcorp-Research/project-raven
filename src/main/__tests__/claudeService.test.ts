@@ -21,6 +21,8 @@ vi.mock('../services/sessionManager', () => ({
 vi.mock('../services/ai/providerFactory', () => ({
   getProviderFromStore: vi.fn(),
   getFastProvider: vi.fn(),
+  getProProvider: vi.fn(),
+  getProFastProvider: vi.fn(),
 }));
 
 vi.mock('../store', () => ({
@@ -38,7 +40,7 @@ vi.mock('../logger', () => ({
 }));
 
 import { ClaudeService, generateSessionTitle } from '../claudeService';
-import { getProviderFromStore, getFastProvider } from '../services/ai/providerFactory';
+import { getProviderFromStore, getFastProvider, getProProvider, getProFastProvider } from '../services/ai/providerFactory';
 import { isProMode, getSetting } from '../store';
 import { ipcMain } from 'electron';
 
@@ -178,6 +180,8 @@ describe('Provider routing based on mode', () => {
     vi.clearAllMocks();
     vi.mocked(getProviderFromStore).mockResolvedValue(mockProvider as any);
     vi.mocked(getFastProvider).mockResolvedValue(mockProvider as any);
+    vi.mocked(getProProvider).mockResolvedValue(mockProvider as any);
+    vi.mocked(getProFastProvider).mockResolvedValue(mockProvider as any);
     mockProvider.streamResponse.mockResolvedValue(undefined);
     new ClaudeService(null);
   });
@@ -197,7 +201,7 @@ describe('Provider routing based on mode', () => {
     expect(getFastProvider).not.toHaveBeenCalled();
   });
 
-  it('uses getFastProvider in pro mode without smartMode', async () => {
+  it('uses getProFastProvider in pro mode without smartMode', async () => {
     vi.mocked(isProMode).mockReturnValue(true);
     vi.mocked(getSetting).mockImplementation((key: string) => {
       if (key === 'smartMode') return false;
@@ -208,11 +212,11 @@ describe('Provider routing based on mode', () => {
     const handler = getResponseHandler();
     await handler({}, { transcript: 'test', action: 'assist' });
 
-    expect(getFastProvider).toHaveBeenCalled();
+    expect(getProFastProvider).toHaveBeenCalled();
     expect(getProviderFromStore).not.toHaveBeenCalled();
   });
 
-  it('uses getProviderFromStore in pro mode with smartMode enabled', async () => {
+  it('uses getProProvider in pro mode with smartMode enabled', async () => {
     vi.mocked(isProMode).mockReturnValue(true);
     vi.mocked(getSetting).mockImplementation((key: string) => {
       if (key === 'smartMode') return true;
@@ -223,7 +227,7 @@ describe('Provider routing based on mode', () => {
     const handler = getResponseHandler();
     await handler({}, { transcript: 'test', action: 'assist' });
 
-    expect(getProviderFromStore).toHaveBeenCalled();
-    expect(getFastProvider).not.toHaveBeenCalled();
+    expect(getProProvider).toHaveBeenCalled();
+    expect(getProFastProvider).not.toHaveBeenCalled();
   });
 });

@@ -44,6 +44,7 @@ const FAST_MODELS: Record<AIProviderName, string> = {
   openai: 'gpt-5-mini',
 };
 
+/** Open-source mode: reads user's own API keys from local store. */
 export async function getProviderFromStore(): Promise<AIProvider> {
   const { getStore } = await import('../../store');
   const store = getStore();
@@ -65,6 +66,7 @@ export async function getProviderFromStore(): Promise<AIProvider> {
   return getProvider({ provider, model, apiKey });
 }
 
+/** Open-source mode: fast model with user's own keys. */
 export async function getFastProvider(): Promise<AIProvider> {
   const { getStore } = await import('../../store');
   const store = getStore();
@@ -84,4 +86,47 @@ export async function getFastProvider(): Promise<AIProvider> {
   }
 
   return getProvider({ provider, model, apiKey });
+}
+
+let cachedProProvider: AIProvider | null = null;
+let cachedProKey = '';
+
+/** Pro mode: routes through backend proxy. User's selected model at full quality. */
+export async function getProProvider(): Promise<AIProvider> {
+  const { getStore } = await import('../../store');
+  const store = getStore();
+
+  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
+  const model = store.get('aiModel', 'claude-haiku-4-5') as string;
+  const key = `pro:${provider}:${model}`;
+
+  if (cachedProProvider && cachedProKey === key) return cachedProProvider;
+
+  const { BackendProxyProvider } = await import(
+    /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
+  );
+  cachedProProvider = new BackendProxyProvider(provider, model);
+  cachedProKey = key;
+  log.info(`Created proxy provider: ${provider}/${model}`);
+  return cachedProProvider;
+}
+
+/** Pro mode: routes through backend proxy with a fast model. */
+export async function getProFastProvider(): Promise<AIProvider> {
+  const { getStore } = await import('../../store');
+  const store = getStore();
+
+  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
+  const model = FAST_MODELS[provider];
+  const key = `pro-fast:${provider}:${model}`;
+
+  if (cachedProProvider && cachedProKey === key) return cachedProProvider;
+
+  const { BackendProxyProvider } = await import(
+    /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
+  );
+  cachedProProvider = new BackendProxyProvider(provider, model);
+  cachedProKey = key;
+  log.info(`Created proxy provider (fast): ${provider}/${model}`);
+  return cachedProProvider;
 }
