@@ -113,7 +113,14 @@ export class TranscriptionService {
       }) as WebSocket;
 
       return new Promise((resolve) => {
+        const connectionTimeout = setTimeout(() => {
+          log.error(`${source} WebSocket connection timed out after 10s`);
+          try { state.ws?.close(); } catch {}
+          resolve({ success: false });
+        }, 10_000);
+
         state.ws!.onopen = () => {
+          clearTimeout(connectionTimeout);
           log.info(`${source} WebSocket connected`);
           state.isConnected = true;
 
@@ -144,6 +151,7 @@ export class TranscriptionService {
         };
 
         state.ws!.onerror = (event: { message?: string }) => {
+          clearTimeout(connectionTimeout);
           log.error(`${source} WebSocket error:`, event.message || event);
           resolve({ success: false });
         };

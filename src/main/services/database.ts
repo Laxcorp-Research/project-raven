@@ -242,14 +242,17 @@ class DatabaseService {
     for (const migration of migrations) {
       if (!applied.includes(migration.name)) {
         log.info('Running migration:', migration.name);
-        if (migration.sql) {
-          this.db.exec(migration.sql);
-        } else if (migration.run) {
-          migration.run(this.db);
-        }
-        this.db
-          .prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)')
-          .run(migration.name, Date.now());
+        const runMigration = this.db.transaction(() => {
+          if (migration.sql) {
+            this.db.exec(migration.sql);
+          } else if (migration.run) {
+            migration.run(this.db);
+          }
+          this.db
+            .prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)')
+            .run(migration.name, Date.now());
+        });
+        runMigration();
       }
     }
 
@@ -483,11 +486,16 @@ class DatabaseService {
    * Convert database row to Session object
    */
   private rowToSession(row: SessionRow): Session {
+    let transcript: unknown[] = []
+    let aiResponses: unknown[] = []
+    try { transcript = JSON.parse(row.transcript_json) } catch { /* corrupted JSON — fall back to empty */ }
+    try { aiResponses = JSON.parse(row.ai_responses_json) } catch { /* corrupted JSON — fall back to empty */ }
+
     return {
       id: row.id,
       title: row.title,
-      transcript: JSON.parse(row.transcript_json),
-      aiResponses: JSON.parse(row.ai_responses_json),
+      transcript,
+      aiResponses,
       summary: row.summary || null,
       modeId: row.mode_id,
       durationSeconds: row.duration_seconds,
@@ -707,7 +715,7 @@ class DatabaseService {
       color: row.color,
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
-      notesTemplate: row.notes_template_json ? JSON.parse(row.notes_template_json) : null,
+      notesTemplate: row.notes_template_json ? (() => { try { return JSON.parse(row.notes_template_json) } catch { return null } })() : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

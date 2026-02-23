@@ -265,31 +265,37 @@ export class ClaudeService {
           systemPrompt = buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined)
         }
 
-        await provider.streamResponse(
-          {
-            system: systemPrompt,
-            messages: aiMessages,
-            maxTokens: STREAM_MAX_TOKENS,
-          },
-          {
-            onText: (text) => {
-              fullResponse += text;
-              this.broadcast({
-                type: 'delta',
-                messageId: assistantMessageId,
-                text,
-                fullText: fullResponse,
-              });
-            },
-            onDone: () => {
-              // handled below after await
-            },
-            onError: (errorMsg) => {
-              this.isProcessing = false;
-              this.broadcastError(errorMsg);
-            },
-          }
+        const streamTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), 60_000)
         );
+        await Promise.race([
+          provider.streamResponse(
+            {
+              system: systemPrompt,
+              messages: aiMessages,
+              maxTokens: STREAM_MAX_TOKENS,
+            },
+            {
+              onText: (text) => {
+                fullResponse += text;
+                this.broadcast({
+                  type: 'delta',
+                  messageId: assistantMessageId,
+                  text,
+                  fullText: fullResponse,
+                });
+              },
+              onDone: () => {
+                // handled below after await
+              },
+              onError: (errorMsg) => {
+                this.isProcessing = false;
+                this.broadcastError(errorMsg);
+              },
+            }
+          ),
+          streamTimeout,
+        ]);
 
         const assistantMessage: ChatMessage = {
           id: assistantMessageId,

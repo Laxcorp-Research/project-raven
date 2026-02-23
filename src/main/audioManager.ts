@@ -32,6 +32,7 @@ interface TranscriptionProvider {
 
 export class AudioManager {
   private isRecording = false
+  private isStarting = false
   private dashboardWindow: BrowserWindow | null = null
   private overlayWindow: BrowserWindow | null = null
   private chunkCount = 0
@@ -82,7 +83,14 @@ export class AudioManager {
 
   private registerIpcHandlers(): void {
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
+      if (this.isRecording || this.isStarting) {
+        log.warn('Recording already in progress or starting')
+        return { success: false, error: 'Recording already in progress' }
+      }
+      this.isStarting = true
       log.info('Starting recording...')
+
+      try {
 
       if (process.platform === 'darwin') {
         const perms = checkPermissionsForRecording()
@@ -127,7 +135,8 @@ export class AudioManager {
 
           const captureStarted = startCapture()
           if (!captureStarted) {
-            log.warn('Native audio capture failed to start')
+            log.error('Native audio capture failed to start')
+            return { success: false, error: 'Audio capture failed to start' }
           }
         }
 
@@ -151,7 +160,8 @@ export class AudioManager {
 
         const captureStarted = startCapture()
         if (!captureStarted) {
-          log.warn('Native audio capture failed to start')
+          log.error('Native audio capture failed to start')
+          return { success: false, error: 'Audio capture failed to start' }
         }
       }
 
@@ -166,6 +176,10 @@ export class AudioManager {
         deviceId ? `device: ${deviceId}` : '(default)'
       )
       return { success: true }
+
+      } finally {
+        this.isStarting = false
+      }
     })
 
     ipcMain.handle('audio:stop-recording', async () => {
