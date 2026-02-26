@@ -38,9 +38,14 @@ export function registerIpcHandlers(): void {
     return getSetting(key)
   })
 
+  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'apiKeysConfigured']
+
   ipcMain.handle(
     'store:set',
     (_event, key: keyof LocalSettings, value: LocalSettings[keyof LocalSettings]) => {
+      if (PROTECTED_STORE_KEYS.includes(key as string)) {
+        return false
+      }
       saveSetting(key, value)
       if (key === 'openOnLogin') {
         app.setLoginItemSettings({ openAtLogin: !!value })

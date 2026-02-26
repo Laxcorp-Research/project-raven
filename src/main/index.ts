@@ -302,7 +302,7 @@ app.whenReady().then(() => {
       if (isProMode()) {
         import(/* @vite-ignore */ '../pro/main/syncService')
           .then(({ deleteSessionFromBackend }) => deleteSessionFromBackend(id))
-          .catch(() => {})
+          .catch((err) => ipcLog.warn('Failed to delete session from backend:', err))
       }
     }
     return deleted
@@ -453,8 +453,14 @@ app.whenReady().then(() => {
       const pathMod = await import('path')
       const fsMod = await import('fs')
 
-      // Validate file exists and has an allowed extension
       const resolved = pathMod.resolve(filePath)
+
+      // Restrict to user's home directory to prevent arbitrary filesystem reads
+      const homedir = (await import('os')).homedir()
+      if (!resolved.startsWith(homedir)) {
+        return { success: false, error: 'File must be within your home directory' }
+      }
+
       const allowedExtensions = ['.pdf', '.txt', '.md', '.docx']
       const ext = pathMod.extname(resolved).toLowerCase()
       if (!allowedExtensions.includes(ext)) {

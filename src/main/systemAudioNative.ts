@@ -99,7 +99,8 @@ function loadAecModule(): AecModule | null {
     aecModule = require(devPath) as AecModule
     log.info('GStreamer AEC module loaded (dev)')
     return aecModule
-  } catch {
+  } catch (err) {
+    log.debug('AEC module not found at dev path, trying packaged:', err)
     try {
       aecModule = require(packagedPath) as AecModule
       log.info('GStreamer AEC module loaded (packaged)')
@@ -228,7 +229,8 @@ function runHealthCheck(): void {
   let stats: AecStats | null
   try {
     stats = aecModule.getStats()
-  } catch {
+  } catch (err) {
+    log.debug('Failed to get AEC stats:', err)
     return
   }
   if (!stats) return
@@ -528,8 +530,16 @@ function startMacCapture(): boolean {
 
   parseBuffer = Buffer.alloc(0)
 
+  const MAX_PARSE_BUFFER = 10 * 1024 * 1024
+
   captureProcess.stdout.on('data', (data: Buffer) => {
     parseBuffer = Buffer.concat([parseBuffer, data])
+
+    if (parseBuffer.length > MAX_PARSE_BUFFER) {
+      log.error(`Audio parse buffer exceeded ${MAX_PARSE_BUFFER} bytes — resetting (possible frame corruption)`)
+      parseBuffer = Buffer.alloc(0)
+      return
+    }
 
     while (parseBuffer.length >= 5) {
       const sourceByte = parseBuffer[0]

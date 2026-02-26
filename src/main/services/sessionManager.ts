@@ -336,9 +336,9 @@ class SessionManager {
             endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : undefined,
           })
         })
-        .catch(() => {})
-    } catch {
-      // src/pro/ not available — graceful no-op
+        .catch((err) => log.warn('Cloud sync failed:', err))
+    } catch (err) {
+      log.warn('Pro sync module not available:', err)
     }
   }
 

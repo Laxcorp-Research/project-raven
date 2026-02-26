@@ -37,8 +37,8 @@ async function loadProPromptService(): Promise<void> {
     const mod = await import(/* @vite-ignore */ '../pro/main/promptService')
     getServerSystemPrompt = mod.getServerSystemPrompt
     getServerActionPrompt = mod.getServerActionPrompt
-  } catch {
-    // src/pro/ not available
+  } catch (err) {
+    log.debug('Pro prompt service not available:', err)
   }
 }
 void loadProPromptService()
@@ -94,9 +94,12 @@ CONVERSATION HISTORY:
 - Use previous messages for continuity. If you already answered something, don't repeat — refer back briefly.
 - Conversation history may span across topics. Use whatever context is relevant to the current request.`;
 
-  const userName = getSetting('displayName');
-  if (userName) {
-    prompt += `\n\nUSER: The user's name is ${userName}. In the transcript, their speech is labeled "${userName}". Other speakers are labeled "Them".`;
+  const rawName = getSetting('displayName') as string | undefined;
+  if (rawName) {
+    const userName = rawName.replace(/[\n\r]/g, ' ').trim().slice(0, 50);
+    if (userName) {
+      prompt += `\n\n<user_name>${userName}</user_name>\nIn the transcript, this user's speech is labeled "${userName}". Other speakers are labeled "Them".`;
+    }
   }
 
   if (modePrompt) {
