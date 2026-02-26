@@ -55,7 +55,11 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle('store:save-many', (_event, settings: Partial<LocalSettings>) => {
-    saveSettings(settings)
+    const filtered = { ...settings }
+    for (const key of PROTECTED_STORE_KEYS) {
+      delete (filtered as Record<string, unknown>)[key]
+    }
+    saveSettings(filtered)
     return true
   })
 

@@ -488,8 +488,8 @@ class DatabaseService {
   private rowToSession(row: SessionRow): Session {
     let transcript: unknown[] = []
     let aiResponses: unknown[] = []
-    try { transcript = JSON.parse(row.transcript_json) } catch { /* corrupted JSON — fall back to empty */ }
-    try { aiResponses = JSON.parse(row.ai_responses_json) } catch { /* corrupted JSON — fall back to empty */ }
+    try { transcript = JSON.parse(row.transcript_json) } catch (err) { log.warn('Corrupted transcript JSON for session', row.id, err) }
+    try { aiResponses = JSON.parse(row.ai_responses_json) } catch (err) { log.warn('Corrupted aiResponses JSON for session', row.id, err) }
 
     return {
       id: row.id,
@@ -715,7 +715,7 @@ class DatabaseService {
       color: row.color,
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
-      notesTemplate: row.notes_template_json ? (() => { try { return JSON.parse(row.notes_template_json) } catch { return null } })() : null,
+      notesTemplate: row.notes_template_json ? (() => { try { return JSON.parse(row.notes_template_json) } catch (err) { log.warn('Corrupted notesTemplate JSON for mode', row.id, err); return null } })() : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
