@@ -31,8 +31,6 @@
   "scripts": {
     "postinstall": "npx @electron/rebuild -f -w better-sqlite3 -m .",
     "dev": "vite",
-    "dev:pro": "cross-env RAVEN_MODE=pro RAVEN_BACKEND_URL=http://localhost:3000 vite",
-    "dev:pro:staging": "cross-env RAVEN_MODE=pro RAVEN_BACKEND_URL=https://api-staging.raven.ciaraai.com vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",

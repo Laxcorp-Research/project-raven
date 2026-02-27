@@ -3,7 +3,7 @@
  * Spawns a child process and streams PCM audio via stdout.
  *
  * Integrates GStreamer-based AEC pipeline (webrtcechoprobe/webrtcdsp)
- * for echo cancellation — the same pipeline Cluely uses via Recall.ai.
+ * for echo cancellation using the WebRTC AEC3 engine.
  * GStreamer handles synchronization, resampling, gain control, and buffering.
  */
 

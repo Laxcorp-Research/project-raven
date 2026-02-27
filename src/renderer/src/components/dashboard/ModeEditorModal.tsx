@@ -1,5 +1,5 @@
 /**
- * Mode Editor Modal - Cluely-style design
+ * Mode Editor Modal
  * - Templates create new modes (not editable directly)
  * - Mode list shows only user-created modes
  * - Active mode indicator with checkmark

@@ -189,8 +189,8 @@ html, body, #root {
 }
 
 /*
- * Cluely-matched prose-light theme for Tailwind Typography.
- * Colors extracted from Cluely's --tw-prose-* CSS variables.
+ * Custom prose-light theme for Tailwind Typography.
+ * Dark-mode optimized text colors for overlay readability.
  * Used with: prose prose-sm prose-light max-w-none
  */
 .prose-light {
