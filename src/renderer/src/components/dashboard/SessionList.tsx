@@ -1,5 +1,5 @@
 /**
- * Session List
+ * Session List - Cluely-style design
  * - Grouped by date: "Today", "Yesterday", "Mon, Feb 2"
  * - Clean rows: Title | Duration | Time
  * - Minimal design, no cards

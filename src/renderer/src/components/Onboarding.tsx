@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2, Eye, EyeOff, Sparkles } from 'lucide-react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
+import { OverlayTourFree } from './OverlayTourFree'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -9,7 +10,7 @@ interface OnboardingProps {
 type AiProvider = 'anthropic' | 'openai'
 
 export function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [accessibilityPermission, setAccessibilityPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
@@ -27,7 +28,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
-  const TOTAL_STEPS = 5
+  const TOTAL_STEPS = 6
 
   const handleNext = async () => {
     if (step === 2) {
@@ -185,7 +186,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       {/* Fixed stepper - always in the same spot */}
       <div className="pb-6 flex justify-center">
         <div className="flex items-center gap-0">
-          {[1, 2, 3, 4, 5].map((s, i) => (
+          {[1, 2, 3, 4, 5, 6].map((s, i) => (
             <div key={s} className="flex items-center">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
@@ -573,8 +574,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             )}
 
-            {/* Step 4: Shortcut Tutorial */}
+            {/* Step 4: Overlay Tour */}
             {step === 4 && (
+              <OverlayTourFree
+                onBack={handleBack}
+                onNext={handleNext}
+              />
+            )}
+
+            {/* Step 5: Shortcut Tutorial */}
+            {step === 5 && (
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Learn the Shortcuts</h2>
@@ -620,8 +629,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             )}
 
-            {/* Step 5: Confirm & Save */}
-            {step === 5 && (
+            {/* Step 6: Confirm & Save */}
+            {step === 6 && (
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Ready to Go</h2>

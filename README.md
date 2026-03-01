@@ -13,7 +13,7 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 ## Features
 
 - **Dual-stream audio capture** — System audio + microphone, captured natively on macOS (ScreenCaptureKit) and Windows (WASAPI)
-- **Echo cancellation** — GStreamer pipeline using the WebRTC AEC3 engine (the same echo canceller used in Chrome)
+- **Echo cancellation** — GStreamer pipeline using the same WebRTC AEC3 engine that powers Chrome, Recall.ai, and Cluely
 - **Real-time transcription** — Deepgram Nova-3 over WebSocket with separate connections for mic and system audio
 - **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
 - **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing

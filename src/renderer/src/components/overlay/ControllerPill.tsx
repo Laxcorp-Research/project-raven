@@ -134,7 +134,7 @@ export function ControllerPill({
         className="h-8 flex items-center gap-1 px-3 rounded-full border border-white/15 bg-gradient-to-b from-[#2e3039] to-[#272a31] shadow-[0_-1px_0_0_rgba(255,255,255,0.3),0_17px_5px_0_transparent,0_11px_4px_0_rgba(0,0,0,0.01),0_6px_4px_0_rgba(0,0,0,0.05),0_3px_3px_0_rgba(0,0,0,0.09),0_1px_1px_0_rgba(0,0,0,0.1)] hover:from-[#3a3d49] hover:to-[#343841] transform-gpu transition-all duration-150 active:scale-[0.97]"
         style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
       >
-        {/* Chevron */}
+        {/* Chevron - smaller, Cluely-style */}
         <svg 
           width="8"
           height="8"

@@ -29,7 +29,7 @@ function applyCSP(win: BrowserWindow): void {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://lh3.googleusercontent.com",
             "font-src 'self' data:",
-            "connect-src 'self' https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com",
+            "connect-src 'self' https://api.raven.ciaraai.com https://api-staging.raven.ciaraai.com https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com",
             "media-src 'self' blob:",
             "worker-src 'self' blob:",
             "object-src 'none'",
