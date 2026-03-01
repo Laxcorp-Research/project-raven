@@ -10,10 +10,72 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 
 ---
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%">
+
+**Dashboard — Session History**
+![Dashboard](docs/sessions.png)
+
+</td>
+<td width="50%">
+
+**Settings — API Keys**
+![API Keys](docs/API-Keys.png)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**Stealth Mode OFF — Overlay visible to screen share**
+![Detectable](docs/Detectable.jpeg)
+
+</td>
+<td>
+
+**Stealth Mode ON — Overlay invisible to screen share**
+![Undetectable](docs/Undetectable.jpeg)
+
+</td>
+</tr>
+<tr>
+<td>
+
+**Settings — Model Selection**
+![Model Selection](docs/Model-Selection.png)
+
+</td>
+<td>
+
+**Onboarding — Overlay Tour**
+![Overlay Tour](docs/onboarding-4.png)
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary>Full onboarding flow (6 steps)</summary>
+
+| Step 1: Welcome | Step 2: API Keys | Step 3: Permissions |
+|---|---|---|
+| ![Welcome](docs/onboarding-1.png) | ![API Keys](docs/onboarding-2.png) | ![Permissions](docs/onboarding-3.png) |
+
+| Step 4: Overlay Tour | Step 5: Shortcuts | Step 6: Ready to Go |
+|---|---|---|
+| ![Overlay Tour](docs/onboarding-4.png) | ![Shortcuts](docs/onboarding-5.png) | ![Ready](docs/onboarding-6.png) |
+
+</details>
+
+---
+
 ## Features
 
 - **Dual-stream audio capture** — System audio + microphone, captured natively on macOS (ScreenCaptureKit) and Windows (WASAPI)
-- **Echo cancellation** — GStreamer pipeline using the same WebRTC AEC3 engine that powers Chrome, Recall.ai, and Cluely
+- **Echo cancellation** — GStreamer pipeline using the WebRTC AEC3 engine (the same echo canceller used in Chrome)
 - **Real-time transcription** — Deepgram Nova-3 over WebSocket with separate connections for mic and system audio
 - **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
 - **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
