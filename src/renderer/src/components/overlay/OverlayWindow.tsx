@@ -15,6 +15,7 @@ import 'highlight.js/styles/github-dark-dimmed.css'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, Wand2, MessageSquareText, RotateCcw, ChevronRight } from 'lucide-react'
 import { ControllerPill } from './ControllerPill'
+import { TranscriptTab } from './TranscriptTab'
 import { OverlayNotification, type NotificationData } from './OverlayNotification'
 import { useAppMode } from '../../hooks/useAppMode'
 import { createLogger } from '../../lib/logger'
@@ -131,6 +132,7 @@ export function OverlayWindow() {
   const [hoveredResponseId, setHoveredResponseId] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number; resetAt: string } | null>(null)
+  const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
@@ -653,7 +655,8 @@ export function OverlayWindow() {
     const startWidth = panelWidth
     const startRight = panelRight
     const startBottom = panelBottom
-    const startHeight = panelHeight ?? (hasResponse ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT)
+    const expanded = hasResponse || isRecording
+    const startHeight = panelHeight ?? (expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT)
     const startScreenX = e.screenX
     const startScreenY = e.screenY
     const originalCursor = document.body.style.cursor
@@ -680,7 +683,7 @@ export function OverlayWindow() {
         setPanelWidth(Math.min(newWidth, maxWidth))
         setPanelRight(newRight)
       } else {
-        const minH = hasResponse ? OVERLAY_EXPANDED_MIN_HEIGHT : OVERLAY_COMPACT_MIN_HEIGHT
+        const minH = (hasResponse || isRecording) ? OVERLAY_EXPANDED_MIN_HEIGHT : OVERLAY_COMPACT_MIN_HEIGHT
         const newHeight = Math.max(startHeight + dy, minH)
         const heightDelta = newHeight - startHeight
         const newBottom = Math.max(0, startBottom - heightDelta)
@@ -709,24 +712,37 @@ export function OverlayWindow() {
   }, [hasResponse, panelWidth, panelRight, panelBottom, panelHeight])
 
   const handleResizeDoubleClick = useCallback(() => {
-    const h = hasResponse ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT
+    const expanded = hasResponse || isRecording
+    const h = expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT
     setPanelWidth(OVERLAY_DEFAULT_WIDTH)
-    setPanelHeight(hasResponse ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : undefined)
+    setPanelHeight(expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : undefined)
     setPanelRight(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerWidth - OVERLAY_DEFAULT_WIDTH) / 2)))
     setPanelBottom(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerHeight - h) / 2)))
-  }, [hasResponse])
+  }, [hasResponse, isRecording])
 
-  const isPanelExpanded = hasResponse
-  const showBottomResizeRail = hasResponse
+  const isPanelExpanded = hasResponse || isRecording
+  const showBottomResizeRail = hasResponse || isRecording
   const showX = isHoveringPanel || isHoveringX
 
   useEffect(() => {
-    if (hasResponse && !panelHeight) {
-      setPanelHeight(OVERLAY_DEFAULT_EXPANDED_HEIGHT)
-    } else if (!hasResponse) {
-      setPanelHeight(undefined)
+    if (hasResponse && activeTab !== 'responses') {
+      setActiveTab('responses')
     }
   }, [hasResponse])
+
+  useEffect(() => {
+    if (isRecording && !hasResponse) {
+      setActiveTab('transcript')
+    }
+  }, [isRecording])
+
+  useEffect(() => {
+    if (isPanelExpanded && !panelHeight) {
+      setPanelHeight(OVERLAY_DEFAULT_EXPANDED_HEIGHT)
+    } else if (!isPanelExpanded) {
+      setPanelHeight(undefined)
+    }
+  }, [isPanelExpanded])
 
   return (
     <div
@@ -900,8 +916,45 @@ export function OverlayWindow() {
           }}
         >
 
+          {/* Tab Bar — visible when panel is expanded (recording or has responses) */}
+          {isPanelExpanded && (
+            <div className="flex px-4 border-b border-white/10 shrink-0">
+              {(hasResponse || !isRecording) && (
+                <button
+                  onClick={() => setActiveTab('responses')}
+                  className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+                    activeTab === 'responses'
+                      ? 'text-[#4169E1] border-[#4169E1]'
+                      : 'text-white/40 border-transparent hover:text-white/60'
+                  }`}
+                  style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                >
+                  Responses
+                </button>
+              )}
+              <button
+                onClick={() => setActiveTab('transcript')}
+                className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+                  activeTab === 'transcript'
+                    ? 'text-[#4169E1] border-[#4169E1]'
+                    : 'text-white/40 border-transparent hover:text-white/60'
+                }`}
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                Transcript
+              </button>
+            </div>
+          )}
+
+          {/* Transcript Tab */}
+          {isPanelExpanded && activeTab === 'transcript' && (
+            <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+              <TranscriptTab />
+            </div>
+          )}
+
           {/* Response Area */}
-          {hasResponse && (
+          {hasResponse && activeTab === 'responses' && (
             <div className="relative flex-1 min-h-0">
             <div ref={responseAreaRef} onScroll={handleResponseScroll} className="overlay-scroll h-full overflow-y-auto px-4 pt-4 pb-4 space-y-4" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)' }}>
               <AnimatePresence initial={false}>
