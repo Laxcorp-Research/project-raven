@@ -8,6 +8,8 @@ vi.mock('../../main/store', () => ({
   getStore: vi.fn(() => ({
     get: mockStoreGet,
   })),
+  getSetting: vi.fn((key: string) => mockStoreGet(key)),
+  getApiKey: vi.fn((key: string) => mockStoreGet(key, '')),
 }))
 
 vi.mock('../../main/logger', () => ({

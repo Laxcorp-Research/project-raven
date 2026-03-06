@@ -16,6 +16,8 @@ vi.mock('../../store', () => ({
   getStore: vi.fn(() => ({
     get: mockStoreGet,
   })),
+  getSetting: vi.fn((key: string) => mockStoreGet(key)),
+  getApiKey: vi.fn((key: string) => mockStoreGet(key, '')),
 }))
 
 vi.mock('@anthropic-ai/sdk', () => ({

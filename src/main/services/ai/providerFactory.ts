@@ -46,18 +46,14 @@ const FAST_MODELS: Record<AIProviderName, string> = {
 
 /** Open-source mode: reads user's own API keys from local store. */
 export async function getProviderFromStore(): Promise<AIProvider> {
-  const { getStore } = await import('../../store');
-  const store = getStore();
+  const { getSetting, getApiKey } = await import('../../store');
 
-  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
-  const model = store.get('aiModel', 'claude-haiku-4-5') as string;
+  const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
+  const model = (getSetting('aiModel') || 'claude-haiku-4-5') as string;
 
-  let apiKey: string;
-  if (provider === 'openai') {
-    apiKey = store.get('openaiApiKey', '') as string;
-  } else {
-    apiKey = store.get('anthropicApiKey', '') as string;
-  }
+  const apiKey = provider === 'openai'
+    ? getApiKey('openaiApiKey')
+    : getApiKey('anthropicApiKey');
 
   if (!apiKey) {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
@@ -68,18 +64,14 @@ export async function getProviderFromStore(): Promise<AIProvider> {
 
 /** Open-source mode: fast model with user's own keys. */
 export async function getFastProvider(): Promise<AIProvider> {
-  const { getStore } = await import('../../store');
-  const store = getStore();
+  const { getSetting, getApiKey } = await import('../../store');
 
-  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
+  const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
   const model = FAST_MODELS[provider];
 
-  let apiKey: string;
-  if (provider === 'openai') {
-    apiKey = store.get('openaiApiKey', '') as string;
-  } else {
-    apiKey = store.get('anthropicApiKey', '') as string;
-  }
+  const apiKey = provider === 'openai'
+    ? getApiKey('openaiApiKey')
+    : getApiKey('anthropicApiKey');
 
   if (!apiKey) {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
