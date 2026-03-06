@@ -19,15 +19,19 @@ export async function initializeProFeatures(): Promise<void> {
   }
 
   try {
-    const { registerAuthHandlers } = await import(
-      /* @vite-ignore */ '../pro/main/authIpc'
-    )
-    await registerAuthHandlers()
-
+    // Register sync + recall IPC handlers first so they're available
+    // before the Dashboard renders (avoids "No handler registered" errors).
+    // Auth handlers are registered last because initAuth() does a network
+    // call (token refresh) that can take hundreds of milliseconds.
     const { registerSyncHandlers } = await import(
       /* @vite-ignore */ '../pro/main/syncIpc'
     )
     registerSyncHandlers()
+
+    const { registerAuthHandlers } = await import(
+      /* @vite-ignore */ '../pro/main/authIpc'
+    )
+    await registerAuthHandlers()
 
     const { processSyncQueue, pullAndMergeRemoteSessions } = await import(
       /* @vite-ignore */ '../pro/main/syncService'

@@ -607,14 +607,13 @@ function formatTimestamp(timestamp: number): string {
 
 function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: string; transcript: string; hasTranscript: boolean }) {
   const [insights, setInsights] = useState<Record<string, string | null>>({
-    summary: null,
-    actionItems: null,
-    topics: null,
     sentiment: null,
+    topics: null,
+    keyPhrases: null,
   })
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [expandedSection, setExpandedSection] = useState<string | null>('summary')
+  const [expandedSection, setExpandedSection] = useState<string | null>('sentiment')
 
   const handleAnalyze = async () => {
     if (!hasTranscript) return
@@ -624,7 +623,7 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
     try {
       const result = await window.raven.proxyAnalyzeSession({
         transcript,
-        features: ['summary', 'action_items', 'topics', 'sentiment'],
+        features: ['sentiment', 'topics', 'key_phrases'],
         sessionId,
       })
 
@@ -632,12 +631,11 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
         setError(result.error)
       } else if (result) {
         setInsights({
-          summary: (result.summary as string) || null,
-          actionItems: (result.actionItems as string) || null,
-          topics: (result.topics as string) || null,
           sentiment: (result.sentiment as string) || null,
+          topics: (result.topics as string) || null,
+          keyPhrases: (result.keyPhrases as string) || null,
         })
-        setExpandedSection('summary')
+        setExpandedSection('sentiment')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
@@ -667,7 +665,7 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
         </div>
         <h3 className="text-gray-900 font-medium mb-2">AI-Powered Meeting Insights</h3>
         <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
-          Generate a summary, action items, topic analysis, and sentiment breakdown from your meeting transcript.
+          Generate sentiment analysis, topic detection, and key phrases from your meeting transcript.
         </p>
         <button
           onClick={handleAnalyze}
@@ -691,10 +689,9 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
   }
 
   const sections = [
-    { key: 'summary', title: 'Summary', icon: '📋' },
-    { key: 'actionItems', title: 'Action Items', icon: '✅' },
-    { key: 'topics', title: 'Topics', icon: '💡' },
     { key: 'sentiment', title: 'Sentiment', icon: '📊' },
+    { key: 'topics', title: 'Topics', icon: '💡' },
+    { key: 'keyPhrases', title: 'Key Phrases', icon: '🔑' },
   ]
 
   return (
