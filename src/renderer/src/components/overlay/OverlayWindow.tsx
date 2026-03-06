@@ -760,8 +760,8 @@ export function OverlayWindow() {
                   onClick={() => setActiveTab('responses')}
                   className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
                     activeTab === 'responses'
-                      ? 'text-[#4169E1] border-[#4169E1]'
-                      : 'text-white/40 border-transparent hover:text-white/60'
+                      ? 'text-white border-[#4169E1]'
+                      : 'text-white/50 border-transparent hover:text-white/70'
                   }`}
                   style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
                 >
@@ -772,8 +772,8 @@ export function OverlayWindow() {
                 onClick={() => setActiveTab('transcript')}
                 className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
                   activeTab === 'transcript'
-                    ? 'text-[#4169E1] border-[#4169E1]'
-                    : 'text-white/40 border-transparent hover:text-white/60'
+                    ? 'text-white border-[#4169E1]'
+                    : 'text-white/50 border-transparent hover:text-white/70'
                 }`}
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
               >
