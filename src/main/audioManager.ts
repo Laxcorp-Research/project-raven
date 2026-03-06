@@ -178,7 +178,10 @@ export class AudioManager {
         deviceId ? `device: ${deviceId}` : '(default)'
       )
 
-      if (isProMode() && this.usingRecall && this.activeProvider) {
+      if (!isProMode()) {
+        // Free mode: session starts immediately (transcription is synchronous above)
+        this.startSessionOnce()
+      } else if (isProMode() && this.usingRecall && this.activeProvider) {
         // Recall implies transcription is already connected.
         this.broadcastTranscriptionConnectionState({
           phase: 'connected',
