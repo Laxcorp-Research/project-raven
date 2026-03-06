@@ -173,6 +173,7 @@ Title:`;
 
 export class ClaudeService {
   private overlayWindow: BrowserWindow | null = null;
+  private dashboardWindow: BrowserWindow | null = null;
   private isProcessing = false;
   private conversation: ConversationState = {
     messages: [],
@@ -185,6 +186,11 @@ export class ClaudeService {
   }
 
   setWindow(overlay: BrowserWindow | null): void {
+    this.overlayWindow = overlay;
+  }
+
+  setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void {
+    this.dashboardWindow = dashboard;
     this.overlayWindow = overlay;
   }
 
@@ -340,7 +346,7 @@ export class ClaudeService {
 
         // Check for usage limit error from the backend proxy
         if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'LIMIT_REACHED') {
-          const limitErr = error as { used: number; limit: number; resetAt: string };
+          const limitErr = error as unknown as { used: number; limit: number; resetAt: string };
           this.broadcast({
             type: 'error',
             error: 'LIMIT_REACHED',
@@ -350,6 +356,13 @@ export class ClaudeService {
               resetAt: limitErr.resetAt,
             },
           });
+          return;
+        }
+
+        // Check for auth expiry — broadcast to all windows so the app can redirect to login
+        if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'AUTH_EXPIRED') {
+          log.warn('Auth expired during AI request — notifying all windows');
+          this.broadcastAuthExpired();
           return;
         }
 
@@ -550,5 +563,17 @@ export class ClaudeService {
 
   private broadcastError(error: string): void {
     this.broadcast({ type: 'error', error });
+  }
+
+  private broadcastAuthExpired(): void {
+    const payload = { reason: 'session_expired' };
+    const windows = [this.overlayWindow, this.dashboardWindow];
+    for (const win of windows) {
+      try {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('auth:session-expired', payload);
+        }
+      } catch { /* ignore destroyed windows */ }
+    }
   }
 }

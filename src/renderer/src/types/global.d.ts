@@ -88,6 +88,7 @@ declare global {
       authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authLogout: () => Promise<{ success: boolean }>;
       onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => () => void;
+      onAuthSessionExpired: (callback: (data: { reason: string }) => void) => () => void;
       authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;

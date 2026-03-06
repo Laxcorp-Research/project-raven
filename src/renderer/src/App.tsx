@@ -86,18 +86,31 @@ function App(): JSX.Element {
     }
     init()
 
+    const cleanups: Array<() => void> = []
+
     try {
-      const unsub = window.raven.onAuthLoginCompleted((data) => {
+      cleanups.push(window.raven.onAuthLoginCompleted((data) => {
         if (data.success) {
           log.info('Auth login completed via deep link — updating state')
           setProAuthenticated(true)
           setView('onboarding-pro')
         }
-      })
-      return unsub
+      }))
     } catch {
       // not in pro mode
     }
+
+    try {
+      cleanups.push(window.raven.onAuthSessionExpired?.(() => {
+        log.warn('Auth session expired — redirecting to login')
+        setProAuthenticated(false)
+        setView('onboarding-pro')
+      }) ?? (() => {}))
+    } catch {
+      // not in pro mode
+    }
+
+    return () => cleanups.forEach((fn) => fn())
   }, [])
 
   if (view === 'loading') {

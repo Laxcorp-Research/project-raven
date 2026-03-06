@@ -266,6 +266,11 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.on('auth:login-completed', handler)
     return () => ipcRenderer.removeListener('auth:login-completed', handler)
   },
+  onAuthSessionExpired: (callback: (data: { reason: string }) => void) => {
+    const handler = (_event: unknown, data: { reason: string }) => callback(data)
+    ipcRenderer.on('auth:session-expired', handler)
+    return () => ipcRenderer.removeListener('auth:session-expired', handler)
+  },
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),

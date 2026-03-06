@@ -302,6 +302,23 @@ export function OverlayWindow() {
       })
     })
 
+    const unsubAuthExpired = window.raven.onAuthSessionExpired?.(() => {
+      requestInFlightRef.current = false
+      setIsLoadingResponse(false)
+      setActiveResponseId(null)
+      activeResponseIdRef.current = null
+      setResponses((prev) => [
+        ...prev,
+        {
+          id: `auth-expired-${Date.now()}`,
+          content: 'Your session has expired. Please sign in again from the dashboard to continue using AI features.',
+          action: 'Session Expired',
+          badgeVariant: 'system' as const,
+          hasScreenshot: false,
+        },
+      ])
+    }) ?? (() => {})
+
     return () => {
       unsubStealth()
       unsubRecording()
@@ -309,6 +326,7 @@ export function OverlayWindow() {
       unsubClaude()
       unsubAi()
       unsubSessionLimit()
+      unsubAuthExpired()
       clearHideXTimer()
       cleanupResize()
       if (copiedResetTimerRef.current) {

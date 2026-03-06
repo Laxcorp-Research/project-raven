@@ -194,6 +194,7 @@ function boot(): void {
   const dashboard = createDashboardWindow(preloadPath, rendererURL)
   const overlay = createOverlayWindow(preloadPath, rendererURL)
   const claudeService = new ClaudeService(overlay)
+  claudeService.setWindows(dashboard, overlay)
 
   sessionManager.setWindows(dashboard, overlay)
   sessionManager.recoverSession()
