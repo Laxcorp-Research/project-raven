@@ -156,6 +156,29 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.removeListener('transcription:status', handler)
     }
   },
+  onTranscriptionConnectionState: (callback: (data: {
+    phase: 'idle' | 'connecting' | 'retrying' | 'connected' | 'failed'
+    provider?: 'recall' | 'assemblyai' | 'deepgram' | null
+    retryCount?: number
+    maxRetries?: number
+    nextRetryAt?: number | null
+    message?: string
+    error?: string
+  }) => void) => {
+    const handler = (_event: unknown, data: {
+      phase: 'idle' | 'connecting' | 'retrying' | 'connected' | 'failed'
+      provider?: 'recall' | 'assemblyai' | 'deepgram' | null
+      retryCount?: number
+      maxRetries?: number
+      nextRetryAt?: number | null
+      message?: string
+      error?: string
+    }) => callback(data)
+    ipcRenderer.on('transcription:connection-state', handler)
+    return () => {
+      ipcRenderer.removeListener('transcription:connection-state', handler)
+    }
+  },
   startTestTranscription: (deviceId: string) => ipcRenderer.invoke('transcription:start-test', deviceId),
   stopTestTranscription: () => ipcRenderer.invoke('transcription:stop-test'),
   sendTestAudio: (buffer: ArrayBuffer) => ipcRenderer.invoke('transcription:send-test-audio', buffer),

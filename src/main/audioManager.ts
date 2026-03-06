@@ -42,6 +42,9 @@ export class AudioManager {
   private usingAssemblyAI = false
   private usingRecall = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
+  private transcriptionStartupAbort: AbortController | null = null
+  private transcriptionRetryTimer: ReturnType<typeof setTimeout> | null = null
+  private proSessionStarted = false
 
   constructor() {
     this.transcriptionService = new TranscriptionService()
@@ -91,6 +94,7 @@ export class AudioManager {
       log.info('Starting recording...')
 
       try {
+      let shouldStartProRetryLoop = false
 
       if (process.platform === 'darwin') {
         const perms = checkPermissionsForRecording()
@@ -131,13 +135,12 @@ export class AudioManager {
         } else {
           // Fall back to native capture + AssemblyAI/Deepgram
           this.usingRecall = false
-          await this.startProTranscription()
-
           const captureStarted = startCapture()
           if (!captureStarted) {
             log.error('Native audio capture failed to start')
             return { success: false, error: 'Audio capture failed to start' }
           }
+          shouldStartProRetryLoop = true
         }
 
         // Start session time limit for FREE users
@@ -165,16 +168,44 @@ export class AudioManager {
         }
       }
 
-      sessionManager.startSession(null)
-
       this.isRecording = true
       this.chunkCount = 0
       this.recordingStartTime = Date.now()
+      this.proSessionStarted = false
       this.broadcastRecordingState(true)
       log.info(
         'Recording started',
         deviceId ? `device: ${deviceId}` : '(default)'
       )
+
+      if (isProMode() && this.usingRecall && this.activeProvider) {
+        // Recall implies transcription is already connected.
+        this.broadcastTranscriptionConnectionState({
+          phase: 'connected',
+          provider: 'recall',
+          retryCount: 0,
+          maxRetries: 3,
+          nextRetryAt: null,
+        })
+        this.startSessionOnce()
+      } else if (isProMode()) {
+        this.broadcastTranscriptionConnectionState({
+          phase: 'connecting',
+          provider: 'assemblyai',
+          retryCount: 0,
+          maxRetries: 3,
+          nextRetryAt: null,
+        })
+      }
+
+      if (shouldStartProRetryLoop) {
+        // Start transcription asynchronously with retries. Recording can begin
+        // immediately, but we delay session creation until transcription is connected.
+        this.startProTranscriptionWithRetries().catch((err) => {
+          log.error('Pro transcription retry loop crashed:', err)
+        })
+      }
+
       return { success: true }
 
       } finally {
@@ -183,41 +214,7 @@ export class AudioManager {
     })
 
     ipcMain.handle('audio:stop-recording', async () => {
-      this.clearSessionTimer()
-
-      if (!this.usingRecall) {
-        stopCapture()
-      }
-
-      if (this.activeProvider) {
-        await this.activeProvider.stop()
-      }
-
-      const session = sessionManager.endSession()
-      if (session) {
-        log.info('Session saved with', session.transcript.length, 'entries')
-      }
-
-      if (this.activeProvider) {
-        this.activeProvider.clearTranscript()
-      }
-      this.activeProvider = null
-      this.usingAssemblyAI = false
-      this.usingRecall = false
-
-      this.isRecording = false
-      const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
-      this.recordingStartTime = null
-      this.broadcastRecordingState(false, session?.id || null)
-
-      if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
-        this.dashboardWindow.show()
-        this.dashboardWindow.focus()
-      }
-      log.info(
-        `Recording stopped. Chunks: ${this.chunkCount}, Duration: ${Math.round(duration / 1000)}s`
-      )
-      return { success: true, duration }
+      return await this.stopRecordingInternal({ reason: 'USER_STOP' })
     })
 
     ipcMain.handle('audio:get-state', async () => {
@@ -247,6 +244,270 @@ export class AudioManager {
       const provider = this.activeProvider || this.transcriptionService
       return provider.getTranscriptBySource(source)
     })
+  }
+
+  private startSessionOnce(): void {
+    if (this.proSessionStarted) return
+    this.proSessionStarted = true
+    sessionManager.startSession(null)
+  }
+
+  private broadcastTranscriptionConnectionState(payload: {
+    phase: 'idle' | 'connecting' | 'retrying' | 'connected' | 'failed'
+    provider?: 'recall' | 'assemblyai' | 'deepgram' | null
+    retryCount?: number
+    maxRetries?: number
+    nextRetryAt?: number | null
+    message?: string
+    error?: string
+  }): void {
+    try {
+      if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+        this.overlayWindow.webContents.send('transcription:connection-state', payload)
+      }
+    } catch { /* ignore */ }
+    try {
+      if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
+        this.dashboardWindow.webContents.send('transcription:connection-state', payload)
+      }
+    } catch { /* ignore */ }
+  }
+
+  private clearTranscriptionRetryLoop(): void {
+    if (this.transcriptionRetryTimer) {
+      clearTimeout(this.transcriptionRetryTimer)
+      this.transcriptionRetryTimer = null
+    }
+    if (this.transcriptionStartupAbort) {
+      try { this.transcriptionStartupAbort.abort() } catch { /* ignore */ }
+      this.transcriptionStartupAbort = null
+    }
+  }
+
+  private async stopRecordingInternal(opts: { reason: 'USER_STOP' | 'TRANSCRIPTION_FAILED' | 'SESSION_TIME_LIMIT' }): Promise<{ success: boolean; duration: number }> {
+    this.clearSessionTimer()
+    this.clearTranscriptionRetryLoop()
+    this.broadcastTranscriptionConnectionState({ phase: 'idle', provider: null, retryCount: 0, maxRetries: 3, nextRetryAt: null })
+
+    if (!this.usingRecall) {
+      stopCapture()
+    }
+
+    if (this.activeProvider) {
+      await this.activeProvider.stop()
+    }
+
+    const session = sessionManager.endSession()
+    if (session) {
+      log.info('Session saved with', session.transcript.length, 'entries')
+    }
+
+    if (this.activeProvider) {
+      this.activeProvider.clearTranscript()
+    }
+    this.activeProvider = null
+    this.usingAssemblyAI = false
+    this.usingRecall = false
+    this.proSessionStarted = false
+
+    this.isRecording = false
+    const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
+    this.recordingStartTime = null
+    this.broadcastRecordingState(false, session?.id || null)
+
+    if (opts.reason === 'TRANSCRIPTION_FAILED') {
+      this.broadcastTranscriptionConnectionState({
+        phase: 'failed',
+        provider: null,
+        retryCount: 3,
+        maxRetries: 3,
+        nextRetryAt: null,
+        error: 'Couldn’t connect to transcription after multiple retries.',
+      })
+    }
+
+    if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
+      this.dashboardWindow.show()
+      this.dashboardWindow.focus()
+    }
+    log.info(
+      `Recording stopped (${opts.reason}). Chunks: ${this.chunkCount}, Duration: ${Math.round(duration / 1000)}s`
+    )
+    return { success: true, duration }
+  }
+
+  private async startProTranscriptionWithRetries(): Promise<void> {
+    // Cancel any previous loop
+    this.clearTranscriptionRetryLoop()
+    this.transcriptionStartupAbort = new AbortController()
+    const { signal } = this.transcriptionStartupAbort
+
+    const CONNECT_TIMEOUT_MS = 5000
+    const RETRY_EVERY_MS = 10_000
+    const MAX_RETRIES = 3 // retries after initial attempt (total attempts = 4)
+
+    const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
+      let t: ReturnType<typeof setTimeout> | null = null
+      try {
+        return await Promise.race([
+          p,
+          new Promise<T>((_resolve, reject) => {
+            t = setTimeout(() => reject(new Error('CONNECT_TIMEOUT')), ms)
+          }),
+        ])
+      } finally {
+        if (t) clearTimeout(t)
+      }
+    }
+
+    const stopIfAborted = () => {
+      if (signal.aborted || !this.isRecording) {
+        throw new Error('ABORTED')
+      }
+    }
+
+    const attemptChainOnce = async (): Promise<{ ok: boolean }> => {
+      stopIfAborted()
+
+      // 1) AssemblyAI
+      try {
+        this.broadcastTranscriptionConnectionState({
+          phase: 'connecting',
+          provider: 'assemblyai',
+        })
+        const { AssemblyAITranscriptionService } = await import(
+          /* @vite-ignore */ '../pro/main/assemblyAITranscriptionService'
+        )
+        const aaiService = new AssemblyAITranscriptionService()
+        aaiService.setWindows(this.dashboardWindow, this.overlayWindow)
+        aaiService.setFallbackHandler(async () => {
+          // Fallback during an active session is handled by the service.
+          // Startup retries are coordinated by AudioManager.
+          log.warn('AssemblyAI signaled fallback during active session')
+        })
+
+        const result = await withTimeout(aaiService.start(), CONNECT_TIMEOUT_MS)
+        stopIfAborted()
+
+        if (result?.success) {
+          this.activeProvider = aaiService
+          this.usingAssemblyAI = true
+          log.info('Pro transcription: AssemblyAI connected')
+          this.broadcastTranscriptionConnectionState({
+            phase: 'connected',
+            provider: 'assemblyai',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+            nextRetryAt: null,
+          })
+          this.startSessionOnce()
+          return { ok: true }
+        }
+
+        try { await aaiService.stop() } catch { /* ignore */ }
+      } catch (err) {
+        if (err instanceof Error && err.message === 'CONNECT_TIMEOUT') {
+          log.warn('AssemblyAI connect timed out')
+        } else if (err instanceof Error && err.message === 'ABORTED') {
+          throw err
+        } else {
+          log.warn('AssemblyAI connect failed:', err)
+        }
+      }
+
+      // 2) Deepgram fallback
+      stopIfAborted()
+      try {
+        this.broadcastTranscriptionConnectionState({
+          phase: 'connecting',
+          provider: 'deepgram',
+        })
+
+        // Ensure any previous Deepgram attempts are cleaned up
+        try { await this.transcriptionService.stop() } catch { /* ignore */ }
+
+        // In pro mode, the Deepgram key comes from the backend. Ensure it's cached.
+        let deepgramKey = getSetting('deepgramApiKey')
+        if (!deepgramKey) {
+          try {
+            const { fetchAndCacheDeepgramKey } = await import(
+              /* @vite-ignore */ '../pro/main/managedKeyService'
+            )
+            await fetchAndCacheDeepgramKey()
+            deepgramKey = getSetting('deepgramApiKey')
+          } catch {
+            log.warn('Could not fetch managed Deepgram key')
+          }
+        }
+
+        if (!deepgramKey) {
+          log.warn('No Deepgram key available for fallback')
+          return { ok: false }
+        }
+
+        this.transcriptionService.setApiKey(deepgramKey as string)
+        this.transcriptionService.clearTranscript()
+        const deepgramResult = await withTimeout(this.transcriptionService.start(), CONNECT_TIMEOUT_MS)
+        stopIfAborted()
+
+        if (deepgramResult?.success) {
+          this.activeProvider = this.transcriptionService
+          this.usingAssemblyAI = false
+          log.info('Pro transcription: Deepgram fallback connected')
+          this.broadcastTranscriptionConnectionState({
+            phase: 'connected',
+            provider: 'deepgram',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+            nextRetryAt: null,
+          })
+          this.startSessionOnce()
+          return { ok: true }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message === 'CONNECT_TIMEOUT') {
+          log.warn('Deepgram connect timed out')
+        } else if (err instanceof Error && err.message === 'ABORTED') {
+          throw err
+        } else {
+          log.warn('Deepgram connect failed:', err)
+        }
+      }
+
+      this.activeProvider = null
+      this.usingAssemblyAI = false
+      return { ok: false }
+    }
+
+    let retries = 0
+    const maxRetries = MAX_RETRIES
+
+    while (!signal.aborted && this.isRecording) {
+      const chain = await attemptChainOnce()
+      if (chain.ok) return
+
+      if (retries >= maxRetries) {
+        log.error('All transcription providers failed after retries — auto-stopping recording')
+        await this.stopRecordingInternal({ reason: 'TRANSCRIPTION_FAILED' })
+        return
+      }
+
+      const nextRetryAt = Date.now() + RETRY_EVERY_MS
+      this.broadcastTranscriptionConnectionState({
+        phase: 'retrying',
+        provider: null,
+        retryCount: retries,
+        maxRetries,
+        nextRetryAt,
+        message: 'Retrying transcription connection...',
+      })
+
+      await new Promise<void>((resolve) => {
+        this.transcriptionRetryTimer = setTimeout(() => resolve(), RETRY_EVERY_MS)
+      })
+      this.transcriptionRetryTimer = null
+      retries++
+    }
   }
 
   private broadcastRecordingState(isRecording: boolean, endedSessionId: string | null = null): void {
@@ -440,24 +701,58 @@ export class AudioManager {
       log.error('Failed to load AssemblyAI service:', err)
       await this.startDeepgramFallback()
     }
+
+    if (!this.activeProvider) {
+      log.error('All transcription providers failed — notifying user')
+      this.broadcastError('Transcription unavailable — please restart the app or check your connection.')
+    }
   }
 
   private async startDeepgramFallback(): Promise<void> {
-    const deepgramKey = getSetting('deepgramApiKey')
+    let deepgramKey = getSetting('deepgramApiKey')
+
+    // In pro mode, the Deepgram key comes from the backend. Ensure it's cached.
+    if (!deepgramKey && isProMode()) {
+      try {
+        const { fetchAndCacheDeepgramKey } = await import(
+          /* @vite-ignore */ '../pro/main/managedKeyService'
+        )
+        await fetchAndCacheDeepgramKey()
+        deepgramKey = getSetting('deepgramApiKey')
+      } catch {
+        log.warn('Could not fetch managed Deepgram key')
+      }
+    }
+
     if (!deepgramKey) {
-      log.warn('No Deepgram key available for fallback — transcription disabled')
+      log.error('No Deepgram key available for fallback — transcription disabled')
       return
     }
 
-    this.transcriptionService.setApiKey(deepgramKey)
+    this.transcriptionService.setApiKey(deepgramKey as string)
     this.transcriptionService.clearTranscript()
     this.activeProvider = this.transcriptionService
     const result = await this.transcriptionService.start()
     if (!result.success) {
       log.error('Deepgram fallback also failed:', result.error)
+      this.activeProvider = null
     } else {
       log.info('Deepgram fallback active')
     }
+  }
+
+  private broadcastError(message: string): void {
+    const payload = { id: `sys-${Date.now()}`, message, type: 'error' }
+    try {
+      if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+        this.overlayWindow.webContents.send('notification', payload)
+      }
+    } catch { /* ignore */ }
+    try {
+      if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
+        this.dashboardWindow.webContents.send('notification', payload)
+      }
+    } catch { /* ignore */ }
   }
 
   async shutdown(): Promise<void> {

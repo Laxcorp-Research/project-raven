@@ -204,6 +204,15 @@ declare global {
         interims?: { mic: string; system: string };
       }) => void) => () => void;
       onTranscriptionStatus: (callback: (data: { status: string }) => void) => () => void;
+      onTranscriptionConnectionState: (callback: (data: {
+        phase: 'idle' | 'connecting' | 'retrying' | 'connected' | 'failed';
+        provider?: 'recall' | 'assemblyai' | 'deepgram' | null;
+        retryCount?: number;
+        maxRetries?: number;
+        nextRetryAt?: number | null;
+        message?: string;
+        error?: string;
+      }) => void) => () => void;
       startTestTranscription: (deviceId: string) => Promise<{ success: boolean; error?: string }>;
       stopTestTranscription: () => Promise<{ success: boolean }>;
       sendTestAudio: (buffer: ArrayBuffer) => Promise<{ success: boolean }>;
