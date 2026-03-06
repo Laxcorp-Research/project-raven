@@ -230,7 +230,9 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
     )
   }
 
-  if (sessions.length === 0) {
+  const activeId = activeSession?.id || activeSessionId
+
+  if (sessions.length === 0 && !activeSession) {
     return (
       <div className="p-8 text-center">
         <p className="text-gray-500 text-sm">No sessions yet</p>
@@ -238,8 +240,6 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       </div>
     )
   }
-
-  const activeId = activeSession?.id || activeSessionId
   const mergedSessions = activeSession
     ? (() => {
         const activeItem: Session = {
