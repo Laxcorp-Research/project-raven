@@ -28,10 +28,13 @@ function App(): JSX.Element {
   const [view, setView] = useState<AppView>('loading')
   const [proAuthenticated, setProAuthenticated] = useState(false)
 
+  const [windowType, setWindowType] = useState<'dashboard' | 'overlay' | 'unknown' | null>(null)
+
   useEffect(() => {
     async function init() {
       try {
         const type = await window.raven.windowGetType()
+        setWindowType(type)
 
         if (type === 'overlay') {
           setView('overlay')
@@ -102,16 +105,20 @@ function App(): JSX.Element {
 
     try {
       cleanups.push(window.raven.onAuthSessionExpired?.(() => {
-        log.warn('Auth session expired — redirecting to login')
-        setProAuthenticated(false)
-        setView('onboarding-pro')
+        // Only redirect to login from the dashboard — the overlay handles
+        // auth expiry by showing a card, not by replacing its UI.
+        if (windowType !== 'overlay') {
+          log.warn('Auth session expired — redirecting to login')
+          setProAuthenticated(false)
+          setView('onboarding-pro')
+        }
       }) ?? (() => {}))
     } catch {
       // not in pro mode
     }
 
     return () => cleanups.forEach((fn) => fn())
-  }, [])
+  }, [windowType])
 
   if (view === 'loading') {
     return (
