@@ -265,6 +265,7 @@ export class ClaudeService {
         }
 
         let fullResponse = '';
+        let streamHadError = false;
 
         let systemPrompt: string
         if (getServerSystemPrompt) {
@@ -298,6 +299,7 @@ export class ClaudeService {
                 // handled below after await
               },
               onError: (errorMsg) => {
+                streamHadError = true;
                 this.isProcessing = false;
                 this.broadcastError(errorMsg);
               },
@@ -305,6 +307,11 @@ export class ClaudeService {
           ),
           streamTimeout,
         ]);
+
+        if (streamHadError) {
+          this.isProcessing = false;
+          return;
+        }
 
         const assistantMessage: ChatMessage = {
           id: assistantMessageId,

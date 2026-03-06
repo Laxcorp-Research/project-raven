@@ -387,11 +387,12 @@ class DatabaseService {
   searchSessions(query: string): Session[] {
     if (!this.db) throw new Error('Database not initialized');
 
-    const searchPattern = `%${query}%`;
+    const escaped = query.replace(/[%_\\]/g, '\\$&');
+    const searchPattern = `%${escaped}%`;
     const rows = this.db
       .prepare(
         `SELECT * FROM sessions 
-         WHERE title LIKE ? OR transcript_json LIKE ? 
+         WHERE title LIKE ? ESCAPE '\\' OR transcript_json LIKE ? ESCAPE '\\' 
          ORDER BY started_at DESC`
       )
       .all(searchPattern, searchPattern) as SessionRow[];

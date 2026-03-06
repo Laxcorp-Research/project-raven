@@ -26,6 +26,8 @@ interface TranscriptEntry {
   isFinal: boolean;
 }
 
+const RECONNECT_BUFFER_MAX_CHUNKS = 50;
+
 interface ConnectionState {
   ws: WebSocket | null;
   isConnected: boolean;
@@ -33,6 +35,7 @@ interface ConnectionState {
   currentInterim: string;
   sendCount?: number;
   reconnectAttempts?: number;
+  pendingAudio?: Buffer[];
 }
 
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -176,12 +179,18 @@ export class TranscriptionService {
     }
   }
 
+  private reconnecting = new Set<AudioSource>();
+
   private async attemptReconnect(source: AudioSource): Promise<void> {
+    if (this.reconnecting.has(source)) return;
+    this.reconnecting.add(source);
+
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
     state.reconnectAttempts = (state.reconnectAttempts || 0) + 1;
 
     if (state.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
       log.error(`${source} exceeded max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}), giving up`);
+      this.reconnecting.delete(source);
       this.broadcastStatus(`${source}-disconnected`);
       return;
     }
@@ -193,11 +202,13 @@ export class TranscriptionService {
 
     if (!this.isActive) {
       log.debug(`${source} session ended during reconnect wait, aborting`);
+      this.reconnecting.delete(source);
       return;
     }
 
     state.sendCount = 0;
     const result = await this.startConnection(source);
+    this.reconnecting.delete(source);
     if (result.success) {
       log.info(`${source} reconnected successfully`);
       state.reconnectAttempts = 0;
@@ -235,6 +246,8 @@ export class TranscriptionService {
         lastEntry.timestamp = now;
       } else {
         if (this.transcriptEntries.length >= MAX_TRANSCRIPT_ENTRIES) {
+          const dropped = this.transcriptEntries.length - Math.floor(MAX_TRANSCRIPT_ENTRIES * 0.8);
+          log.warn(`Transcript cap reached (${MAX_TRANSCRIPT_ENTRIES}) — dropping ${dropped} oldest entries`);
           this.transcriptEntries = this.transcriptEntries.slice(-Math.floor(MAX_TRANSCRIPT_ENTRIES * 0.8));
         }
         const entry: TranscriptEntry = {
@@ -299,16 +312,26 @@ export class TranscriptionService {
    */
   sendAudio(buffer: Buffer | ArrayBuffer, source: AudioSource): void {
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
+    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 
     if (!state.ws || !state.isConnected) {
-      if (Math.random() < 0.01) {
-        log.debug(`${source} not connected, dropping audio`);
+      if (!state.pendingAudio) state.pendingAudio = [];
+      if (state.pendingAudio.length < RECONNECT_BUFFER_MAX_CHUNKS) {
+        state.pendingAudio.push(buf);
       }
       return;
     }
 
+    // Flush any buffered audio from a recent reconnect
+    if (state.pendingAudio && state.pendingAudio.length > 0) {
+      log.info(`${source} flushing ${state.pendingAudio.length} buffered chunks after reconnect`);
+      for (const pending of state.pendingAudio) {
+        try { state.ws.send(pending); } catch { break; }
+      }
+      state.pendingAudio = [];
+    }
+
     try {
-      const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
       state.sendCount = (state.sendCount || 0) + 1;
       if (state.sendCount <= 5 || state.sendCount % 200 === 0) {
         const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.min(10, buf.byteLength / 2));

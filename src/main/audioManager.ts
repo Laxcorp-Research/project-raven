@@ -589,46 +589,20 @@ export class AudioManager {
       if (!this.isRecording) return
       log.info('Free-tier session time limit reached — auto-stopping')
 
-      const doStop = async () => {
-        const payload = { type: 'SESSION_TIME_LIMIT' }
-        try {
-          if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-            this.overlayWindow.webContents.send('audio:session-limit', payload)
-          }
-        } catch { /* ignore */ }
-        try {
-          if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
-            this.dashboardWindow.webContents.send('audio:session-limit', payload)
-          }
-        } catch { /* ignore */ }
-
-        if (!this.usingRecall) {
-          stopCapture()
+      const payload = { type: 'SESSION_TIME_LIMIT' }
+      try {
+        if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
+          this.overlayWindow.webContents.send('audio:session-limit', payload)
         }
-
-        if (this.activeProvider) {
-          await this.activeProvider.stop()
+      } catch { /* ignore */ }
+      try {
+        if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
+          this.dashboardWindow.webContents.send('audio:session-limit', payload)
         }
+      } catch { /* ignore */ }
 
-        const session = sessionManager.endSession()
-        if (session) {
-          log.info('Session auto-stopped with', session.transcript.length, 'entries')
-        }
-
-        if (this.activeProvider) {
-          this.activeProvider.clearTranscript()
-        }
-        this.activeProvider = null
-        this.usingAssemblyAI = false
-        this.usingRecall = false
-        this.isRecording = false
-        const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
-        this.recordingStartTime = null
-        this.broadcastRecordingState(false, session?.id || null)
-        log.info(`Free-tier session ended after ${Math.round(duration / 1000)}s`)
-      }
-
-      doStop().catch((err) => log.error('Session auto-stop failed:', err))
+      this.stopRecordingInternal({ reason: 'SESSION_TIME_LIMIT' })
+        .catch((err) => log.error('Session auto-stop failed:', err))
     }, maxSeconds * 1000)
   }
 
@@ -731,6 +705,7 @@ export class AudioManager {
 
     log.info('Shutdown: stopping active recording...')
     this.clearSessionTimer()
+    this.clearTranscriptionRetryLoop()
 
     if (!this.usingRecall) {
       stopCapture()

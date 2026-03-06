@@ -406,8 +406,10 @@ export function OverlayWindow() {
 
       try {
         const result = await window.raven.audioStartRecording() as { success: boolean; code?: string; error?: string }
-        if (result && !result.success && result.code === 'SESSION_LIMIT') {
-          setLimitInfo({ used: 1, limit: 1, resetAt: '' })
+        if (result && !result.success) {
+          if (result.code === 'SESSION_LIMIT') {
+            setLimitInfo({ used: 1, limit: 1, resetAt: '' })
+          }
           setIsStarting(false)
           return
         }
