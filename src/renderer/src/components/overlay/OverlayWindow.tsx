@@ -4,7 +4,6 @@ import {
   useCallback,
   useRef,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent
 } from 'react'
 import Markdown from 'react-markdown'
 import remarkMath from 'remark-math'
@@ -18,6 +17,9 @@ import { ControllerPill } from './ControllerPill'
 import { TranscriptTab } from './TranscriptTab'
 import { OverlayNotification, type NotificationData } from './OverlayNotification'
 import { useAppMode } from '../../hooks/useAppMode'
+import { useOverlayResize } from './useOverlayResize'
+import { useOverlayDrag } from './useOverlayDrag'
+import { useMousePassthrough } from './useMousePassthrough'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('OverlayWindow')
@@ -30,16 +32,6 @@ interface ResponseCard {
   hasScreenshot: boolean
   screenshotPreviewData?: string
 }
-
-type ResizeEdge = 'left' | 'right' | 'bottom'
-
-const OVERLAY_MIN_WIDTH = 480
-const OVERLAY_DEFAULT_WIDTH = 480
-const OVERLAY_COMPACT_MIN_HEIGHT = 210
-const OVERLAY_DEFAULT_COMPACT_HEIGHT = 216
-const OVERLAY_EXPANDED_MIN_HEIGHT = 350
-const OVERLAY_DEFAULT_EXPANDED_HEIGHT = 500
-const PANEL_EDGE_MARGIN = 20
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false)
@@ -103,6 +95,31 @@ const getActionLabel = (action?: string): string => {
 export function OverlayWindow() {
   const { isPro } = useAppMode()
 
+  // --- Extracted hooks ---
+  const resize = useOverlayResize()
+  const {
+    panelWidth, panelRight, panelBottom, panelHeight,
+    setPanelRight, setPanelBottom, setPanelHeight,
+    hoveredResizeEdge, setHoveredResizeEdge,
+    activeResizeEdge,
+    handleResizeStart,
+    handleResizeDoubleClick,
+    cleanupResize,
+    OVERLAY_DEFAULT_COMPACT_HEIGHT,
+    OVERLAY_DEFAULT_EXPANDED_HEIGHT,
+  } = resize
+
+  // Hit-test refs (shared between passthrough and resize rail rendering)
+  const pillWrapperRef = useRef<HTMLDivElement | null>(null)
+  const panelWrapperRef = useRef<HTMLDivElement | null>(null)
+  const leftRailRef = useRef<HTMLDivElement | null>(null)
+  const rightRailRef = useRef<HTMLDivElement | null>(null)
+  const bottomRailRef = useRef<HTMLDivElement | null>(null)
+
+  const { setOverlayMouseIgnore } = useMousePassthrough({
+    pillWrapperRef, panelWrapperRef, leftRailRef, rightRailRef, bottomRailRef,
+  })
+
   // State
   const [isRecording, setIsRecording] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
@@ -115,16 +132,6 @@ export function OverlayWindow() {
   const [responses, setResponses] = useState<ResponseCard[]>([])
   const [isLoadingResponse, setIsLoadingResponse] = useState(false)
   const [activeResponseId, setActiveResponseId] = useState<string | null>(null)
-  const [panelWidth, setPanelWidth] = useState(OVERLAY_DEFAULT_WIDTH)
-  const [panelBottom, setPanelBottom] = useState(() =>
-    Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerHeight - OVERLAY_DEFAULT_COMPACT_HEIGHT) / 2))
-  )
-  const [panelRight, setPanelRight] = useState(() =>
-    Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerWidth - OVERLAY_DEFAULT_WIDTH) / 2))
-  )
-  const [panelHeight, setPanelHeight] = useState<number | undefined>(undefined)
-  const [hoveredResizeEdge, setHoveredResizeEdge] = useState<ResizeEdge | null>(null)
-  const [activeResizeEdge, setActiveResizeEdge] = useState<ResizeEdge | null>(null)
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null)
   const [previewMessageId, setPreviewMessageId] = useState<string | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -141,18 +148,17 @@ export function OverlayWindow() {
   const activeResponseIdRef = useRef<string | null>(null)
   const requestInFlightRef = useRef(false)
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
-  const pillWrapperRef = useRef<HTMLDivElement | null>(null)
-  const panelWrapperRef = useRef<HTMLDivElement | null>(null)
-  const leftRailRef = useRef<HTMLDivElement | null>(null)
-  const rightRailRef = useRef<HTMLDivElement | null>(null)
-  const bottomRailRef = useRef<HTMLDivElement | null>(null)
-  const resizeCleanupRef = useRef<(() => void) | null>(null)
-  
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const mouseIgnoreRef = useRef<boolean>(false)
-  const logoDragMovedRef = useRef(false)
-  const logoDragCleanupRef = useRef<(() => void) | null>(null)
+
+  const hasResponse = responses.length > 0 || isLoadingResponse
+  const isPanelExpanded = hasResponse || isRecording
+
+  const { handleLogoClick, handleLogoMouseDown, cleanupDrag } = useOverlayDrag({
+    panelRight, panelBottom, panelWidth, panelHeight,
+    defaultCompactHeight: OVERLAY_DEFAULT_COMPACT_HEIGHT,
+    setPanelRight, setPanelBottom, setOverlayMouseIgnore,
+  })
 
   const clearHideXTimer = () => {
     if (hideXTimerRef.current) {
@@ -160,35 +166,6 @@ export function OverlayWindow() {
       hideXTimerRef.current = null
     }
   }
-
-  const setOverlayMouseIgnore = useCallback((ignore: boolean) => {
-    if (mouseIgnoreRef.current === ignore) return
-    mouseIgnoreRef.current = ignore
-    void window.raven.windowSetIgnoreMouseEvents(ignore)
-  }, [])
-
-  const isInside = useCallback((rect: DOMRect, x: number, y: number): boolean => {
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-  }, [])
-
-  const isOverInteractiveUi = useCallback((x: number, y: number): boolean => {
-    const pillRect = pillWrapperRef.current?.getBoundingClientRect()
-    if (pillRect && isInside(pillRect, x, y)) return true
-
-    const panelRect = panelWrapperRef.current?.getBoundingClientRect()
-    if (panelRect && isInside(panelRect, x, y)) return true
-
-    const leftRailRect = leftRailRef.current?.getBoundingClientRect()
-    if (leftRailRect && isInside(leftRailRect, x, y)) return true
-
-    const rightRailRect = rightRailRef.current?.getBoundingClientRect()
-    if (rightRailRect && isInside(rightRailRect, x, y)) return true
-
-    const bottomRailRect = bottomRailRef.current?.getBoundingClientRect()
-    if (bottomRailRect && isInside(bottomRailRect, x, y)) return true
-
-    return false
-  }, [isInside])
 
   // Initialize
   useEffect(() => {
@@ -333,7 +310,7 @@ export function OverlayWindow() {
       unsubAi()
       unsubSessionLimit()
       clearHideXTimer()
-      resizeCleanupRef.current?.()
+      cleanupResize()
       if (copiedResetTimerRef.current) {
         clearTimeout(copiedResetTimerRef.current)
         copiedResetTimerRef.current = null
@@ -344,32 +321,10 @@ export function OverlayWindow() {
         clearTimeout(scrollHideTimerRef.current)
         scrollHideTimerRef.current = null
       }
-      logoDragCleanupRef.current?.()
+      cleanupDrag()
       setOverlayMouseIgnore(false)
     }
   }, [setOverlayMouseIgnore])
-
-  useEffect(() => {
-    // Default to pass-through so only visible UI captures input.
-    setOverlayMouseIgnore(true)
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const shouldCapture = isOverInteractiveUi(event.clientX, event.clientY)
-      setOverlayMouseIgnore(!shouldCapture)
-    }
-
-    const handleWindowBlur = () => {
-      setOverlayMouseIgnore(true)
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('blur', handleWindowBlur)
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('blur', handleWindowBlur)
-    }
-  }, [isOverInteractiveUi, setOverlayMouseIgnore])
 
   useEffect(() => {
     const MOVE_STEP = 50
@@ -420,8 +375,6 @@ export function OverlayWindow() {
     responseAreaRef.current.scrollTo({ top: responseAreaRef.current.scrollHeight, behavior: 'smooth' })
     setIsAtBottom(true)
   }, [])
-
-  const hasResponse = responses.length > 0 || isLoadingResponse
 
   const handleToggleRecording = useCallback(async () => {
     if (isRecording) {
@@ -487,68 +440,6 @@ export function OverlayWindow() {
     setIncognitoMode(next)
     await window.raven.storeSet('incognitoMode', next)
   }, [incognitoMode])
-
-  const handleLogoClick = () => {
-    if (logoDragMovedRef.current) {
-      logoDragMovedRef.current = false
-      return
-    }
-    window.raven.windowShowDashboard?.()
-  }
-
-  const handleLogoMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    setOverlayMouseIgnore(false)
-
-    logoDragCleanupRef.current?.()
-    logoDragMovedRef.current = false
-
-    const startRight = panelRight
-    const startBottom = panelBottom
-    const currentW = panelWidth
-    const currentH = panelHeight ?? OVERLAY_DEFAULT_COMPACT_HEIGHT
-    const startX = event.screenX
-    const startY = event.screenY
-    const originalCursor = document.body.style.cursor
-    const originalUserSelect = document.body.style.userSelect
-    document.body.style.setProperty('cursor', 'default', 'important')
-    document.body.style.userSelect = 'none'
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.screenX - startX
-      const dy = moveEvent.screenY - startY
-
-      if (!logoDragMovedRef.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
-        logoDragMovedRef.current = true
-      }
-
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-      const newRight = Math.min(Math.max(0, startRight - dx), vw - currentW)
-      const newBottom = Math.min(Math.max(0, startBottom - dy), vh - currentH)
-      setPanelRight(newRight)
-      setPanelBottom(newBottom)
-    }
-
-    const cleanup = () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-      document.body.style.removeProperty('cursor')
-      if (originalCursor) document.body.style.cursor = originalCursor
-      document.body.style.userSelect = originalUserSelect
-      logoDragCleanupRef.current = null
-    }
-
-    const onMouseUp = () => {
-      cleanup()
-    }
-
-    logoDragCleanupRef.current = cleanup
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp, { once: true })
-  }, [panelRight, panelBottom, panelWidth, panelHeight, setOverlayMouseIgnore])
 
   const handleAssist = async () => {
     if (requestInFlightRef.current) return
@@ -646,81 +537,6 @@ export function OverlayWindow() {
     }
   }, [])
 
-  const handleResizeStart = useCallback((edge: ResizeEdge, e: ReactMouseEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    resizeCleanupRef.current?.()
-
-    const startWidth = panelWidth
-    const startRight = panelRight
-    const startBottom = panelBottom
-    const expanded = hasResponse || isRecording
-    const startHeight = panelHeight ?? (expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT)
-    const startScreenX = e.screenX
-    const startScreenY = e.screenY
-    const originalCursor = document.body.style.cursor
-    const originalUserSelect = document.body.style.userSelect
-    document.body.style.cursor = edge === 'bottom' ? 'ns-resize' : 'ew-resize'
-    document.body.style.userSelect = 'none'
-    setActiveResizeEdge(edge)
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.screenX - startScreenX
-      const dy = moveEvent.screenY - startScreenY
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-
-      if (edge === 'left') {
-        const newWidth = Math.max(startWidth - dx, OVERLAY_MIN_WIDTH)
-        const maxWidth = vw - startRight
-        setPanelWidth(Math.min(newWidth, maxWidth))
-      } else if (edge === 'right') {
-        const newWidth = Math.max(startWidth + dx, OVERLAY_MIN_WIDTH)
-        const widthDelta = newWidth - startWidth
-        const newRight = Math.max(0, startRight - widthDelta)
-        const maxWidth = vw - newRight
-        setPanelWidth(Math.min(newWidth, maxWidth))
-        setPanelRight(newRight)
-      } else {
-        const minH = (hasResponse || isRecording) ? OVERLAY_EXPANDED_MIN_HEIGHT : OVERLAY_COMPACT_MIN_HEIGHT
-        const newHeight = Math.max(startHeight + dy, minH)
-        const heightDelta = newHeight - startHeight
-        const newBottom = Math.max(0, startBottom - heightDelta)
-        const maxHeight = vh - newBottom
-        setPanelHeight(Math.min(newHeight, maxHeight))
-        setPanelBottom(newBottom)
-      }
-    }
-
-    const cleanup = () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = originalCursor
-      document.body.style.userSelect = originalUserSelect
-      setActiveResizeEdge(null)
-      resizeCleanupRef.current = null
-    }
-
-    const onMouseUp = () => {
-      cleanup()
-    }
-
-    resizeCleanupRef.current = cleanup
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp, { once: true })
-  }, [hasResponse, panelWidth, panelRight, panelBottom, panelHeight])
-
-  const handleResizeDoubleClick = useCallback(() => {
-    const expanded = hasResponse || isRecording
-    const h = expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT
-    setPanelWidth(OVERLAY_DEFAULT_WIDTH)
-    setPanelHeight(expanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : undefined)
-    setPanelRight(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerWidth - OVERLAY_DEFAULT_WIDTH) / 2)))
-    setPanelBottom(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerHeight - h) / 2)))
-  }, [hasResponse, isRecording])
-
-  const isPanelExpanded = hasResponse || isRecording
   const showBottomResizeRail = hasResponse || isRecording
   const showX = isHoveringPanel || isHoveringX
 
@@ -836,9 +652,9 @@ export function OverlayWindow() {
           onMouseEnter={() => setHoveredResizeEdge('left')}
           onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'left' ? null : prev))}
           onMouseDown={(e) => {
-            void handleResizeStart('left', e)
+            void handleResizeStart('left', e, isPanelExpanded)
           }}
-          onDoubleClick={() => { void handleResizeDoubleClick() }}
+          onDoubleClick={() => { void handleResizeDoubleClick(isPanelExpanded) }}
         >
           <span
             className={`w-[5px] ${isPanelExpanded ? 'h-14' : 'h-8'} rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
@@ -853,9 +669,9 @@ export function OverlayWindow() {
           onMouseEnter={() => setHoveredResizeEdge('right')}
           onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'right' ? null : prev))}
           onMouseDown={(e) => {
-            void handleResizeStart('right', e)
+            void handleResizeStart('right', e, isPanelExpanded)
           }}
-          onDoubleClick={() => { void handleResizeDoubleClick() }}
+          onDoubleClick={() => { void handleResizeDoubleClick(isPanelExpanded) }}
         >
           <span
             className={`w-[5px] ${isPanelExpanded ? 'h-14' : 'h-8'} rounded-full bg-[#8f95a0] transition-opacity duration-150 ${
@@ -871,9 +687,9 @@ export function OverlayWindow() {
             onMouseEnter={() => setHoveredResizeEdge('bottom')}
             onMouseLeave={() => setHoveredResizeEdge((prev) => (prev === 'bottom' ? null : prev))}
             onMouseDown={(e) => {
-              void handleResizeStart('bottom', e)
+              void handleResizeStart('bottom', e, isPanelExpanded)
             }}
-            onDoubleClick={() => { void handleResizeDoubleClick() }}
+            onDoubleClick={() => { void handleResizeDoubleClick(isPanelExpanded) }}
           >
             <span
               className={`mt-1 h-[5px] w-14 rounded-full bg-[#8f95a0] transition-opacity duration-150 ${

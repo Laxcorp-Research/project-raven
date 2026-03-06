@@ -26,8 +26,8 @@ vi.mock('../../logger', () => ({
   }),
 }))
 
-vi.mock('fs', () => ({
-  readFileSync: vi.fn(),
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn(),
 }))
 
 vi.mock('../../services/database', () => {
@@ -112,8 +112,8 @@ describe('RAG Pipeline Integration', () => {
   })
 
   it('uploads a text file, chunks it, embeds, and stores', async () => {
-    const { readFileSync } = await import('fs')
-    vi.mocked(readFileSync).mockReturnValue(
+    const { readFile } = await import('fs/promises')
+    vi.mocked(readFile).mockResolvedValue(
       'This is the content of a test document that will be chunked and embedded for retrieval'
     )
 
@@ -136,7 +136,7 @@ describe('RAG Pipeline Integration', () => {
   })
 
   it('retrieves chunks sorted by cosine similarity to query', async () => {
-    const { readFileSync } = await import('fs')
+    const { readFile } = await import('fs/promises')
 
     // Reset counter for predictable embeddings
     embeddingCounter = 0
@@ -147,7 +147,7 @@ describe('RAG Pipeline Integration', () => {
       .mockResolvedValueOnce({ data: new Float32Array([0.0, 1.0, 0.0]) }) // chunk 1 (if > 1 chunk)
       .mockResolvedValueOnce({ data: new Float32Array([0.7, 0.7, 0.0]) }) // query embedding
 
-    vi.mocked(readFileSync).mockReturnValue('Content for testing retrieval')
+    vi.mocked(readFile).mockResolvedValue('Content for testing retrieval')
 
     await uploadContextFile('rag-mode', '/tmp/rag.txt', 'rag.txt', 100)
 
@@ -165,8 +165,8 @@ describe('RAG Pipeline Integration', () => {
   })
 
   it('deletes a context file and its chunks', async () => {
-    const { readFileSync } = await import('fs')
-    vi.mocked(readFileSync).mockReturnValue('Deletable content')
+    const { readFile } = await import('fs/promises')
+    vi.mocked(readFile).mockResolvedValue('Deletable content')
 
     mockPipelineFn.mockResolvedValue({ data: new Float32Array([0.5, 0.5, 0.5]) })
 

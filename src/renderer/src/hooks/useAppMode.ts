@@ -3,12 +3,21 @@ import { useState, useEffect } from 'react'
 let cachedMode: 'free' | 'pro' | null = null
 let pendingPromise: Promise<boolean> | null = null
 
+export function invalidateAppModeCache(): void {
+  cachedMode = null
+  pendingPromise = null
+}
+
 export function useAppMode() {
   const [isPro, setIsPro] = useState(cachedMode === 'pro')
   const [isLoaded, setIsLoaded] = useState(cachedMode !== null)
 
   useEffect(() => {
-    if (cachedMode !== null) return
+    if (cachedMode !== null) {
+      setIsPro(cachedMode === 'pro')
+      setIsLoaded(true)
+      return
+    }
 
     if (!pendingPromise) {
       pendingPromise = window.raven.planIsPro().catch(() => false)

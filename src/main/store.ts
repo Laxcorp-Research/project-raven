@@ -1,5 +1,5 @@
 import Store from 'electron-store';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import { createHash } from 'crypto';
 import { hostname, userInfo } from 'os';
 import { existsSync, unlinkSync } from 'fs';
@@ -156,6 +156,9 @@ export function getAllSettings(): LocalSettings {
 }
 
 export function getSetting<K extends keyof LocalSettings>(key: K): LocalSettings[K] {
+  if ((API_KEY_FIELDS as readonly string[]).includes(key)) {
+    return getApiKey(key as typeof API_KEY_FIELDS[number]) as LocalSettings[K];
+  }
   return store.get(key);
 }
 
@@ -165,6 +168,10 @@ export function saveSetting<K extends keyof LocalSettings>(
   key: K,
   value: LocalSettings[K]
 ): void {
+  if ((API_KEY_FIELDS as readonly string[]).includes(key) && typeof value === 'string') {
+    store.set(key, encryptValue(value));
+    return;
+  }
   store.set(key, value);
 }
 
@@ -174,20 +181,49 @@ export function saveSettings(settings: Partial<LocalSettings>): void {
   });
 }
 
+// ---- Secure storage helpers for API keys ----
+
+const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey'] as const;
+
+function encryptValue(value: string): string {
+  if (!value) return '';
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.encryptString(value).toString('base64');
+    }
+  } catch { /* fall through */ }
+  return value;
+}
+
+function decryptValue(stored: string): string {
+  if (!stored) return '';
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(Buffer.from(stored, 'base64'));
+    }
+  } catch { /* fall through — may be an unencrypted legacy value */ }
+  return stored;
+}
+
+export function getApiKey(key: typeof API_KEY_FIELDS[number]): string {
+  const raw = store.get(key) as string;
+  return decryptValue(raw);
+}
+
 // ---- API Key Helpers ----
 
 export function saveApiKeys(deepgramKey: string, anthropicKey: string): void {
-  store.set('deepgramApiKey', deepgramKey);
-  store.set('anthropicApiKey', anthropicKey);
+  store.set('deepgramApiKey', encryptValue(deepgramKey));
+  store.set('anthropicApiKey', encryptValue(anthropicKey));
   store.set('apiKeysConfigured', true);
 }
 
 export function hasApiKeys(): boolean {
-  const hasDeepgram = !!store.get('deepgramApiKey');
+  const hasDeepgram = !!getApiKey('deepgramApiKey');
   const provider = store.get('aiProvider') || 'anthropic';
   const hasAiKey = provider === 'openai'
-    ? !!store.get('openaiApiKey')
-    : !!store.get('anthropicApiKey');
+    ? !!getApiKey('openaiApiKey')
+    : !!getApiKey('anthropicApiKey');
   return hasDeepgram && hasAiKey;
 }
 

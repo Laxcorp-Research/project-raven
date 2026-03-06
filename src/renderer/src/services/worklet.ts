@@ -71,3 +71,8 @@ export function getWorkletUrl(processorName: string = 'audio-capture-processor')
   }
   return workletUrls.get(processorName) as string
 }
+
+export function revokeWorkletUrls(): void {
+  workletUrls.forEach((url) => URL.revokeObjectURL(url))
+  workletUrls.clear()
+}

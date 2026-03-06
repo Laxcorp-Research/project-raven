@@ -37,6 +37,7 @@ interface ConnectionState {
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 1000;
+const MAX_TRANSCRIPT_ENTRIES = 5000;
 
 export class TranscriptionService {
   private micConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '', sendCount: 0, reconnectAttempts: 0 };
@@ -233,6 +234,9 @@ export class TranscriptionService {
         lastEntry.text = `${lastEntry.text} ${transcript}`;
         lastEntry.timestamp = now;
       } else {
+        if (this.transcriptEntries.length >= MAX_TRANSCRIPT_ENTRIES) {
+          this.transcriptEntries = this.transcriptEntries.slice(-Math.floor(MAX_TRANSCRIPT_ENTRIES * 0.8));
+        }
         const entry: TranscriptEntry = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           source,

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { databaseService } from './database';
 import { createLogger } from '../logger';
@@ -36,17 +36,17 @@ async function parseFile(filePath: string): Promise<string> {
   switch (ext) {
     case '.txt':
     case '.md': {
-      return readFileSync(filePath, 'utf-8');
+      return await readFile(filePath, 'utf-8');
     }
     case '.pdf': {
       const pdfParse = (await import('pdf-parse')).default;
-      const buffer = readFileSync(filePath);
+      const buffer = await readFile(filePath);
       const data = await pdfParse(buffer);
       return data.text;
     }
     case '.docx': {
       const mammoth = await import('mammoth');
-      const buffer = readFileSync(filePath);
+      const buffer = await readFile(filePath);
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     }

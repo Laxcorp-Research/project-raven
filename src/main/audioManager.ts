@@ -571,8 +571,10 @@ export class AudioManager {
       if (isSessionLimit) {
         return { allowed: false, error: message, code: 'SESSION_LIMIT' }
       }
-      // Network error or pro module unavailable — don't block the user
-      return { allowed: true, sessionMaxSeconds: 180 }
+      // Network error or pro module unavailable — allow one grace session
+      // with a short time limit so we don't silently bypass billing.
+      log.warn('Session check failed (backend may be unreachable) — allowing grace session:', message)
+      return { allowed: true, sessionMaxSeconds: 180, code: 'BACKEND_UNAVAILABLE' }
     }
   }
 
@@ -671,40 +673,6 @@ export class AudioManager {
     } catch (err) {
       log.warn('Failed to load Recall service:', err)
       return false
-    }
-  }
-
-  private async startProTranscription(): Promise<void> {
-    try {
-      const { AssemblyAITranscriptionService } = await import(
-        /* @vite-ignore */ '../pro/main/assemblyAITranscriptionService'
-      )
-      const aaiService = new AssemblyAITranscriptionService()
-      aaiService.setWindows(this.dashboardWindow, this.overlayWindow)
-
-      aaiService.setFallbackHandler(async () => {
-        log.warn('AssemblyAI failover → switching to Deepgram')
-        this.usingAssemblyAI = false
-        await this.startDeepgramFallback()
-      })
-
-      const result = await aaiService.start()
-      if (result.success) {
-        this.activeProvider = aaiService
-        this.usingAssemblyAI = true
-        log.info('Pro transcription: AssemblyAI active')
-      } else {
-        log.warn('AssemblyAI start failed — falling back to Deepgram')
-        await this.startDeepgramFallback()
-      }
-    } catch (err) {
-      log.error('Failed to load AssemblyAI service:', err)
-      await this.startDeepgramFallback()
-    }
-
-    if (!this.activeProvider) {
-      log.error('All transcription providers failed — notifying user')
-      this.broadcastError('Transcription unavailable — please restart the app or check your connection.')
     }
   }
 

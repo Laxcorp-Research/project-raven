@@ -33,8 +33,8 @@ vi.mock('@xenova/transformers', () => ({
   pipeline: vi.fn().mockImplementation(async () => mockPipelineFn),
 }))
 
-vi.mock('fs', () => ({
-  readFileSync: vi.fn().mockReturnValue('This is test content with enough words to chunk properly'),
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn().mockResolvedValue('This is test content with enough words to chunk properly'),
 }))
 
 import {
@@ -53,8 +53,8 @@ describe('ragService', () => {
     })
 
     it('handles file with small text (single chunk)', async () => {
-      const { readFileSync } = await import('fs')
-      vi.mocked(readFileSync).mockReturnValue('Small text file')
+      const { readFile } = await import('fs/promises')
+      vi.mocked(readFile).mockResolvedValue('Small text file')
 
       const result = await uploadContextFile(
         'mode-1',
@@ -76,8 +76,8 @@ describe('ragService', () => {
     })
 
     it('throws for empty file', async () => {
-      const { readFileSync } = await import('fs')
-      vi.mocked(readFileSync).mockReturnValue('   ')
+      const { readFile } = await import('fs/promises')
+      vi.mocked(readFile).mockResolvedValue('   ')
 
       await expect(
         uploadContextFile('mode-1', '/path/to/empty.txt', 'empty.txt', 0)
@@ -85,8 +85,8 @@ describe('ragService', () => {
     })
 
     it('stores chunks with embeddings in database', async () => {
-      const { readFileSync } = await import('fs')
-      vi.mocked(readFileSync).mockReturnValue('Hello world test content')
+      const { readFile } = await import('fs/promises')
+      vi.mocked(readFile).mockResolvedValue('Hello world test content')
 
       await uploadContextFile('mode-1', '/path/to/file.txt', 'file.txt', 50)
 
@@ -104,8 +104,8 @@ describe('ragService', () => {
     })
 
     it('reports progress through callback', async () => {
-      const { readFileSync } = await import('fs')
-      vi.mocked(readFileSync).mockReturnValue('Some content')
+      const { readFile } = await import('fs/promises')
+      vi.mocked(readFile).mockResolvedValue('Some content')
 
       const onProgress = vi.fn()
 
@@ -124,8 +124,8 @@ describe('ragService', () => {
     })
 
     it('detects file type from extension', async () => {
-      const { readFileSync } = await import('fs')
-      vi.mocked(readFileSync).mockReturnValue('Markdown content')
+      const { readFile } = await import('fs/promises')
+      vi.mocked(readFile).mockResolvedValue('Markdown content')
 
       const result = await uploadContextFile(
         'mode-1',

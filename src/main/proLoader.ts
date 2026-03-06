@@ -32,8 +32,8 @@ export async function initializeProFeatures(): Promise<void> {
     const { processSyncQueue, pullAndMergeRemoteSessions } = await import(
       /* @vite-ignore */ '../pro/main/syncService'
     )
-    processSyncQueue().catch(() => {})
-    pullAndMergeRemoteSessions().catch(() => {})
+    processSyncQueue().catch((err) => log.debug('Initial sync queue flush failed:', err))
+    pullAndMergeRemoteSessions().catch((err) => log.debug('Initial session pull failed:', err))
 
     // Initialize Recall AI Desktop SDK for premium audio capture
     try {

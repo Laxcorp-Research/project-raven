@@ -22,6 +22,19 @@ import {
   clampOverlayBoundsToDisplay
 } from './windowManager'
 
+function assertString(val: unknown, name: string, maxLen = 10_000): asserts val is string {
+  if (typeof val !== 'string') throw new Error(`${name} must be a string`)
+  if (val.length > maxLen) throw new Error(`${name} exceeds max length (${maxLen})`)
+}
+
+function assertNumber(val: unknown, name: string): asserts val is number {
+  if (typeof val !== 'number' || !Number.isFinite(val)) throw new Error(`${name} must be a finite number`)
+}
+
+function assertBoolean(val: unknown, name: string): asserts val is boolean {
+  if (typeof val !== 'boolean') throw new Error(`${name} must be a boolean`)
+}
+
 export function registerIpcHandlers(): void {
   const OVERLAY_MIN_WIDTH = 480
   const OVERLAY_COMPACT_MIN_HEIGHT = 210
@@ -35,6 +48,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('store:get', (_event, key: keyof LocalSettings) => {
+    assertString(key, 'key', 100)
     return getSetting(key)
   })
 
@@ -66,6 +80,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     'store:save-api-keys',
     (_event, deepgramKey: string, anthropicKey: string) => {
+      assertString(deepgramKey, 'deepgramKey', 500)
+      assertString(anthropicKey, 'anthropicKey', 500)
       saveApiKeys(deepgramKey, anthropicKey)
       return true
     }
@@ -218,6 +234,8 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('window:resize', (_event, width: number, height: number) => {
+    assertNumber(width, 'width')
+    assertNumber(height, 'height')
     const overlay = getOverlayWindow()
     if (overlay && !overlay.isDestroyed()) {
       const clampedWidth = Math.max(width, OVERLAY_MIN_WIDTH)
@@ -287,6 +305,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('window:set-stealth', (_event, enabled: boolean) => {
+    assertBoolean(enabled, 'enabled')
     setStealthMode(enabled)
     return true
   })
