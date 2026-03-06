@@ -18,7 +18,7 @@ import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers } from './systemAudioNative'
 import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
-import { seedBuiltinModes, resetBuiltinMode } from './services/builtinModes'
+import { ensureActiveMode, createDefaultMode, resetBuiltinMode } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
@@ -228,6 +228,7 @@ function boot(): void {
 
   ipcMain.on('onboarding:completed', () => {
     log.info('Onboarding completed — showing overlay')
+    createDefaultMode()
     setStealthMode(true)
     overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
@@ -255,7 +256,7 @@ app.whenReady().then(() => {
 
   // Initialize database
   databaseService.initialize()
-  seedBuiltinModes()
+  ensureActiveMode()
 
   registerIpcHandlers()
   registerSystemAudioHandlers()

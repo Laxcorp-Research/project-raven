@@ -25,7 +25,7 @@ vi.mock('../logger', () => ({
   }),
 }))
 
-import { seedBuiltinModes, resetBuiltinMode, getBuiltinModeDefaults, BUILTIN_MODES } from '../services/builtinModes'
+import { createDefaultMode, ensureActiveMode, resetBuiltinMode, getBuiltinModeDefaults, BUILTIN_MODES } from '../services/builtinModes'
 
 describe('builtinModes', () => {
   beforeEach(() => {
@@ -52,12 +52,12 @@ describe('builtinModes', () => {
     })
   })
 
-  describe('seedBuiltinModes', () => {
-    it('creates default mode when no modes exist', () => {
+  describe('createDefaultMode', () => {
+    it('creates General Assistant when no modes exist', () => {
       mockGetAllModes.mockReturnValue([])
       mockCreateMode.mockReturnValue({ id: 'new-mode', name: 'General Assistant' })
 
-      seedBuiltinModes()
+      createDefaultMode()
 
       expect(mockCreateMode).toHaveBeenCalledTimes(1)
       expect(mockCreateMode).toHaveBeenCalledWith(
@@ -68,21 +68,23 @@ describe('builtinModes', () => {
       )
     })
 
-    it('does not create mode when modes already exist', () => {
+    it('does not create mode when user already has modes', () => {
       mockGetAllModes.mockReturnValue([{ id: 'existing', isDefault: true }])
 
-      seedBuiltinModes()
+      createDefaultMode()
 
       expect(mockCreateMode).not.toHaveBeenCalled()
     })
+  })
 
+  describe('ensureActiveMode', () => {
     it('sets first mode as active when no active mode exists', () => {
       mockGetAllModes.mockReturnValue([
         { id: 'mode-1', isDefault: false },
         { id: 'mode-2', isDefault: false },
       ])
 
-      seedBuiltinModes()
+      ensureActiveMode()
 
       expect(mockSetActiveMode).toHaveBeenCalledWith('mode-1')
       expect(mockCreateMode).not.toHaveBeenCalled()
@@ -94,7 +96,16 @@ describe('builtinModes', () => {
         { id: 'mode-2', isDefault: false },
       ])
 
-      seedBuiltinModes()
+      ensureActiveMode()
+
+      expect(mockCreateMode).not.toHaveBeenCalled()
+      expect(mockSetActiveMode).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when no modes exist', () => {
+      mockGetAllModes.mockReturnValue([])
+
+      ensureActiveMode()
 
       expect(mockCreateMode).not.toHaveBeenCalled()
       expect(mockSetActiveMode).not.toHaveBeenCalled()

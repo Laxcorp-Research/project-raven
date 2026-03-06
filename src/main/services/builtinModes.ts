@@ -111,8 +111,7 @@ TONE: Clear and patient. Adapt to the learner's apparent level. Encouraging with
 ];
 
 /**
- * Default mode used for new users who haven't created any modes yet.
- * This is always seeded so there is an active mode available.
+ * Default mode given to every new user as part of onboarding.
  */
 const DEFAULT_MODE = {
   name: 'General Assistant',
@@ -132,24 +131,35 @@ Match the formality of the conversation. Be direct and actionable. Concise by de
 };
 
 /**
- * Seed default mode on first run.
- * Ensures there is always an active mode for new users.
+ * Create the default General Assistant mode for a new user.
+ * Called once during onboarding completion — not on every startup.
  */
-export function seedBuiltinModes(): void {
+export function createDefaultMode(): void {
+  const existingModes = databaseService.getAllModes()
+  if (existingModes.length > 0) {
+    log.debug('User already has modes — skipping default mode creation')
+    return
+  }
+  log.info('Creating default "General Assistant" mode for new user')
+  databaseService.createMode(DEFAULT_MODE)
+}
+
+/**
+ * Safety net: ensure there's always an active mode.
+ * Handles edge cases like database migration or corrupted state.
+ * Does NOT create modes — that's done in onboarding via createDefaultMode().
+ */
+export function ensureActiveMode(): void {
   try {
-    const existingModes = databaseService.getAllModes();
-    if (existingModes.length === 0) {
-      log.info('No modes found — seeding default "General Assistant" mode');
-      databaseService.createMode(DEFAULT_MODE);
-    } else {
-      const hasActive = existingModes.some((m) => m.isDefault);
-      if (!hasActive) {
-        log.info('No active mode found — setting first mode as active');
-        databaseService.setActiveMode(existingModes[0].id);
-      }
+    const existingModes = databaseService.getAllModes()
+    if (existingModes.length === 0) return
+    const hasActive = existingModes.some((m) => m.isDefault)
+    if (!hasActive) {
+      log.info('No active mode found — setting first mode as active')
+      databaseService.setActiveMode(existingModes[0].id)
     }
   } catch (err) {
-    log.error('Failed to seed default mode:', err);
+    log.error('Failed to ensure active mode:', err)
   }
 }
 
