@@ -87,11 +87,11 @@ export function Dashboard() {
     const unsubSessionUpdated = window.raven.sessions.onSessionUpdated((session) => {
       if (!session) return
       setActiveSession((prev) => {
-        if (!prev || prev.id !== session.id) return prev
+        if (prev && prev.id !== session.id) return prev
         return {
-          ...prev,
-          title: session.title || prev.title,
-          startedAt: session.startedAt || prev.startedAt,
+          id: session.id,
+          title: session.title || prev?.title || 'Untitled session',
+          startedAt: session.startedAt || prev?.startedAt || Date.now(),
         }
       })
     })
