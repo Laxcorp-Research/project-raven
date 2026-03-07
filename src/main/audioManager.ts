@@ -318,7 +318,10 @@ export class AudioManager {
     this.recordingStartTime = null
     this.broadcastRecordingState(false, session?.id || null)
 
-    if (opts.reason === 'TRANSCRIPTION_FAILED') {
+    if (opts.reason === 'TRANSCRIPTION_FAILED' && isProMode()) {
+      this.rollbackSessionCount().catch((err) =>
+        log.warn('Failed to roll back session count after transcription failure:', err)
+      )
       this.broadcastTranscriptionConnectionState({
         phase: 'failed',
         provider: null,
@@ -683,6 +686,19 @@ export class AudioManager {
       this.activeProvider = null
     } else {
       log.info('Deepgram fallback active')
+    }
+  }
+
+  private async rollbackSessionCount(): Promise<void> {
+    try {
+      const { _apiRequest } = await import(
+        /* @vite-ignore */ '../pro/main/authService'
+      )
+      const apiRequest = _apiRequest as <T>(path: string, options?: RequestInit) => Promise<T>
+      await apiRequest('/api/proxy/rollback-session', { method: 'POST' })
+      log.info('Session count rolled back after transcription failure')
+    } catch (err) {
+      log.warn('Session rollback request failed:', err)
     }
   }
 
