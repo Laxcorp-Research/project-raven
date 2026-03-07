@@ -102,7 +102,10 @@ export function AudioTab() {
       audioContextRef.current = audioContext
       analyserRef.current = analyser
 
-      // AudioWorkletNode for PCM capture (replaces deprecated ScriptProcessorNode)
+      const nativeSampleRate = audioContext.sampleRate
+      const targetRate = 16000
+      const ratio = nativeSampleRate / targetRate
+
       const workletCode = `
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   process(inputs) {
@@ -119,10 +122,6 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
       const workletUrl = URL.createObjectURL(blob)
       await audioContext.audioWorklet.addModule(workletUrl)
       URL.revokeObjectURL(workletUrl)
-
-      const nativeSampleRate = audioContext.sampleRate
-      const targetRate = 16000
-      const ratio = nativeSampleRate / targetRate
 
       const workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor')
       workletNode.port.onmessage = (event) => {
