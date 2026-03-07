@@ -132,7 +132,7 @@ export async function generateSessionTitle(
   transcriptText: string
 ): Promise<string> {
   try {
-    const provider = await getProviderFromStore();
+    const provider = isProMode() ? await getProFastProvider() : await getProviderFromStore();
 
     const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
 

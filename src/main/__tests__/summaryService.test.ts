@@ -8,6 +8,13 @@ vi.mock('../services/ai/providerFactory', () => ({
   getProviderFromStore: vi.fn(() => ({
     generateShort: mockGenerateShort,
   })),
+  getProFastProvider: vi.fn(() => ({
+    generateShort: mockGenerateShort,
+  })),
+}))
+
+vi.mock('../store', () => ({
+  isProMode: vi.fn(() => false),
 }))
 
 vi.mock('../services/database', () => ({
