@@ -138,7 +138,7 @@ export function OverlayWindow() {
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hoveredResponseId, setHoveredResponseId] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<NotificationData[]>([])
-  const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number; resetAt: string } | null>(null)
+  const [limitInfo, setLimitInfo] = useState<{ type: 'ai' | 'session'; used: number; limit: number; resetAt: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -264,7 +264,7 @@ export function OverlayWindow() {
         setIsLoadingResponse(false)
 
         if (data.error === 'LIMIT_REACHED' && data.limitInfo) {
-          setLimitInfo(data.limitInfo)
+          setLimitInfo({ type: 'ai', ...data.limitInfo })
         } else {
           setResponses((prev) => [
             ...prev,
@@ -296,6 +296,7 @@ export function OverlayWindow() {
 
     const unsubSessionLimit = window.raven.onSessionLimit(() => {
       setLimitInfo({
+        type: 'session',
         used: 1,
         limit: 1,
         resetAt: '',
@@ -408,7 +409,7 @@ export function OverlayWindow() {
         const result = await window.raven.audioStartRecording() as { success: boolean; code?: string; error?: string }
         if (result && !result.success) {
           if (result.code === 'SESSION_LIMIT') {
-            setLimitInfo({ used: 1, limit: 1, resetAt: '' })
+            setLimitInfo({ type: 'session', used: 1, limit: 1, resetAt: '' })
           }
           setIsStarting(false)
           return
@@ -967,12 +968,14 @@ export function OverlayWindow() {
               {limitInfo && (
                 <div className="rounded-xl bg-gradient-to-r from-purple-600/90 to-blue-600/90 p-4 text-white shadow-lg mt-2">
                   <p className="text-sm font-medium mb-1">
-                    {limitInfo.limit === 1
-                      ? 'Your free session has ended.'
+                    {limitInfo.type === 'session'
+                      ? 'Free sessions are limited to 2 minutes.'
                       : `You\u2019ve used all ${limitInfo.limit} free AI responses for today.`}
                   </p>
                   <p className="text-xs text-white/70 mb-3">
-                    Upgrade to Raven Pro for unlimited meetings and AI.
+                    {limitInfo.type === 'session'
+                      ? 'Upgrade to Raven Pro for unlimited meeting length.'
+                      : 'Upgrade to Raven Pro for unlimited AI responses.'}
                   </p>
                   <div className="flex items-center gap-3">
                     <button
@@ -983,7 +986,9 @@ export function OverlayWindow() {
                     >
                       Upgrade Now
                     </button>
-                    <span className="text-xs text-white/50">Resets tomorrow</span>
+                    {limitInfo.type === 'ai' && (
+                      <span className="text-xs text-white/50">Resets tomorrow</span>
+                    )}
                   </div>
                 </div>
               )}

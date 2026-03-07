@@ -580,7 +580,7 @@ export class AudioManager {
       // Network error or pro module unavailable — allow one grace session
       // with a short time limit so we don't silently bypass billing.
       log.warn('Session check failed (backend may be unreachable) — allowing grace session:', message)
-      return { allowed: true, sessionMaxSeconds: 180, code: 'BACKEND_UNAVAILABLE' }
+      return { allowed: true, sessionMaxSeconds: 120, code: 'BACKEND_UNAVAILABLE' }
     }
   }
 
