@@ -462,18 +462,34 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
         />
       )}
 
-      <ConfirmModal
-        isOpen={upgradeModal}
-        title="Pro Feature"
-        message="Regenerating session summaries is available on Raven Pro. Upgrade for unlimited AI features."
-        confirmLabel="Upgrade Now"
-        confirmColor="blue"
-        onConfirm={() => {
-          setUpgradeModal(false)
-          window.raven.authOpenCheckout('PRO')
-        }}
-        onCancel={() => setUpgradeModal(false)}
-      />
+      {upgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setUpgradeModal(false)} />
+          <div className="relative rounded-2xl bg-gradient-to-r from-purple-600 to-blue-600 p-6 text-white shadow-2xl max-w-sm w-full mx-4">
+            <p className="text-lg font-semibold mb-1">Upgrade to Raven Pro</p>
+            <p className="text-sm text-white/75 mb-5">
+              Regenerating session summaries is a Pro feature. Upgrade for unlimited AI responses, longer sessions, and more.
+            </p>
+            <div className="flex items-center justify-between mt-1">
+              <button
+                onClick={() => {
+                  setUpgradeModal(false)
+                  window.raven.authOpenCheckout('PRO')
+                }}
+                className="px-5 py-2 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
+              >
+                Upgrade Now
+              </button>
+              <button
+                onClick={() => setUpgradeModal(false)}
+                className="px-4 py-2 text-sm font-medium text-white/60 hover:text-white transition-colors"
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
