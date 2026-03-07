@@ -97,9 +97,11 @@ export class TranscriptionService {
     try {
       const { default: WebSocketModule } = await import('ws');
 
+      const transcriptionLanguage = (getSetting('transcriptionLanguage') as string) || 'en';
+
       const params = new URLSearchParams({
         model: 'nova-3',
-        language: 'multi',
+        language: transcriptionLanguage,
         smart_format: 'true',
         interim_results: 'true',
         punctuate: 'true',

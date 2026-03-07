@@ -38,6 +38,8 @@ const audioManager = new AudioManager()
 const store = getStore()
 let testTranscriptionWs: WebSocket | null = null
 let testTranscriptionCleanup: (() => void) | null = null
+let testTranscriptionProvider: 'deepgram' | 'assemblyai' | null = null
+let testAssemblyAITranscriber: { sendAudio: (buf: Buffer) => void; close: () => Promise<void> } | null = null
 
 // Enable screen capture on macOS
 app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
@@ -623,21 +625,72 @@ app.whenReady().then(() => {
 
   // Test transcription (doesn't create sessions)
   ipcMain.handle('transcription:start-test', async (event, deviceId: string) => {
+    const sender = event.sender
+
+    // Clean up any previous test session
+    if (testTranscriptionWs) {
+      try { testTranscriptionWs.close() } catch {}
+      testTranscriptionWs = null
+    }
+    if (testAssemblyAITranscriber) {
+      try { await testAssemblyAITranscriber.close() } catch {}
+      testAssemblyAITranscriber = null
+    }
+    testTranscriptionProvider = null
+
+    // In Pro mode, try AssemblyAI first
+    if (isProMode()) {
+      try {
+        const { _apiRequest: apiRequest } = await import(/* @vite-ignore */ '../pro/main/authService')
+        const result = await (apiRequest as <T>(path: string, options?: RequestInit) => Promise<T>)<{
+          token?: string; expiresIn?: number; error?: string
+        }>('/api/proxy/transcription-token', { method: 'POST' })
+
+        if (result.token) {
+          const { RealtimeTranscriber } = await import('assemblyai')
+          const transcriber = new RealtimeTranscriber({
+            token: result.token,
+            sampleRate: AUDIO_SAMPLE_RATE,
+            encoding: 'pcm_s16le',
+            endUtteranceSilenceThreshold: 500,
+          })
+
+          transcriber.on('transcript', (transcript) => {
+            if (!transcript.text) return
+            try {
+              sender.send('transcription:test-update', {
+                text: transcript.text,
+                isFinal: transcript.message_type === 'FinalTranscript',
+              })
+            } catch { /* sender may be destroyed */ }
+          })
+
+          transcriber.on('error', (err) => {
+            ipcLog.error('Test AssemblyAI error:', err)
+          })
+
+          await transcriber.connect()
+          testAssemblyAITranscriber = {
+            sendAudio: (buf: Buffer) => transcriber.sendAudio(buf as unknown as ArrayBufferLike),
+            close: () => transcriber.close(),
+          }
+          testTranscriptionProvider = 'assemblyai'
+          ipcLog.info('Test transcription connected (AssemblyAI)', deviceId ? `device: ${deviceId}` : '(default)')
+          return { success: true, provider: 'assemblyai' }
+        }
+      } catch (err) {
+        ipcLog.warn('Test AssemblyAI failed, trying Deepgram fallback:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    // Deepgram path (free mode or AssemblyAI fallback)
     const apiKey = getSetting('deepgramApiKey') as string
     if (!apiKey) {
-      return { success: false, error: 'No Deepgram API key' }
+      return { success: false, error: 'No transcription API key available' }
     }
 
     try {
-      if (testTranscriptionWs) {
-        testTranscriptionWs.close()
-        testTranscriptionWs = null
-      }
-
-      const sender = event.sender
       const { default: WebSocketModule } = await import('ws')
-
-      // Get language setting from store
       const transcriptionLanguage = (store.get('transcriptionLanguage') as string) || 'en'
 
       const params = new URLSearchParams({
@@ -658,7 +711,7 @@ app.whenReady().then(() => {
       })
 
       testTranscriptionWs.onopen = () => {
-        ipcLog.info('Test transcription connected', deviceId ? `device: ${deviceId}` : '(default)')
+        ipcLog.info('Test transcription connected (Deepgram)', deviceId ? `device: ${deviceId}` : '(default)')
         const keepAlive = setInterval(() => {
           if (testTranscriptionWs?.readyState === 1) {
             testTranscriptionWs.send(JSON.stringify({ type: 'KeepAlive' }))
@@ -701,7 +754,8 @@ app.whenReady().then(() => {
         testTranscriptionWs = null
       }
 
-      return { success: true }
+      testTranscriptionProvider = 'deepgram'
+      return { success: true, provider: 'deepgram' }
     } catch (error) {
       ipcLog.error('Test transcription failed to start:', error)
       return { success: false, error: String(error) }
@@ -709,6 +763,13 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('transcription:stop-test', async () => {
+    if (testAssemblyAITranscriber) {
+      try { await testAssemblyAITranscriber.close() } catch (err) {
+        ipcLog.error('Test AssemblyAI close error:', err)
+      }
+      testAssemblyAITranscriber = null
+    }
+
     if (testTranscriptionWs) {
       try {
         testTranscriptionWs.send(JSON.stringify({ type: 'CloseStream' }))
@@ -723,13 +784,22 @@ app.whenReady().then(() => {
       testTranscriptionCleanup()
       testTranscriptionCleanup = null
     }
+    testTranscriptionProvider = null
     return { success: true }
   })
 
   ipcMain.handle('transcription:send-test-audio', async (_event, buffer: ArrayBuffer) => {
-    if (testTranscriptionWs?.readyState === 1) {
+    const buf = Buffer.from(buffer)
+
+    if (testTranscriptionProvider === 'assemblyai' && testAssemblyAITranscriber) {
       try {
-        testTranscriptionWs.send(Buffer.from(buffer))
+        testAssemblyAITranscriber.sendAudio(buf)
+      } catch (err) {
+        ipcLog.error('Test AssemblyAI send error:', err)
+      }
+    } else if (testTranscriptionWs?.readyState === 1) {
+      try {
+        testTranscriptionWs.send(buf)
       } catch (err) {
         ipcLog.error('Test transcription send error:', err)
       }
@@ -764,6 +834,10 @@ app.on('before-quit', () => {
     dashboard.close()
   }
 
+  if (testAssemblyAITranscriber) {
+    testAssemblyAITranscriber.close().catch(() => {})
+    testAssemblyAITranscriber = null
+  }
   if (testTranscriptionWs) {
     try {
       testTranscriptionWs.close()

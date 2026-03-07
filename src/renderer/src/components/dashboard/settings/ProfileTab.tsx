@@ -75,12 +75,14 @@ export function ProfileTab() {
       const data = await window.raven.profileGetPictureData(path)
       setProfilePicData(data)
       setAvatarUrl(null)
+      window.dispatchEvent(new Event('profile-updated'))
     }
   }
 
   async function handleRemovePicture() {
     await window.raven.profileRemovePicture()
     setProfilePicData(null)
+    window.dispatchEvent(new Event('profile-updated'))
   }
 
   function getInitials(name: string): string {

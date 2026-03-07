@@ -560,7 +560,7 @@ describe('DatabaseService', () => {
       expect(mockPrepare).toHaveBeenCalled()
       const sql = mockPrepare.mock.calls[0][0] as string
       expect(sql).toContain('LIKE')
-      expect(mockAll).toHaveBeenCalledWith('%Meeting%', '%Meeting%')
+      expect(mockAll).toHaveBeenCalledWith('%Meeting%', '%Meeting%', '%Meeting%')
       expect(results).toHaveLength(1)
       expect(results[0].id).toBe('match-1')
     })

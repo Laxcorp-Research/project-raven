@@ -133,8 +133,8 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       loadSessions()
     })
     if (isPro) {
-      window.raven.authGetSubscription().then((sub) => {
-        setIsPaidSubscriber(sub.plan === 'PRO' || sub.plan === 'TEAM')
+      window.raven.proxyGetUsage().then((usage) => {
+        setIsPaidSubscriber(usage.plan === 'PRO' || usage.plan === 'TEAM')
       }).catch(() => {})
     }
     return () => unsubscribe()

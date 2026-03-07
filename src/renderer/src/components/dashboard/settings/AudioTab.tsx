@@ -92,7 +92,7 @@ export function AudioTab() {
       })
       streamRef.current = stream
 
-      const audioContext = new AudioContext({ sampleRate: 16000 })
+      const audioContext = new AudioContext()
       const analyser = audioContext.createAnalyser()
       const source = audioContext.createMediaStreamSource(stream)
       analyser.fftSize = 64
@@ -120,12 +120,29 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
       await audioContext.audioWorklet.addModule(workletUrl)
       URL.revokeObjectURL(workletUrl)
 
+      const nativeSampleRate = audioContext.sampleRate
+      const targetRate = 16000
+      const ratio = nativeSampleRate / targetRate
+
       const workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor')
       workletNode.port.onmessage = (event) => {
         const float32Data = event.data as Float32Array
-        const int16Data = new Int16Array(float32Data.length)
-        for (let i = 0; i < float32Data.length; i++) {
-          const sample = Math.max(-1, Math.min(1, float32Data[i]))
+
+        let resampled: Float32Array
+        if (Math.abs(ratio - 1) < 0.01) {
+          resampled = float32Data
+        } else {
+          const outLen = Math.round(float32Data.length / ratio)
+          resampled = new Float32Array(outLen)
+          for (let i = 0; i < outLen; i++) {
+            const srcIdx = Math.min(Math.round(i * ratio), float32Data.length - 1)
+            resampled[i] = float32Data[srcIdx]
+          }
+        }
+
+        const int16Data = new Int16Array(resampled.length)
+        for (let i = 0; i < resampled.length; i++) {
+          const sample = Math.max(-1, Math.min(1, resampled[i]))
           int16Data[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
         }
         void window.raven.sendTestAudio(int16Data.buffer)

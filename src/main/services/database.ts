@@ -392,10 +392,12 @@ class DatabaseService {
     const rows = this.db
       .prepare(
         `SELECT * FROM sessions 
-         WHERE title LIKE ? ESCAPE '\\' OR transcript_json LIKE ? ESCAPE '\\' 
+         WHERE title LIKE ? ESCAPE '\\' 
+            OR summary LIKE ? ESCAPE '\\'
+            OR transcript_json LIKE ? ESCAPE '\\' 
          ORDER BY started_at DESC`
       )
-      .all(searchPattern, searchPattern) as SessionRow[];
+      .all(searchPattern, searchPattern, searchPattern) as SessionRow[];
 
     return rows.map((row) => this.rowToSession(row));
   }

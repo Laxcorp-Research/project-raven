@@ -76,32 +76,45 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   }, [isPro, loadSyncStatus])
 
   async function loadProfile() {
+    let name = ''
+    let email = ''
+    let oauthAvatar: string | null = null
+
     try {
       const authUser = await window.raven.authGetCurrentUser()
       if (authUser) {
-        setDisplayName(authUser.name || '')
-        setUserEmail(authUser.email || '')
-        setAvatarUrl(authUser.avatarUrl || null)
-        return
+        name = authUser.name || ''
+        email = authUser.email || ''
+        oauthAvatar = authUser.avatarUrl || null
       }
     } catch { /* not in pro mode or not authenticated */ }
 
-    const name = (await window.raven.storeGet('displayName')) as string
+    if (!name) {
+      name = ((await window.raven.storeGet('displayName')) as string) || ''
+    }
+
+    setDisplayName(name)
+    setUserEmail(email)
+
     const picPath = (await window.raven.storeGet('profilePicturePath')) as string
-    setDisplayName(name || '')
-    setUserEmail('')
-    setAvatarUrl(null)
     if (picPath) {
       const data = await window.raven.profileGetPictureData(picPath)
       setProfilePicData(data)
+      setAvatarUrl(null)
     } else {
       setProfilePicData(null)
+      setAvatarUrl(oauthAvatar)
     }
   }
 
   useEffect(() => {
     const interval = setInterval(loadProfile, 10000)
-    return () => clearInterval(interval)
+    const onProfileUpdated = () => loadProfile()
+    window.addEventListener('profile-updated', onProfileUpdated)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('profile-updated', onProfileUpdated)
+    }
   }, [isPro])
 
   const hasAvatar = avatarUrl || profilePicData
