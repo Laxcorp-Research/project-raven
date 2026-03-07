@@ -108,6 +108,7 @@ interface SessionListProps {
 
 export function SessionList({ onSessionSelect, activeSessionId, activeSession, searchQuery = '' }: SessionListProps) {
   const { isPro } = useAppMode()
+  const [isPaidSubscriber, setIsPaidSubscriber] = useState(false)
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -131,8 +132,13 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
     const unsubscribe = window.raven.sessions.onListUpdated(() => {
       loadSessions()
     })
+    if (isPro) {
+      window.raven.authGetSubscription().then((sub) => {
+        setIsPaidSubscriber(sub.plan === 'PRO' || sub.plan === 'TEAM')
+      }).catch(() => {})
+    }
     return () => unsubscribe()
-  }, [])
+  }, [isPro])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -408,7 +414,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
         >
           <button
             onClick={() => {
-              if (isPro) {
+              if (!isPro || isPaidSubscriber) {
                 openRegenerateModal(menuState.sessionId!)
               } else {
                 setMenuState({ sessionId: null, x: 0, y: 0 })

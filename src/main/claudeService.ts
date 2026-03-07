@@ -366,15 +366,6 @@ export class ClaudeService {
           });
 
           // Auto-stop the recording — transcript has no value without AI for free users
-          const payload = { type: 'AI_LIMIT' };
-          for (const win of [this.overlayWindow, this.dashboardWindow]) {
-            try {
-              if (win && !win.isDestroyed()) {
-                win.webContents.send('audio:session-limit', payload);
-              }
-            } catch { /* ignore */ }
-          }
-          // Trigger the actual recording stop via IPC (avoid circular dep with audioManager)
           ipcMain.emit('audio:stop-from-limit');
 
           return;
