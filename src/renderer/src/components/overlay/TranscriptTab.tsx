@@ -235,53 +235,25 @@ export function TranscriptTab() {
         </div>
       )}
 
-      {entries.map((entry, idx) => {
-        const isLastForSpeaker = !entries.slice(idx + 1).some(e => e.speaker === entry.speaker)
-        const interimText = isLastForSpeaker
-          ? (entry.speaker === 'you' ? interims.mic : interims.system)
-          : ''
-
-        return (
+      {entries.map((entry) => (
+        <div
+          key={entry.id}
+          className={`flex ${entry.speaker === 'you' ? 'justify-end' : 'justify-start'}`}
+        >
           <div
-            key={entry.id}
-            className={`flex ${entry.speaker === 'you' ? 'justify-end' : 'justify-start'}`}
+            className={`max-w-[80%] rounded-2xl px-3 py-1.5 ${
+              entry.speaker === 'you'
+                ? 'bg-gradient-to-b from-blue-500 to-blue-700 text-white rounded-br-md'
+                : 'bg-white/10 text-white/90 rounded-bl-md'
+            }`}
           >
-            <div
-              className={`max-w-[80%] rounded-2xl px-3 py-1.5 ${
-                entry.speaker === 'you'
-                  ? 'bg-gradient-to-b from-blue-500 to-blue-700 text-white rounded-br-md'
-                  : 'bg-white/10 text-white/90 rounded-bl-md'
-              }`}
-            >
-              <div className={`text-[10px] leading-tight ${entry.speaker === 'you' ? 'text-blue-200/60' : 'text-white/40'}`}>
-                {entry.speaker === 'you' ? userName : 'Them'}
-              </div>
-              <div className="text-sm leading-snug">
-                {entry.text}
-                {interimText && <span className="opacity-50"> {interimText}</span>}
-              </div>
+            <div className={`text-[10px] leading-tight ${entry.speaker === 'you' ? 'text-blue-200/60' : 'text-white/40'}`}>
+              {entry.speaker === 'you' ? userName : 'Them'}
             </div>
-          </div>
-        )
-      })}
-
-      {interims.system && !entries.some(e => e.speaker === 'them') && (
-        <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-2xl rounded-bl-md px-3 py-1.5 bg-white/10 text-white/90">
-            <div className="text-[10px] leading-tight text-white/40">Them</div>
-            <div className="text-sm leading-snug opacity-50">{interims.system}</div>
+            <div className="text-sm leading-snug">{entry.text}</div>
           </div>
         </div>
-      )}
-
-      {interims.mic && !entries.some(e => e.speaker === 'you') && (
-        <div className="flex justify-end">
-          <div className="max-w-[80%] rounded-2xl rounded-br-md px-3 py-1.5 bg-gradient-to-b from-blue-500 to-blue-700 text-white">
-            <div className="text-[10px] leading-tight text-blue-200/60">{userName}</div>
-            <div className="text-sm leading-snug opacity-50">{interims.mic}</div>
-          </div>
-        </div>
-      )}
+      ))}
     </div>
   );
 }
