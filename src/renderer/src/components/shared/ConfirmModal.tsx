@@ -4,7 +4,7 @@ interface ConfirmModalProps {
   message: string
   confirmLabel: string
   cancelLabel?: string
-  confirmColor?: 'red' | 'orange'
+  confirmColor?: 'red' | 'orange' | 'blue'
   variant?: 'danger' | 'warning'
   onConfirm: () => void
   onCancel: () => void
@@ -26,6 +26,7 @@ export function ConfirmModal({
   const buttonColors = {
     red: 'bg-red-500 hover:bg-red-600',
     orange: 'bg-orange-500 hover:bg-orange-600',
+    blue: 'bg-blue-600 hover:bg-blue-700',
   }
   const resolvedColor =
     variant === 'warning' ? 'orange' : variant === 'danger' ? 'red' : confirmColor

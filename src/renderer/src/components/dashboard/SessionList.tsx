@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
+import { useAppMode } from '../../hooks/useAppMode'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('SessionList')
@@ -106,6 +107,7 @@ interface SessionListProps {
 }
 
 export function SessionList({ onSessionSelect, activeSessionId, activeSession, searchQuery = '' }: SessionListProps) {
+  const { isPro } = useAppMode()
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -120,6 +122,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
     isOpen: false,
     sessionId: null,
   })
+  const [upgradeModal, setUpgradeModal] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' } | null>(null)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
 
@@ -404,7 +407,14 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
           style={{ top: menuState.y, left: menuState.x }}
         >
           <button
-            onClick={() => openRegenerateModal(menuState.sessionId!)}
+            onClick={() => {
+              if (isPro) {
+                openRegenerateModal(menuState.sessionId!)
+              } else {
+                setMenuState({ sessionId: null, x: 0, y: 0 })
+                setUpgradeModal(true)
+              }
+            }}
             className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors"
           >
             Regenerate
@@ -445,6 +455,19 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
           onComplete={() => setToast(null)}
         />
       )}
+
+      <ConfirmModal
+        isOpen={upgradeModal}
+        title="Pro Feature"
+        message="Regenerating session summaries is available on Raven Pro. Upgrade for unlimited AI features."
+        confirmLabel="Upgrade Now"
+        confirmColor="blue"
+        onConfirm={() => {
+          setUpgradeModal(false)
+          window.raven.authOpenCheckout('PRO')
+        }}
+        onCancel={() => setUpgradeModal(false)}
+      />
     </div>
   )
 }

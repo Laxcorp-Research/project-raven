@@ -4,7 +4,7 @@
  */
 
 import { databaseService } from './database'
-import { getProviderFromStore, getProFastProvider } from './ai/providerFactory'
+import { getProviderFromStore, getProSystemProvider } from './ai/providerFactory'
 import { isProMode } from '../store'
 import { createLogger } from '../logger'
 import { SUMMARY_MAX_TOKENS, SUMMARY_TRANSCRIPT_SLICE, SUMMARY_MIN_TRANSCRIPT_LENGTH } from '../constants'
@@ -72,7 +72,7 @@ SUMMARY:
 [your markdown summary here]`
 
   try {
-    const provider = isProMode() ? await getProFastProvider() : await getProviderFromStore()
+    const provider = isProMode() ? await getProSystemProvider() : await getProviderFromStore()
 
     const text = await provider.generateShort({ prompt, maxTokens: SUMMARY_MAX_TOKENS })
 

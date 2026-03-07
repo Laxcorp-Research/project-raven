@@ -132,7 +132,8 @@ export async function generateSessionTitle(
   transcriptText: string
 ): Promise<string> {
   try {
-    const provider = isProMode() ? await getProFastProvider() : await getProviderFromStore();
+    const { getProSystemProvider } = await import('./services/ai/providerFactory');
+    const provider = isProMode() ? await getProSystemProvider() : await getProviderFromStore();
 
     const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
 
@@ -363,6 +364,19 @@ export class ClaudeService {
               resetAt: limitErr.resetAt,
             },
           });
+
+          // Auto-stop the recording — transcript has no value without AI for free users
+          const payload = { type: 'AI_LIMIT' };
+          for (const win of [this.overlayWindow, this.dashboardWindow]) {
+            try {
+              if (win && !win.isDestroyed()) {
+                win.webContents.send('audio:session-limit', payload);
+              }
+            } catch { /* ignore */ }
+          }
+          // Trigger the actual recording stop via IPC (avoid circular dep with audioManager)
+          ipcMain.emit('audio:stop-from-limit');
+
           return;
         }
 

@@ -85,6 +85,13 @@ export class AudioManager {
   }
 
   private registerIpcHandlers(): void {
+    ipcMain.on('audio:stop-from-limit', () => {
+      if (!this.isRecording) return
+      log.info('AI limit reached — auto-stopping recording')
+      this.stopRecordingInternal({ reason: 'SESSION_TIME_LIMIT' })
+        .catch((err) => log.error('Failed to stop recording on AI limit:', err))
+    })
+
     ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
       if (this.isRecording || this.isStarting) {
         log.warn('Recording already in progress or starting')

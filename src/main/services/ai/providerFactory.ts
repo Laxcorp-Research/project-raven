@@ -122,3 +122,17 @@ export async function getProFastProvider(): Promise<AIProvider> {
   log.info(`Created proxy provider (fast): ${provider}/${model}`);
   return cachedProProvider;
 }
+
+/** Pro mode: system endpoint for summary/title generation — bypasses AI usage limit. */
+export async function getProSystemProvider(): Promise<AIProvider> {
+  const { getStore } = await import('../../store');
+  const store = getStore();
+
+  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
+  const model = FAST_MODELS[provider];
+
+  const { BackendProxyProvider } = await import(
+    /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
+  );
+  return new BackendProxyProvider(provider, model, { systemEndpoint: true });
+}
