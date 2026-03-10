@@ -305,13 +305,32 @@ The Electron app opens. On first launch you'll be prompted to enter your API key
 
 Download and run the [Visual Studio Build Tools installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 
-In the installer, check the **"Desktop development with C++"** workload and click Install. This provides the MSVC compiler, Windows SDK, and CMake.
+In the installer, check the **"Desktop development with C++"** workload and click Install. Make sure these optional components are selected (they should be by default):
+- MSVC Build Tools for x64/x86 (Latest)
+- Windows 10/11 SDK
+- C++ CMake tools for Windows
 
-Verify: Open **Visual Studio Installer** (search for it in Start menu) — you should see "Desktop development with C++" checked under Installed workloads.
+After the install finishes, **tell npm which version you installed** — this is required for `node-gyp` to find it:
 
-> **If you already have full Visual Studio** (not just Build Tools) with the C++ workload installed, skip this step — that works too.
+```powershell
+npm config set msvs_version 2022
+```
+
+> **Why this is necessary:** `node-gyp` (the tool that compiles native modules during `npm install`) uses a Visual Studio finder that often fails to auto-detect Build Tools. Without this config, you'll get `Could not find any Visual Studio installation to use` even though the tools are installed. This is a one-time global npm setting.
+
+Verify:
+```powershell
+npm config get msvs_version
+# Expected: 2022
+
+# Also confirm the Build Tools are actually installed:
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.VisualStudio.Workload.VCTools -property displayName
+# Expected: "Visual Studio Build Tools 2022" (or "Visual Studio Community/Professional/Enterprise 2022")
+```
+
+> **If `vswhere.exe` is not found:** The Visual Studio Installer itself didn't install correctly. Re-download and run the [Build Tools installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
 >
-> **Important:** After installing, close and reopen PowerShell before continuing.
+> **If you have full Visual Studio** (not just Build Tools) with the C++ workload, that works too — just make sure you still run `npm config set msvs_version 2022`.
 
 ---
 
@@ -413,7 +432,18 @@ Test-Path node_modules\.package-lock.json
 # Expected: True
 ```
 
-> **If `npm install` fails with `node-gyp` or MSBuild errors:** Make sure the Visual Studio Build Tools "Desktop development with C++" workload is installed (Step 1). Also check that you're running PowerShell as a regular user (not Administrator).
+> **If you see `Could not find any Visual Studio installation to use`:** This is the most common Windows setup error. It means `node-gyp` can't find your Build Tools. Fix:
+> ```powershell
+> npm config set msvs_version 2022
+> ```
+> Then delete `node_modules` and re-run `npm install`:
+> ```powershell
+> Remove-Item -Recurse -Force node_modules
+> npm install
+> ```
+> If it still fails, verify Build Tools are installed by running the `vswhere.exe` command from Step 1.
+>
+> **If `npm install` fails with other `node-gyp` or MSBuild errors:** Make sure the "Desktop development with C++" workload is installed with the Windows SDK component (Step 1).
 
 ---
 
@@ -477,6 +507,7 @@ The Electron app opens. On first launch you'll be prompted to enter your API key
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
+| `Could not find any Visual Studio installation to use` | `node-gyp` can't auto-detect Build Tools | `npm config set msvs_version 2022`, then `Remove-Item -Recurse -Force node_modules` and re-run `npm install` |
 | `npm install` fails with `node-gyp` errors | Missing C/C++ build tools | **macOS:** `xcode-select --install` **Windows:** VS Build Tools "Desktop development with C++" workload |
 | `NODE_MODULE_VERSION mismatch` at runtime | Native module built for wrong Electron version | `npx @electron/rebuild -f -w better-sqlite3` from the project root |
 | `build-deps.sh`: "gstreamer-1.0 not found" | GStreamer not installed or `pkg-config` can't find it | **macOS:** Install via Homebrew and check `PKG_CONFIG_PATH` (see macOS Step 3) |
