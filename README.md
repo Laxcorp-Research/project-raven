@@ -134,56 +134,137 @@ src/
 
 ## Getting Started
 
-### Prerequisites
+This section is a complete, linear walkthrough — from a fresh machine to a running app. Pick your platform, follow every numbered step in order, and verify each one before moving on.
 
-- **Node.js 22+** — install via [nvm](https://github.com/nvm-sh/nvm) (the repo includes `.nvmrc`)
-- **GStreamer** — required for echo cancellation
-- **Deepgram API key** — [get one free](https://console.deepgram.com)
-- **Anthropic or OpenAI API key** — [Anthropic](https://console.anthropic.com) / [OpenAI](https://platform.openai.com)
+> **API keys** (entered in-app on first launch — nothing to configure beforehand):
+>
+> - [Deepgram](https://console.deepgram.com) — real-time transcription (free tier available)
+> - [Anthropic](https://console.anthropic.com) or [OpenAI](https://platform.openai.com) — AI assistance
+>
+> This guide covers the open-source app. For the premium/pro mode setup, see [`docs/REPO_STRUCTURE.md`](docs/REPO_STRUCTURE.md).
 
-#### macOS-specific
+---
 
-- macOS 12+ (Monterey or later)
-- Xcode Command Line Tools (`xcode-select --install`)
-- GStreamer:
-  ```bash
-  brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
-  ```
+### macOS Setup
 
-#### Windows-specific
+> Tested on macOS 12 (Monterey) through macOS 15 (Sequoia), Intel and Apple Silicon.
 
-- Windows 10/11
-- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop development with C++)
-- [Rust toolchain](https://rustup.rs/) (for the WASAPI audio capture module)
-- [GStreamer MSVC 1.24+](https://gstreamer.freedesktop.org/download/) — install the **runtime** and **development** MSI installers. The installer sets the `GSTREAMER_1_0_ROOT_MSVC_X86_64` environment variable automatically; verify it exists after install:
-  ```powershell
-  echo $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
-  # Should output something like C:\gstreamer\1.0\msvc_x86_64\
-  ```
-
-### Setup
+**Step 1 — Install Xcode Command Line Tools**
 
 ```bash
-# Clone the repo
+xcode-select --install
+```
+
+A system dialog will appear — click **Install** and wait for it to finish (~2 min).
+
+Verify:
+```bash
+xcode-select -p
+# Expected: /Library/Developer/CommandLineTools  (or an Xcode.app path)
+```
+
+> **If you see** `xcode-select: error: command line tools are already installed` — you're good, move on.
+
+---
+
+**Step 2 — Install Node.js 22**
+
+Install via [nvm](https://github.com/nvm-sh/nvm) (recommended). Skip the `curl` line if you already have nvm.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+```
+
+**Close and reopen your terminal**, then:
+
+```bash
+nvm install 22
+nvm use 22
+```
+
+Verify:
+```bash
+node -v
+# Expected: v22.x.x (any 22+ version)
+```
+
+> **If `nvm: command not found`:** Close your terminal and open a new one — nvm's install script adds itself to your shell profile, but only new shells pick it up.
+
+---
+
+**Step 3 — Install GStreamer**
+
+```bash
+brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+```
+
+> Don't have Homebrew? Install it first from [brew.sh](https://brew.sh).
+
+Verify:
+```bash
+pkg-config --modversion gstreamer-1.0
+# Expected: 1.24.x (or similar)
+```
+
+> **If `Package gstreamer-1.0 was not found`:** Homebrew's `pkg-config` path isn't set. Add the correct line to your `~/.zshrc` and restart your terminal:
+> ```bash
+> # Apple Silicon (M1/M2/M3/M4):
+> echo 'export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"' >> ~/.zshrc
+>
+> # Intel Mac:
+> echo 'export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"' >> ~/.zshrc
+> ```
+
+---
+
+**Step 4 — Clone the repo and install dependencies**
+
+```bash
 git clone https://github.com/Laxcorp-Research/project-raven.git
 cd project-raven
-
-# Install dependencies
 npm install
 ```
 
-#### Build the GStreamer AEC addon
+`npm install` takes a few minutes. It automatically rebuilds `better-sqlite3` for Electron via the `postinstall` script — you'll see `@electron/rebuild` output near the end.
+
+Verify:
+```bash
+ls node_modules/.package-lock.json && echo "OK"
+# Expected: OK
+```
+
+> **If `npm install` fails with `node-gyp` errors:** Make sure Xcode Command Line Tools installed successfully in Step 1. Run `xcode-select -p` to confirm.
+
+---
+
+**Step 5 — Build the GStreamer echo-cancellation addon**
 
 ```bash
 cd src/native/aec
+npm install
 ./build-deps.sh
-npx cmake-js compile --runtime electron --runtime-version 40.4.1
+npx cmake-js compile
 cd ../../..
 ```
 
-#### Build the native audio binary
+What this does:
+1. Installs the addon's build tools (`cmake-js`, `node-addon-api`)
+2. Verifies all GStreamer libraries and builds the WebRTC DSP plugin from source (Homebrew doesn't ship it)
+3. Compiles the C++ echo-cancellation native module
 
-**macOS:**
+Verify:
+```bash
+ls src/native/aec/build/Release/raven-aec.node && echo "OK"
+# Expected: OK
+```
+
+> **If `build-deps.sh` fails with "gstreamer-1.0 not found":** Revisit Step 3 and make sure `pkg-config --modversion gstreamer-1.0` works.
+>
+> **If `cmake-js compile` fails with "cmake not found":** cmake is bundled with cmake-js. Run `npx cmake-js --version` — if that fails, delete `node_modules` inside `src/native/aec/` and re-run `npm install`.
+
+---
+
+**Step 6 — Build the Swift audio capture binary**
 
 ```bash
 cd src/native/swift/AudioCapture
@@ -191,24 +272,219 @@ swift build -c release
 cd ../../../..
 ```
 
-**Windows:**
-
+Verify:
 ```bash
-npm install -g @napi-rs/cli
-cd src/native/windows
-napi build --platform --release
-cd ../../..
+ls src/native/swift/AudioCapture/.build/release/audiocapture && echo "OK"
+# Expected: OK
 ```
 
-> See [`src/native/windows/README.md`](src/native/windows/README.md) for detailed Windows build instructions.
+> **If `swift build` fails with unresolved imports:** Your Swift toolchain may be too old (5.9+ required). Check with `swift --version`. Update Xcode Command Line Tools:
+> ```bash
+> sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install
+> ```
 
-#### Run
+---
+
+**Step 7 — Run the app**
 
 ```bash
 npm run dev
 ```
 
-On first launch you'll be prompted to enter your API keys.
+The Electron app opens. On first launch you'll be prompted to enter your API keys in the settings.
+
+> **If the app starts but audio capture doesn't work:** macOS requires explicit permissions. Go to **System Settings → Privacy & Security** and grant both **Microphone** and **Screen Recording** access to the app (or to your terminal emulator during development).
+
+---
+
+### Windows Setup
+
+> Tested on Windows 10 (21H2+) and Windows 11. All commands below are for **PowerShell** (not Command Prompt).
+
+**Step 1 — Install Visual Studio Build Tools**
+
+Download and run the [Visual Studio Build Tools installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+
+In the installer, check the **"Desktop development with C++"** workload and click Install. This provides the MSVC compiler, Windows SDK, and CMake.
+
+Verify: Open **Visual Studio Installer** (search for it in Start menu) — you should see "Desktop development with C++" checked under Installed workloads.
+
+> **If you already have full Visual Studio** (not just Build Tools) with the C++ workload installed, skip this step — that works too.
+>
+> **Important:** After installing, close and reopen PowerShell before continuing.
+
+---
+
+**Step 2 — Install Node.js 22**
+
+Option A — [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) (recommended):
+
+Download and run the latest `nvm-setup.exe`, then open a **new** PowerShell:
+
+```powershell
+nvm install 22
+nvm use 22
+```
+
+Option B — Download the LTS 22.x MSI installer directly from [nodejs.org](https://nodejs.org/).
+
+Verify (open a **new** PowerShell):
+```powershell
+node -v
+# Expected: v22.x.x
+```
+
+> **If `node` is not recognized:** Restart PowerShell. If it still doesn't work, the Node.js installer may not have added itself to PATH — check `$env:PATH` or reinstall with the "Add to PATH" option checked.
+
+---
+
+**Step 3 — Install the Rust toolchain**
+
+Download and run [rustup-init.exe](https://rustup.rs/). Accept the defaults (installs `stable-msvc`).
+
+Verify (open a **new** PowerShell):
+```powershell
+rustc --version
+# Expected: rustc 1.xx.x (...)
+cargo --version
+# Expected: cargo 1.xx.x (...)
+```
+
+Make sure you're on the MSVC target:
+```powershell
+rustup default stable-msvc
+```
+
+> **If `rustc` is not found:** Restart PowerShell. The installer adds `%USERPROFILE%\.cargo\bin` to your PATH, but only new shells pick it up.
+
+---
+
+**Step 4 — Install GStreamer (MSVC)**
+
+Download **both** MSI installers from [gstreamer.freedesktop.org/download](https://gstreamer.freedesktop.org/download/) — pick the **MSVC 64-bit (x86_64)** variants:
+
+1. **Runtime** — `gstreamer-1.0-msvc-x86_64-X.XX.X.msi`
+2. **Development** — `gstreamer-1.0-devel-msvc-x86_64-X.XX.X.msi`
+
+Run both with default settings (installs to `C:\gstreamer\`).
+
+Verify (open a **new** PowerShell — the installer sets an environment variable):
+```powershell
+echo $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
+# Expected: C:\gstreamer\1.0\msvc_x86_64\  (or similar)
+```
+
+> **If the variable is empty:** The installer didn't set it. Set it manually and restart PowerShell:
+> ```powershell
+> [Environment]::SetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64", "C:\gstreamer\1.0\msvc_x86_64\", "User")
+> ```
+
+---
+
+**Step 5 — Install the NAPI-RS CLI**
+
+```powershell
+npm install -g @napi-rs/cli
+```
+
+Verify:
+```powershell
+napi --version
+# Expected: a version number like 3.x.x
+```
+
+> **If `napi` is not recognized:** npm's global bin directory isn't on your PATH. Find it with `npm config get prefix` and add the result to your PATH.
+
+---
+
+**Step 6 — Clone the repo and install dependencies**
+
+```powershell
+git clone https://github.com/Laxcorp-Research/project-raven.git
+cd project-raven
+npm install
+```
+
+`npm install` takes a few minutes. It automatically rebuilds `better-sqlite3` for Electron via the `postinstall` script.
+
+Verify:
+```powershell
+Test-Path node_modules\.package-lock.json
+# Expected: True
+```
+
+> **If `npm install` fails with `node-gyp` or MSBuild errors:** Make sure the Visual Studio Build Tools "Desktop development with C++" workload is installed (Step 1). Also check that you're running PowerShell as a regular user (not Administrator).
+
+---
+
+**Step 7 — Build the GStreamer echo-cancellation addon**
+
+```powershell
+cd src\native\aec
+npm install
+npx cmake-js compile
+cd ..\..\..
+```
+
+> **Note:** The `build-deps.sh` script is macOS-only. On Windows, the GStreamer MSVC installer already includes all required plugins (including WebRTC DSP).
+
+Verify:
+```powershell
+Test-Path src\native\aec\build\Release\raven-aec.node
+# Expected: True
+```
+
+> **If cmake-js fails with "GStreamer not found":** The `GSTREAMER_1_0_ROOT_MSVC_X86_64` environment variable is not set. Revisit Step 4.
+
+---
+
+**Step 8 — Build the Windows audio capture module**
+
+```powershell
+cd src\native\windows
+npm install
+napi build --platform --release
+cd ..\..\..
+```
+
+Verify:
+```powershell
+Test-Path src\native\windows\raven-windows-audio.win32-x64-msvc.node
+# Expected: True
+```
+
+> **If the build fails with linker errors:** Make sure Rust is using the MSVC target. Run `rustup show` — the default toolchain should show `stable-x86_64-pc-windows-msvc`. If not, run `rustup default stable-msvc`.
+>
+> **If it fails with "Windows SDK not found":** Open **Visual Studio Installer → Modify → Individual components** and install the latest "Windows 10 SDK" or "Windows 11 SDK".
+>
+> See [`src/native/windows/README.md`](src/native/windows/README.md) for more details.
+
+---
+
+**Step 9 — Run the app**
+
+```powershell
+npm run dev
+```
+
+The Electron app opens. On first launch you'll be prompted to enter your API keys in the settings.
+
+> **If the app starts but audio capture doesn't work:** Check **Settings → Sound** and make sure the correct playback and recording devices are set as default. WASAPI captures from the default devices.
+
+---
+
+### Setup Troubleshooting Quick Reference
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| `npm install` fails with `node-gyp` errors | Missing C/C++ build tools | **macOS:** `xcode-select --install` **Windows:** VS Build Tools "Desktop development with C++" workload |
+| `NODE_MODULE_VERSION mismatch` at runtime | Native module built for wrong Electron version | `npx @electron/rebuild -f -w better-sqlite3` from the project root |
+| `build-deps.sh`: "gstreamer-1.0 not found" | GStreamer not installed or `pkg-config` can't find it | **macOS:** Install via Homebrew and check `PKG_CONFIG_PATH` (see macOS Step 3) |
+| cmake-js: "GStreamer not found" on Windows | `GSTREAMER_1_0_ROOT_MSVC_X86_64` not set | Install both GStreamer MSI packages and restart PowerShell (see Windows Step 4) |
+| `swift build` fails | Swift toolchain too old (need 5.9+) | `sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install` |
+| `napi build` linker errors on Windows | Wrong Rust target or missing Windows SDK | `rustup default stable-msvc` and ensure VS Build Tools C++ workload is installed |
+| App starts, no audio on macOS | Missing system permissions | **System Settings → Privacy & Security**: grant **Microphone** and **Screen Recording** |
+| App starts, no audio on Windows | Wrong default audio device | **Settings → Sound**: set correct default playback/recording devices |
 
 ## Keyboard Shortcuts
 

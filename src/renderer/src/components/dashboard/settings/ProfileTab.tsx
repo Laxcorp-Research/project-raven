@@ -304,7 +304,7 @@ export function ProfileTab() {
               </button>
               <button
                 onClick={() => {
-                  window.raven.openExternal('https://billing.stripe.com/p/login/test')
+                  window.raven.authOpenBillingPortal()
                   setShowDeleteModal(false)
                 }}
                 className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
