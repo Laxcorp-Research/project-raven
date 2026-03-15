@@ -63,7 +63,7 @@ function App(): JSX.Element {
             // Auth IPC not registered (shouldn't happen in pro mode)
           }
 
-          log.info('Auth check:', { authenticated })
+          log.info('Auth check:', { authenticated, onboarded })
 
           if (!authenticated) {
             setProAuthenticated(false)

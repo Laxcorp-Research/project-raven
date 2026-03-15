@@ -18,6 +18,7 @@ interface HeaderProps {
   onStartRaven: () => void
   isRecording: boolean
   onOpenSettings: () => void
+  onReplayTour?: () => void
   searchQuery: string
   onSearchChange: (query: string) => void
   onSearchSubmit: (query: string) => void
@@ -46,7 +47,7 @@ function getInitials(name: string): string {
   return parts[0][0].toUpperCase()
 }
 
-export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
+export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
   const { isPro } = useAppMode()
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -318,6 +319,18 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                     <HelpCircle size={16} className="text-gray-400 shrink-0" />
                     <span>Get Help</span>
                   </button>
+                  {onReplayTour && (
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false)
+                        onReplayTour()
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3 transition-colors"
+                    >
+                      <RefreshCw size={16} className="text-gray-400 shrink-0" />
+                      <span>Replay Overlay Tour</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="border-t border-gray-200 py-1.5">
@@ -326,6 +339,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                       onClick={async () => {
                         setUserMenuOpen(false)
                         await window.raven.authLogout()
+                        await window.raven.windowHideOverlay()
                         window.location.reload()
                       }}
                       className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3 transition-colors"

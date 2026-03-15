@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Cloud } from 'lucide-react'
 import { createLogger } from '../../lib/logger'
 import { Header } from './Header'
@@ -10,6 +10,22 @@ import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
 import { SettingsModal } from './SettingsModal'
 import { SearchResultsView } from './SearchResultsView'
+
+type OverlayTourProps = { onBack: () => void; onNext: () => void }
+
+function OverlayTourFallback(_props: OverlayTourProps): JSX.Element {
+  return <div />
+}
+
+const overlayTourModule = '../../../../pro/renderer/onboarding/OverlayTour'
+const OverlayTour = lazy<React.ComponentType<OverlayTourProps>>(async () => {
+  try {
+    const mod = await import(/* @vite-ignore */ overlayTourModule)
+    return { default: mod.OverlayTour }
+  } catch {
+    return { default: OverlayTourFallback }
+  }
+})
 
 interface TranscriptEntry {
   id: string
@@ -38,6 +54,7 @@ export function Dashboard() {
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showOverlayTour, setShowOverlayTour] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
 
@@ -238,6 +255,7 @@ export function Dashboard() {
         onStartRaven={handleStartRaven}
         isRecording={isRecording}
         onOpenSettings={handleOpenSettings}
+        onReplayTour={isPro ? () => setShowOverlayTour(true) : undefined}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
@@ -307,6 +325,21 @@ export function Dashboard() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {showOverlayTour && (
+        <div className="fixed inset-0 z-[300] bg-white">
+          <Suspense fallback={<div className="flex items-center justify-center h-full text-gray-400">Loading...</div>}>
+            <div className="flex items-center justify-center h-full">
+              <div className="w-full max-w-md px-6">
+                <OverlayTour
+                  onBack={() => setShowOverlayTour(false)}
+                  onNext={() => setShowOverlayTour(false)}
+                />
+              </div>
+            </div>
+          </Suspense>
+        </div>
+      )}
     </div>
   )
 }
