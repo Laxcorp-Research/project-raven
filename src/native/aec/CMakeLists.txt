@@ -5,6 +5,11 @@ project(raven-aec)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# GStreamer DLLs use dynamic CRT (/MD); match it to avoid cross-boundary crashes
+if(WIN32)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
+endif()
+
 # cmake-js integration
 include_directories(${CMAKE_JS_INC})
 
@@ -50,8 +55,10 @@ if(WIN32)
   find_library(GST_BASE_LIB gstbase-1.0 PATHS "${GSTREAMER_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
   find_library(GST_APP_LIB gstapp-1.0 PATHS "${GSTREAMER_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
   find_library(GST_AUDIO_LIB gstaudio-1.0 PATHS "${GSTREAMER_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+  find_library(GLIB_LIB glib-2.0 PATHS "${GSTREAMER_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+  find_library(GOBJECT_LIB gobject-2.0 PATHS "${GSTREAMER_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
 
-  set(GST_LIBRARIES ${GST_LIB} ${GST_BASE_LIB})
+  set(GST_LIBRARIES ${GST_LIB} ${GST_BASE_LIB} ${GLIB_LIB} ${GOBJECT_LIB})
   set(GST_APP_LIBRARIES ${GST_APP_LIB})
   set(GST_AUDIO_LIBRARIES ${GST_AUDIO_LIB})
 
@@ -80,7 +87,14 @@ link_directories(
 
 add_library(${PROJECT_NAME} SHARED
   src/aec_addon.cpp
+  ${CMAKE_JS_SRC}
 )
+
+# Replace cmake-js's buggy delay load hook on Windows
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/src/win_delay_load_hook.cc")
+  target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src/win_delay_load_hook.cc")
+  set_source_files_properties(${CMAKE_JS_SRC} PROPERTIES HEADER_FILE_ONLY TRUE)
+endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
   PREFIX ""
@@ -93,6 +107,15 @@ target_link_libraries(${PROJECT_NAME}
   ${GST_APP_LIBRARIES}
   ${GST_AUDIO_LIBRARIES}
 )
+
+if(WIN32)
+  target_link_libraries(${PROJECT_NAME} delayimp)
+  target_link_options(${PROJECT_NAME} PRIVATE
+    /DELAYLOAD:gstreamer-1.0-0.dll
+    /DELAYLOAD:gobject-2.0-0.dll
+    /DELAYLOAD:gstapp-1.0-0.dll
+  )
+endif()
 
 if(APPLE)
   target_link_libraries(${PROJECT_NAME}

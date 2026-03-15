@@ -299,7 +299,7 @@ The Electron app opens. On first launch you'll be prompted to enter your API key
 
 ### Windows Setup
 
-> Tested on Windows 10 (21H2+) and Windows 11. Commands work in both **PowerShell** and **Command Prompt (CMD)**. Where syntax differs, both variants are shown.
+> Tested on Windows 10 (21H2+) and Windows 11. All commands are for **PowerShell**. Open a **new terminal** after each installer to pick up PATH changes.
 
 **Step 1 — Install Visual Studio Build Tools**
 
@@ -310,38 +310,17 @@ In the installer, check the **"Desktop development with C++"** workload and clic
 - Windows 10/11 SDK
 - C++ CMake tools for Windows
 
-After the install finishes, **tell npm which version you installed** — this is required for `node-gyp` to find it:
-
-```
-npm config set msvs_version 2022
-```
-
-> **Why this is necessary:** `node-gyp` (the tool that compiles native modules during `npm install`) uses a Visual Studio finder that often fails to auto-detect Build Tools. Without this config, you'll get `Could not find any Visual Studio installation to use` even though the tools are installed. This is a one-time global npm setting.
-
 Verify:
-```
-npm config get msvs_version
-# Expected: 2022
-```
-
-Also confirm the Build Tools are actually installed:
 ```powershell
-# PowerShell
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.VisualStudio.Workload.VCTools -property displayName
+# Expected: Visual Studio Build Tools 2022
 ```
-```cmd
-rem CMD
-"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.VisualStudio.Workload.VCTools -property displayName
-```
-Expected: `Visual Studio Build Tools 2022` (or `Visual Studio Community/Professional/Enterprise 2022`).
 
-> **If `vswhere.exe` is not found:** The Visual Studio Installer itself didn't install correctly. Re-download and run the [Build Tools installer](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
->
-> **If you have full Visual Studio** (not just Build Tools) with the C++ workload, that works too — just make sure you still run `npm config set msvs_version 2022`.
+> **If you have full Visual Studio** (not just Build Tools) with the C++ workload, that works too.
 
 ---
 
-**Step 2 — Install Node.js 22**
+**Step 2 — Install Node.js (LTS)**
 
 Option A — [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) (recommended):
 
@@ -354,86 +333,98 @@ nvm use 22
 
 Option B — Download the LTS 22.x MSI installer directly from [nodejs.org](https://nodejs.org/).
 
-Verify (open a **new** terminal):
+Verify (in a **new** terminal):
 ```
 node -v
 # Expected: v22.x.x
 ```
 
-> **If `node` is not recognized:** Restart your terminal. If it still doesn't work, the Node.js installer may not have added itself to PATH — reinstall with the "Add to PATH" option checked.
+> **Why Node 22 specifically?** The project requires `node >= 22.12.0` (see `package.json` engines). Using `nvm install lts` may install a newer major version that hasn't been tested.
 
 ---
 
-**Step 3 — Install the Rust toolchain**
+**Step 3 — Install Python**
+
+Python is required by `node-gyp` to compile native Node.js modules (`better-sqlite3`, `bufferutil`, etc.).
+
+Option A — [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
+```
+winget install Python.Python.3.12 --source winget
+```
+
+Option B — Download from [python.org](https://www.python.org/downloads/). Make sure "Add to PATH" is checked during installation.
+
+Verify (in a **new** terminal):
+```
+python --version
+# Expected: Python 3.x.x
+```
+
+---
+
+**Step 4 — Install the Rust toolchain**
 
 Download and run [rustup-init.exe](https://rustup.rs/). Accept the defaults (installs `stable-msvc`).
 
-Verify (open a **new** terminal):
+Verify (in a **new** terminal):
 ```
 rustc --version
 # Expected: rustc 1.xx.x (...)
-cargo --version
-# Expected: cargo 1.xx.x (...)
-```
-
-Make sure you're on the MSVC target:
-```
 rustup default stable-msvc
 ```
 
-> **If `rustc` is not found:** Restart your terminal. The installer adds `%USERPROFILE%\.cargo\bin` to your PATH, but only new shells pick it up.
-
 ---
 
-**Step 4 — Install GStreamer (MSVC)**
+**Step 5 — Install GStreamer (MSVC)**
 
-Download **both** MSI installers from [gstreamer.freedesktop.org/download](https://gstreamer.freedesktop.org/download/) — pick the **MSVC 64-bit (x86_64)** variants:
+Download the **MSVC x86_64** installer from [gstreamer.freedesktop.org/download](https://gstreamer.freedesktop.org/download/) — click **Windows** → **MSVC x86_64 (VS 2022, Release CRT)**.
 
-1. **Runtime** — `gstreamer-1.0-msvc-x86_64-X.XX.X.msi`
-2. **Development** — `gstreamer-1.0-devel-msvc-x86_64-X.XX.X.msi`
+> For GStreamer 1.28+, there is a single combined installer (runtime + development). For older versions, download both the Runtime and Development MSI files.
 
-Run both with default settings (installs to `C:\gstreamer\`).
+Run with default settings. The installer typically installs to `C:\gstreamer\` or `C:\Program Files\gstreamer\`.
 
-Verify (open a **new** terminal — the installer sets an environment variable):
+After installation, verify the environment variable is set (open a **new** terminal):
 ```powershell
-# PowerShell
 echo $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
+# Expected: C:\gstreamer\1.0\msvc_x86_64\ (or C:\Program Files\gstreamer\1.0\msvc_x86_64\)
 ```
-```cmd
-rem CMD
-echo %GSTREAMER_1_0_ROOT_MSVC_X86_64%
-```
-Expected: `C:\gstreamer\1.0\msvc_x86_64\` (or similar).
 
-> **If the variable is empty:** The installer didn't set it. Set it manually and restart your terminal:
+Also make sure GStreamer's `bin` directory is on your PATH:
+```powershell
+$gstRoot = $env:GSTREAMER_1_0_ROOT_MSVC_X86_64
+if ($gstRoot) { echo "GStreamer root: $gstRoot" } else { echo "NOT SET - see below" }
+```
+
+> **If the variable is empty:** The installer didn't set it. Find where GStreamer was installed and set it manually:
 > ```powershell
-> # PowerShell
-> [Environment]::SetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64", "C:\gstreamer\1.0\msvc_x86_64\", "User")
+> # Adjust the path below to match your installation
+> [Environment]::SetEnvironmentVariable("GSTREAMER_1_0_ROOT_MSVC_X86_64", "C:\Program Files\gstreamer\1.0\msvc_x86_64\", "User")
 > ```
-> ```cmd
-> rem CMD
-> setx GSTREAMER_1_0_ROOT_MSVC_X86_64 "C:\gstreamer\1.0\msvc_x86_64\"
-> ```
+> Then **restart your terminal**.
+>
+> **If GStreamer installed to `C:\Program Files\gstreamer\` instead of `C:\gstreamer\`:** That's fine — just make sure the environment variable points to the correct path (e.g. `C:\Program Files\gstreamer\1.0\msvc_x86_64\`).
 
 ---
 
-**Step 5 — Install the NAPI-RS CLI**
+**Step 6 — Install CMake**
+
+CMake is required to compile the GStreamer echo-cancellation addon.
 
 ```
-npm install -g @napi-rs/cli
+winget install Kitware.CMake --source winget
 ```
 
-Verify:
-```
-napi --version
-# Expected: a version number like 3.x.x
-```
+Or download from [cmake.org/download](https://cmake.org/download/). Make sure "Add to PATH" is checked.
 
-> **If `napi` is not recognized:** npm's global bin directory isn't on your PATH. Find it with `npm config get prefix` and add the result to your PATH.
+Verify (in a **new** terminal):
+```
+cmake --version
+# Expected: cmake version 3.x.x
+```
 
 ---
 
-**Step 6 — Clone the repo and install dependencies**
+**Step 7 — Clone the repo and install dependencies**
 
 ```
 git clone https://github.com/Laxcorp-Research/project-raven.git
@@ -445,100 +436,93 @@ npm install
 
 Verify:
 ```powershell
-# PowerShell
 Test-Path node_modules\.package-lock.json
 # Expected: True
 ```
-```cmd
-rem CMD
-if exist node_modules\.package-lock.json (echo OK) else (echo MISSING)
-rem Expected: OK
-```
 
-> **If you see `Could not find any Visual Studio installation to use`:** This is the most common Windows setup error. It means `node-gyp` can't find your Build Tools. Fix:
-> ```
-> npm config set msvs_version 2022
-> ```
-> Then delete `node_modules` and re-run `npm install`:
+> **If `npm install` fails with `Could not find any Python installation`:** Revisit Step 3 — Python must be installed and on PATH.
+>
+> **If `npm install` fails with `Could not find any Visual Studio installation`:** `node-gyp` can't auto-detect your Build Tools. Try these fixes in order:
 > ```powershell
-> # PowerShell
+> # Fix 1: Set the version hint for node-gyp
+> npm config set msvs_version 2022
 > Remove-Item -Recurse -Force node_modules
 > npm install
 > ```
-> ```cmd
-> rem CMD
-> rmdir /s /q node_modules
+> If `npm config set msvs_version` gives an error on newer npm versions, use the environment variable instead:
+> ```powershell
+> # Fix 2: Environment variable (works on all npm versions)
+> $env:GYP_MSVS_VERSION = "2022"
+> Remove-Item -Recurse -Force node_modules
 > npm install
 > ```
-> If it still fails, verify Build Tools are installed by running the `vswhere.exe` command from Step 1.
->
-> **If `npm install` fails with other `node-gyp` or MSBuild errors:** Make sure the "Desktop development with C++" workload is installed with the Windows SDK component (Step 1).
 
 ---
 
-**Step 7 — Build the GStreamer echo-cancellation addon**
+**Step 8 — Build the GStreamer echo-cancellation addon**
 
+First, check the Electron version used by the project:
+```
+node -e "console.log(require('./node_modules/electron/package.json').version)"
+# Note the version (e.g. 40.4.1)
+```
+
+Then build the addon targeting that version:
 ```
 cd src\native\aec
 npm install
-npx cmake-js compile
+npx cmake-js compile --runtime electron --runtime-version <ELECTRON_VERSION>
 cd ..\..\..
 ```
 
+Replace `<ELECTRON_VERSION>` with the version from the previous command (e.g. `40.4.1`).
+
+> **Important:** The `--runtime electron --runtime-version` flags are required. Without them, the addon is built for Node.js instead of Electron, and it **will crash** when loaded. If you upgrade Electron later, you must rebuild this addon with the new version.
+>
 > **Note:** The `build-deps.sh` script is macOS-only. On Windows, the GStreamer MSVC installer already includes all required plugins (including WebRTC DSP).
 
 Verify:
 ```powershell
-# PowerShell
 Test-Path src\native\aec\build\Release\raven-aec.node
 # Expected: True
 ```
-```cmd
-rem CMD
-if exist src\native\aec\build\Release\raven-aec.node (echo OK) else (echo MISSING)
-rem Expected: OK
-```
 
-> **If cmake-js fails with "GStreamer not found":** The `GSTREAMER_1_0_ROOT_MSVC_X86_64` environment variable is not set. Revisit Step 4.
+> **If cmake-js fails with "CMake is not installed":** Revisit Step 6.
+>
+> **If cmake-js fails with "GStreamer not found":** The `GSTREAMER_1_0_ROOT_MSVC_X86_64` environment variable is not set. Revisit Step 5.
+>
+> **If the build succeeds but linking fails with "unresolved external symbol `g_object_set` / `g_type_check_instance_cast`":** GLib/GObject libraries are missing from the link step. This should be handled automatically by the CMakeLists.txt — if you see this error, file a bug.
 
 ---
 
-**Step 8 — Build the Windows audio capture module**
+**Step 9 — Build the Windows audio capture module**
 
 ```
 cd src\native\windows
 npm install
-napi build --platform --release
+npx napi build --platform --release
 cd ..\..\..
 ```
 
 Verify:
 ```powershell
-# PowerShell
 Test-Path src\native\windows\raven-windows-audio.win32-x64-msvc.node
 # Expected: True
 ```
-```cmd
-rem CMD
-if exist src\native\windows\raven-windows-audio.win32-x64-msvc.node (echo OK) else (echo MISSING)
-rem Expected: OK
-```
 
-> **If the build fails with linker errors:** Make sure Rust is using the MSVC target. Run `rustup show` — the default toolchain should show `stable-x86_64-pc-windows-msvc`. If not, run `rustup default stable-msvc`.
+> **If the build fails with linker errors:** Make sure Rust is using the MSVC target: `rustup default stable-msvc`.
 >
 > **If it fails with "Windows SDK not found":** Open **Visual Studio Installer → Modify → Individual components** and install the latest "Windows 10 SDK" or "Windows 11 SDK".
->
-> See [`src/native/windows/README.md`](src/native/windows/README.md) for more details.
 
 ---
 
-**Step 9 — Run the app**
+**Step 10 — Run the app**
 
 ```
 npm run dev
 ```
 
-The Electron app opens. On first launch you'll be prompted to enter your API keys in the settings.
+The Electron app opens. On first launch you'll see a 6-step onboarding flow — enter your API keys (Deepgram for transcription, Claude or OpenAI for AI assistance).
 
 > **If the app starts but audio capture doesn't work:** Check **Settings → Sound** and make sure the correct playback and recording devices are set as default. WASAPI captures from the default devices.
 
@@ -548,11 +532,14 @@ The Electron app opens. On first launch you'll be prompted to enter your API key
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| `Could not find any Visual Studio installation to use` | `node-gyp` can't auto-detect Build Tools | `npm config set msvs_version 2022`, then delete `node_modules` and re-run `npm install` |
+| `Could not find any Python installation` | Python not installed | Install Python 3.x and add to PATH (Windows Step 3) |
+| `Could not find any Visual Studio installation to use` | `node-gyp` can't auto-detect Build Tools | Set `$env:GYP_MSVS_VERSION = "2022"`, delete `node_modules`, re-run `npm install` |
 | `npm install` fails with `node-gyp` errors | Missing C/C++ build tools | **macOS:** `xcode-select --install` **Windows:** VS Build Tools "Desktop development with C++" workload |
 | `NODE_MODULE_VERSION mismatch` at runtime | Native module built for wrong Electron version | `npx @electron/rebuild -f -w better-sqlite3` from the project root |
 | `build-deps.sh`: "gstreamer-1.0 not found" | GStreamer not installed or `pkg-config` can't find it | **macOS:** Install via Homebrew and check `PKG_CONFIG_PATH` (see macOS Step 3) |
-| cmake-js: "GStreamer not found" on Windows | `GSTREAMER_1_0_ROOT_MSVC_X86_64` not set | Install both GStreamer MSI packages and restart PowerShell (see Windows Step 4) |
+| cmake-js: "CMake is not installed" | CMake not on PATH | Install CMake (Windows Step 6) |
+| cmake-js: "GStreamer not found" on Windows | `GSTREAMER_1_0_ROOT_MSVC_X86_64` not set | Set the env var manually and restart terminal (see Windows Step 5) |
+| AEC addon crashes Electron on startup | Built for Node.js instead of Electron | Rebuild with `--runtime electron --runtime-version <your-electron-version>` (Windows Step 8) |
 | `swift build` fails | Swift toolchain too old (need 5.9+) | `sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install` |
 | `napi build` linker errors on Windows | Wrong Rust target or missing Windows SDK | `rustup default stable-msvc` and ensure VS Build Tools C++ workload is installed |
 | App starts, no audio on macOS | Missing system permissions | **System Settings → Privacy & Security**: grant **Microphone** and **Screen Recording** |

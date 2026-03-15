@@ -106,8 +106,13 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     minWidth: DASHBOARD_MIN_WIDTH,
     minHeight: DASHBOARD_MIN_HEIGHT,
     show: false,
-    title: '',
-    titleBarStyle: 'hiddenInset',
+    title: 'Raven',
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const }
+      : {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: { color: '#ffffff', symbolColor: '#666666', height: 36 },
+        }),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -120,6 +125,10 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
 
   applyCSP(dashboardWindow)
   disableZoom(dashboardWindow)
+
+  if (process.platform === 'win32') {
+    dashboardWindow.webContents.setBackgroundThrottling(false)
+  }
 
   dashboardWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file://') && !url.startsWith('http://localhost')) {
@@ -197,7 +206,9 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     roundedCorners: false,
     show: false,
     title: 'Raven Overlay',
-    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
+    ...(process.platform === 'darwin'
+      ? { type: 'panel' as const }
+      : { focusable: false }),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -211,12 +222,13 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   applyCSP(overlayWindow)
   disableZoom(overlayWindow)
 
-  // Force macOS compositor to blend transparency properly
-  overlayWindow.setOpacity(0.99)
-
-  // Highest z-level — visible above fullscreen apps and screen savers
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (process.platform === 'darwin') {
+    overlayWindow.setOpacity(0.99)
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  } else {
+    overlayWindow.setAlwaysOnTop(true, 'floating')
+  }
 
   // Prevent throttling when overlay isn't focused
   overlayWindow.webContents.setBackgroundThrottling(false)

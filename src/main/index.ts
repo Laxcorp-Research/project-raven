@@ -1,6 +1,21 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer, Menu } from 'electron'
 import { join, dirname } from 'path'
+import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
+
+if (process.platform === 'win32') {
+  const gstRoot = process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64
+    || (existsSync('C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64') ? 'C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64' : '')
+  if (gstRoot) {
+    const gstBin = join(gstRoot, 'bin')
+    if (!process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64) {
+      process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64 = gstRoot
+    }
+    if (!(process.env.PATH || '').includes(gstBin)) {
+      process.env.PATH = gstBin + ';' + (process.env.PATH || '')
+    }
+  }
+}
 import type WebSocket from 'ws'
 import { registerIpcHandlers } from './ipc'
 import {
@@ -251,6 +266,10 @@ function boot(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    Menu.setApplicationMenu(null)
+  }
+
   // Set app mode from environment variable (defaults to 'free' for open-source)
   const appMode = process.env.RAVEN_MODE === 'pro' ? 'pro' : 'free'
   saveSetting('mode', appMode)
