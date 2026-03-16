@@ -13,9 +13,21 @@ infra/
 .cursor/
 
 # Premium-only files
-docs/REPO_STRUCTURE.md
+docs/API_REFERENCE.md
+docs/AUDIO_PIPELINE.md
+docs/AUTH_FLOW.md
+docs/BILLING.md
+docs/CI_CD.md
+docs/ENV_VARS.md
+docs/FREE_VS_PRO.md
 docs/LAUNCH_CHECKLIST.md
+docs/MODES.md
+docs/OVERLAY_STEALTH.md
+docs/RAG.md
+docs/REPO_STRUCTURE.md
+docs/SESSION_MANAGEMENT.md
 docs/TESTING_GUIDE.md
+docs/USAGE_GATING.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml
