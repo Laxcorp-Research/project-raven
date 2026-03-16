@@ -39,7 +39,8 @@ async function parseFile(filePath: string): Promise<string> {
       return await readFile(filePath, 'utf-8');
     }
     case '.pdf': {
-      const pdfParse = (await import('pdf-parse')).default;
+      const mod = await import('pdf-parse');
+      const pdfParse = typeof mod.default === 'function' ? mod.default : mod;
       const buffer = await readFile(filePath);
       const data = await pdfParse(buffer);
       return data.text;

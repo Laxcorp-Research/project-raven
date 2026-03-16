@@ -6,8 +6,8 @@ contextBridge.exposeInMainWorld('raven', {
   storeSet: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
   storeSaveMany: (settings: Record<string, unknown>) =>
     ipcRenderer.invoke('store:save-many', settings),
-  apiKeysSave: (deepgramKey: string, anthropicKey: string) =>
-    ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey),
+  apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) =>
+    ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey),
   apiKeysHas: () => ipcRenderer.invoke('store:has-api-keys'),
   apiKeysClear: () => ipcRenderer.invoke('store:clear-api-keys'),
   planIsFree: () => ipcRenderer.invoke('store:is-free-mode'),
@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('window:set-overlay-bounds', bounds),
   windowHideOverlay: () => ipcRenderer.invoke('window:hide-overlay'),
   windowHide: () => ipcRenderer.invoke('window:hide-overlay'),
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window:maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
   windowSetStealth: (enabled: boolean) => ipcRenderer.invoke('window:set-stealth', enabled),
   windowGetType: () => ipcRenderer.invoke('window:get-type'),
   desktopGetSources: () => ipcRenderer.invoke('desktop:get-sources'),

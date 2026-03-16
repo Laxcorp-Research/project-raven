@@ -63,7 +63,7 @@ declare global {
       storeGet: (key: string) => Promise<unknown>;
       storeSet: (key: string, value: unknown) => Promise<boolean>;
       storeSaveMany: (settings: Record<string, unknown>) => Promise<boolean>;
-      apiKeysSave: (deepgramKey: string, anthropicKey: string) => Promise<boolean>;
+      apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) => Promise<boolean>;
       apiKeysHas: () => Promise<boolean>;
       apiKeysClear: () => Promise<boolean>;
       planIsFree: () => Promise<boolean>;

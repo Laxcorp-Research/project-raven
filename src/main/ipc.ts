@@ -1,4 +1,4 @@
-import { app, ipcMain, shell, screen } from 'electron'
+import { app, ipcMain, shell, screen, BrowserWindow } from 'electron'
 import {
   getAllSettings,
   getSetting,
@@ -79,10 +79,11 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'store:save-api-keys',
-    (_event, deepgramKey: string, anthropicKey: string) => {
+    (_event, deepgramKey: string, anthropicKey: string, openaiKey?: string) => {
       assertString(deepgramKey, 'deepgramKey', 500)
       assertString(anthropicKey, 'anthropicKey', 500)
-      saveApiKeys(deepgramKey, anthropicKey)
+      if (openaiKey !== undefined) assertString(openaiKey, 'openaiKey', 500)
+      saveApiKeys(deepgramKey, anthropicKey, openaiKey)
       return true
     }
   )
@@ -302,6 +303,19 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('window:hide-overlay', () => {
     hideOverlay()
     return true
+  })
+
+  ipcMain.handle('window:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize()
+  })
+
+  ipcMain.handle('window:maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win?.isMaximized()) { win.unmaximize() } else { win?.maximize() }
+  })
+
+  ipcMain.handle('window:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close()
   })
 
   ipcMain.handle('window:set-stealth', (_event, enabled: boolean) => {

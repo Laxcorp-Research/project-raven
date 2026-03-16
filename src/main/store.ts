@@ -212,9 +212,12 @@ export function getApiKey(key: typeof API_KEY_FIELDS[number]): string {
 
 // ---- API Key Helpers ----
 
-export function saveApiKeys(deepgramKey: string, anthropicKey: string): void {
+export function saveApiKeys(deepgramKey: string, anthropicKey: string, openaiKey?: string): void {
   store.set('deepgramApiKey', encryptValue(deepgramKey));
   store.set('anthropicApiKey', encryptValue(anthropicKey));
+  if (openaiKey !== undefined) {
+    store.set('openaiApiKey', encryptValue(openaiKey));
+  }
   store.set('apiKeysConfigured', true);
 }
 

@@ -146,8 +146,7 @@ export function ApiKeysTab() {
     const isValid = await validateKeys(false)
     if (isValid) {
       try {
-        await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim())
-        await window.raven.storeSet('openaiApiKey', openaiKey.trim())
+        await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim(), openaiKey.trim())
         await window.raven.storeSet('aiProvider', aiProvider)
         await window.raven.storeSet('aiModel', aiModel)
         setSaveMessage({ type: 'success', text: 'Settings saved successfully' })

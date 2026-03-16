@@ -272,7 +272,14 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
     it('delegates to saveApiKeys and returns true', () => {
       const result = handlers['store:save-api-keys'](fakeEvent(), 'dg-key', 'ant-key')
 
-      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key')
+      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', undefined)
+      expect(result).toBe(true)
+    })
+
+    it('passes openai key when provided', () => {
+      const result = handlers['store:save-api-keys'](fakeEvent(), 'dg-key', 'ant-key', 'oai-key')
+
+      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', 'oai-key')
       expect(result).toBe(true)
     })
   })

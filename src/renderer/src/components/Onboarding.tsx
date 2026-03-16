@@ -152,16 +152,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     try {
       await window.raven.apiKeysSave(
         deepgramKey.trim(),
-        aiProvider === 'anthropic' ? anthropicKey.trim() : ''
+        aiProvider === 'anthropic' ? anthropicKey.trim() : '',
+        aiProvider === 'openai' ? openaiKey.trim() : undefined
       )
       await window.raven.storeSet('aiProvider', aiProvider)
       await window.raven.storeSet(
         'aiModel',
         aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5-mini'
       )
-      if (aiProvider === 'openai') {
-        await window.raven.storeSet('openaiApiKey', openaiKey.trim())
-      }
       await window.raven.storeSet('onboardingComplete', true)
       onComplete()
     } catch {
