@@ -48,7 +48,7 @@ export function AboutTab() {
         {isPro ? (
           <>
             <button
-              onClick={() => handleOpenLink('https://raven.ciaraai.com')}
+              onClick={() => handleOpenLink('https://useraven.ai')}
               className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
             >
               <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -60,7 +60,7 @@ export function AboutTab() {
             </button>
 
             <button
-              onClick={() => handleOpenLink('mailto:support@ciaraai.com')}
+              onClick={() => handleOpenLink('mailto:support@useraven.ai')}
               className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
             >
               <div className="w-9 h-9 bg-amber-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -72,7 +72,7 @@ export function AboutTab() {
             </button>
 
             <button
-              onClick={() => handleOpenLink('mailto:feedback@ciaraai.com')}
+              onClick={() => handleOpenLink('mailto:feedback@useraven.ai')}
               className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
             >
               <div className="w-9 h-9 bg-green-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">

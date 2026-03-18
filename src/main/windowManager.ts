@@ -29,7 +29,7 @@ function applyCSP(win: BrowserWindow): void {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://lh3.googleusercontent.com",
             "font-src 'self' data:",
-            "connect-src 'self' https://api.raven.ciaraai.com https://api-staging.raven.ciaraai.com https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com",
+            "connect-src 'self' https://api.useraven.ai https://api-staging.useraven.ai https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com",
             "media-src 'self' blob:",
             "worker-src 'self' blob:",
             "object-src 'none'",
@@ -127,9 +127,9 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     dashboardWindow.webContents.setBackgroundThrottling(false)
     dashboardWindow.webContents.on('did-finish-load', () => {
       dashboardWindow?.webContents.insertCSS(`
-        .win-controls { position: fixed; top: 0; right: 0; z-index: 99999; display: flex; height: 36px; -webkit-app-region: no-drag; }
+        .win-controls { display: flex; height: 36px; -webkit-app-region: no-drag; position: fixed; top: 0; right: 0; z-index: 99999; }
         .win-controls button { width: 46px; height: 36px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; }
-        .win-controls button:hover { background: #e5e5e5; }
+        .win-controls button:hover { background: rgba(0,0,0,0.06); }
         .win-controls button.close:hover { background: #e81123; color: #fff; }
         .win-controls button svg { width: 10px; height: 10px; }
       `)
@@ -142,6 +142,15 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
             + '<button onclick="window.raven?.windowMaximize?.()" title="Maximize"><svg viewBox="0 0 10 10"><rect fill="none" stroke="currentColor" stroke-width="1" x="0.5" y="0.5" width="9" height="9"/></svg></button>'
             + '<button class="close" onclick="window.raven?.windowClose?.()" title="Close"><svg viewBox="0 0 10 10"><line stroke="currentColor" stroke-width="1.2" x1="0" y1="0" x2="10" y2="10"/><line stroke="currentColor" stroke-width="1.2" x1="10" y1="0" x2="0" y2="10"/></svg></button>';
           document.body.appendChild(c);
+          setInterval(function() {
+            document.querySelectorAll('div').forEach(function(el) {
+              if (el.classList.contains('win-controls')) return;
+              var r = el.getBoundingClientRect();
+              if (r.width < 50 && r.height < 50 && r.top < 10 && r.right > window.innerWidth - 160 && r.right <= window.innerWidth) {
+                el.style.setProperty('top', '44px', 'important');
+              }
+            });
+          }, 500);
         })()
       `)
     })
