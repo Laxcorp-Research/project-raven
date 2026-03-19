@@ -24,6 +24,7 @@ import {
   getDashboardWindow,
   getOverlayWindow,
   setStealthMode,
+  setOverlayEnabled,
   registerStealthTrayCallbacks
 } from './windowManager'
 import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
@@ -229,6 +230,7 @@ function boot(): void {
   const shouldEnableOverlay = isFullyReady
 
   if (shouldEnableOverlay) {
+    setOverlayEnabled(true)
     dashboard.on('ready-to-show', () => {
       setTimeout(() => {
         overlay.show()
@@ -247,6 +249,7 @@ function boot(): void {
     log.info('Onboarding completed — showing overlay')
     createDefaultMode()
     setStealthMode(true)
+    setOverlayEnabled(true)
     overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
     setTrayOnboarding(false)

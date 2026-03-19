@@ -8,6 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
+let overlayEnabled = false
 
 const stealthTrayCallbacks: { hide?: () => void; show?: () => void } = {}
 
@@ -278,16 +279,21 @@ export function toggleOverlay(): void {
 
   if (overlayWindow.isVisible()) {
     overlayWindow.hide()
-  } else {
+  } else if (overlayEnabled) {
     overlayWindow.show()
     overlayWindow.focus()
   }
 }
 
 export function showOverlay(): void {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (!overlayWindow || overlayWindow.isDestroyed() || !overlayEnabled) return
   overlayWindow.show()
   overlayWindow.focus()
+}
+
+export function setOverlayEnabled(enabled: boolean): void {
+  overlayEnabled = enabled
+  if (!enabled) hideOverlay()
 }
 
 export function hideOverlay(): void {
