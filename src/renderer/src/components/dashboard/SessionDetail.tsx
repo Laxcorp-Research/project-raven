@@ -222,6 +222,38 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         .map((message) => `${message.role === 'user' ? userName : 'Raven'}: ${message.content}`)
         .join('\n\n')
     }
+    if (activeTab === 'insights' && session.insightsJson) {
+      try {
+        const parsed = parseInsightsJson(session.insightsJson)
+        if (!parsed) return ''
+        const lines: string[] = []
+        if (parsed.sentiment && typeof parsed.sentiment === 'object') {
+          const s = parsed.sentiment as Record<string, unknown>
+          const overall = s.overall_sentiment as Record<string, unknown> | undefined
+          lines.push('## Sentiment Analysis')
+          if (overall) lines.push(`Overall: ${formatSentiment(overall.sentiment as string)} (${Math.round((overall.confidence_score as number || 0) * 100)}% confidence)`)
+          if (typeof overall?.reasoning === 'string') lines.push(overall.reasoning)
+          const shifts = s.key_sentiment_shifts as Array<Record<string, string>> | undefined
+          if (shifts?.length) {
+            lines.push('\nSentiment Shifts:')
+            shifts.forEach(sh => lines.push(`- ${sh.moment}: ${formatSentiment(sh.sentiment)} — ${sh.description}`))
+          }
+          lines.push('')
+        }
+        if (Array.isArray(parsed.topics)) {
+          lines.push('## Topics Discussed')
+          ;(parsed.topics as Array<Record<string, unknown>>).forEach(t => {
+            lines.push(`- ${t.topic} (${t.approximate_duration_percent}%): ${t.description}`)
+          })
+          lines.push('')
+        }
+        if (Array.isArray(parsed.keyPhrases)) {
+          lines.push('## Key Phrases')
+          lines.push((parsed.keyPhrases as string[]).filter(p => !NOISE_PHRASES.has(p.toLowerCase().trim())).join(', '))
+        }
+        return lines.join('\n')
+      } catch { return '' }
+    }
     return ''
   }
 
@@ -380,7 +412,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         <div className="flex-1 h-0 relative">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto">
             <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
-              {(hasTranscript || (activeTab === 'usage' && messages.length > 0)) &&
+              {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && session.insightsJson)) &&
                 !(activeTab === 'summary' && !session.summary && hasTranscript) && (
                 <div className="flex justify-end mb-4">
                   <button
@@ -803,11 +835,24 @@ function SentimentCard({ data }: { data: unknown }) {
             {Object.entries(speakers).map(([name, info]) => {
               const s = info as Record<string, unknown>
               return (
-                <div key={name} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                  <p className="text-sm font-semibold text-gray-800 mb-1.5">{name}</p>
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${sentimentColor(s.sentiment as string)}`}>
-                    {formatSentiment(s.sentiment as string)}
-                  </span>
+                <div key={name} className="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-sm font-semibold text-gray-800">{name}</p>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium border ${sentimentColor(s.sentiment as string)}`}>
+                      {formatSentiment(s.sentiment as string)}
+                    </span>
+                  </div>
+                  {typeof s.confidence_score === 'number' && (
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <div className="h-1.5 bg-gray-200 rounded-full flex-1">
+                        <div className="h-full bg-blue-400 rounded-full" style={{ width: `${s.confidence_score * 100}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-400">{Math.round(s.confidence_score * 100)}%</span>
+                    </div>
+                  )}
+                  {typeof s.summary === 'string' && (
+                    <p className="text-xs text-gray-500 leading-relaxed">{s.summary}</p>
+                  )}
                 </div>
               )
             })}
@@ -844,12 +889,16 @@ function TopicsCard({ data }: { data: unknown }) {
   )
 }
 
+const NOISE_PHRASES = new Set(['second', 'close', 'okay', 'yes', 'no', 'right', 'start', 'stop', 'ok', 'yeah', 'sure', 'hmm', 'um', 'uh', 'like', 'just', 'well', 'so', 'then', 'also', 'thing', 'stuff'])
+
 function KeyPhrasesCard({ data }: { data: unknown }) {
   if (!Array.isArray(data)) return null
+  const filtered = data.filter(p => typeof p === 'string' && p.trim().length > 0 && !NOISE_PHRASES.has(p.toLowerCase().trim()))
+  if (filtered.length === 0) return null
   return (
     <div className="flex flex-wrap gap-2">
-      {data.map((phrase, i) => (
-        <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-medium rounded-full">
+      {filtered.map((phrase, i) => (
+        <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-medium rounded-full border border-blue-100">
           {typeof phrase === 'string' ? phrase : JSON.stringify(phrase)}
         </span>
       ))}
@@ -985,13 +1034,14 @@ function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { 
         </div>
       )}
 
-      <div className="pt-1">
+      <div className="pt-2 flex justify-end">
         <button
           onClick={handleAnalyze}
           disabled={isAnalyzing}
-          className="text-sm text-purple-600 hover:text-purple-700 font-medium disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-purple-600 font-medium disabled:opacity-50 transition-colors"
         >
-          {isAnalyzing ? 'Re-analyzing...' : 'Re-analyze'}
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          {isAnalyzing ? 'Regenerating...' : 'Regenerate insights'}
         </button>
       </div>
     </div>
