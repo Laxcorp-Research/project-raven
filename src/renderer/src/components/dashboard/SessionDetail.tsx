@@ -692,15 +692,56 @@ interface ParsedInsights {
   keyPhrases: unknown
 }
 
+function stripCodeFences(s: string): string {
+  return s.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+}
+
+function tryParseJson(val: unknown): unknown {
+  if (!val) return null
+  if (typeof val !== 'string') return val
+  try {
+    return JSON.parse(stripCodeFences(val))
+  } catch {
+    return val
+  }
+}
+
 function parseInsightsJson(raw: string): ParsedInsights | null {
   try {
     const data = JSON.parse(raw)
-    return {
-      sentiment: data.sentiment ? (typeof data.sentiment === 'string' ? JSON.parse(data.sentiment) : data.sentiment) : null,
-      topics: data.topics ? (typeof data.topics === 'string' ? JSON.parse(data.topics) : data.topics) : null,
-      keyPhrases: data.keyPhrases ? (typeof data.keyPhrases === 'string' ? JSON.parse(data.keyPhrases) : data.keyPhrases) : null,
+    const parsed = {
+      sentiment: tryParseJson(data.sentiment),
+      topics: tryParseJson(data.topics),
+      keyPhrases: tryParseJson(data.keyPhrases),
     }
+    if (!parsed.sentiment && !parsed.topics && !parsed.keyPhrases) return null
+    return parsed
   } catch { return null }
+}
+
+function formatSentiment(raw: string): string {
+  if (!raw) return 'Unknown'
+  let s = raw
+  const toIdx = s.toLowerCase().indexOf('to_')
+  if (toIdx > 0) s = s.slice(toIdx + 3)
+  return s
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim()
+}
+
+function sentimentColor(raw: string): string {
+  const s = raw?.toLowerCase() || ''
+  if (s.includes('positive')) return 'text-green-700 bg-green-50 border-green-200'
+  if (s.includes('negative')) return 'text-red-700 bg-red-50 border-red-200'
+  return 'text-amber-700 bg-amber-50 border-amber-200'
+}
+
+function sentimentDot(raw: string): string {
+  const s = raw?.toLowerCase() || ''
+  if (s.includes('positive')) return 'bg-green-500'
+  if (s.includes('negative')) return 'bg-red-500'
+  return 'bg-amber-500'
 }
 
 function SentimentCard({ data }: { data: unknown }) {
@@ -710,44 +751,45 @@ function SentimentCard({ data }: { data: unknown }) {
   const shifts = d.key_sentiment_shifts as Array<Record<string, string>> | undefined
   const speakers = d.per_speaker_sentiment as Record<string, unknown> | undefined
 
-  const sentimentColor = (s: string) =>
-    s?.includes('positive') ? 'text-green-600 bg-green-50' :
-    s?.includes('negative') ? 'text-red-600 bg-red-50' :
-    'text-amber-600 bg-amber-50'
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {overall && (
         <div className="flex items-center gap-3">
-          <span className={`px-3 py-1 rounded-full text-sm font-semibold capitalize ${sentimentColor(overall.sentiment as string)}`}>
-            {(overall.sentiment as string) || 'Unknown'}
+          <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${sentimentColor(overall.sentiment as string)}`}>
+            {formatSentiment(overall.sentiment as string)}
           </span>
           {typeof overall.confidence_score === 'number' && (
-            <div className="flex items-center gap-2 flex-1">
+            <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">Confidence</span>
-              <div className="flex-1 h-2 bg-gray-100 rounded-full max-w-[120px]">
+              <div className="h-2 bg-gray-100 rounded-full w-24">
                 <div className="h-full bg-blue-500 rounded-full" style={{ width: `${overall.confidence_score * 100}%` }} />
               </div>
-              <span className="text-xs text-gray-500">{Math.round(overall.confidence_score * 100)}%</span>
+              <span className="text-xs font-medium text-gray-600">{Math.round(overall.confidence_score * 100)}%</span>
             </div>
           )}
         </div>
       )}
       {typeof overall?.reasoning === 'string' && (
-        <p className="text-sm text-gray-600">{overall.reasoning}</p>
+        <p className="text-sm text-gray-600 leading-relaxed">{overall.reasoning}</p>
       )}
       {shifts && shifts.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Sentiment shifts</h4>
-          <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Sentiment Shifts</h4>
+          <div className="space-y-3">
             {shifts.map((shift, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <span className={`mt-0.5 px-2 py-0.5 rounded text-xs font-medium capitalize ${sentimentColor(shift.sentiment)}`}>
-                  {shift.sentiment?.replace('_', ' ')}
-                </span>
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{shift.moment}</p>
-                  <p className="text-xs text-gray-500">{shift.description}</p>
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center pt-1.5">
+                  <div className={`w-2.5 h-2.5 rounded-full ${sentimentDot(shift.sentiment)}`} />
+                  {i < shifts.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
+                </div>
+                <div className="flex-1 pb-3">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-medium text-gray-900">{shift.moment}</p>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium border ${sentimentColor(shift.sentiment)}`}>
+                      {formatSentiment(shift.sentiment)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">{shift.description}</p>
                 </div>
               </div>
             ))}
@@ -756,15 +798,15 @@ function SentimentCard({ data }: { data: unknown }) {
       )}
       {speakers && Object.keys(speakers).length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Per speaker</h4>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Per Speaker</h4>
           <div className="grid grid-cols-2 gap-3">
             {Object.entries(speakers).map(([name, info]) => {
               const s = info as Record<string, unknown>
               return (
-                <div key={name} className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm font-medium text-gray-800">{name}</p>
-                  <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium capitalize ${sentimentColor(s.sentiment as string)}`}>
-                    {(s.sentiment as string) || 'unknown'}
+                <div key={name} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                  <p className="text-sm font-semibold text-gray-800 mb-1.5">{name}</p>
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium border ${sentimentColor(s.sentiment as string)}`}>
+                    {formatSentiment(s.sentiment as string)}
                   </span>
                 </div>
               )
@@ -832,6 +874,8 @@ function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { 
         sessionId,
       })
 
+      console.log('[Insights] Result:', JSON.stringify(result)?.slice(0, 200))
+
       if (!result) {
         setError('Empty response from server')
         setIsAnalyzing(false)
@@ -845,17 +889,24 @@ function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { 
           topics: result.topics || null,
           keyPhrases: result.keyPhrases || null,
         }
+        console.log('[Insights] Parsed:', Object.keys(rawInsights).map(k => `${k}: ${rawInsights[k as keyof typeof rawInsights] ? 'yes' : 'no'}`).join(', '))
         const hasAny = Object.values(rawInsights).some(v => v !== null)
         if (hasAny) {
           const insightsStr = JSON.stringify(rawInsights)
-          await window.raven.sessions.update(sessionId, { insightsJson: insightsStr } as Record<string, unknown>)
+          try {
+            await window.raven.sessions.update(sessionId, { insightsJson: insightsStr } as Record<string, unknown>)
+          } catch (saveErr) {
+            console.warn('[Insights] Failed to save:', saveErr)
+          }
           const parsed = parseInsightsJson(insightsStr)
+          console.log('[Insights] Parsed result:', parsed ? 'valid' : 'null')
           setInsights(parsed)
         } else {
           setError('No insights generated. The transcript may be too short or unclear.')
         }
       }
     } catch (err) {
+      console.error('[Insights] Error:', err)
       setError(err instanceof Error ? err.message : 'Analysis failed')
     }
 
