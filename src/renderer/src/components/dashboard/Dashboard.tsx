@@ -40,6 +40,7 @@ interface SessionDetailData {
   title: string
   transcript: TranscriptEntry[]
   summary: string | null
+  insightsJson?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null

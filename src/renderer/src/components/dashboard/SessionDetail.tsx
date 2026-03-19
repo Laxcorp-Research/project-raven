@@ -19,6 +19,7 @@ interface SessionDetailData {
   title: string
   transcript: TranscriptEntry[]
   summary: string | null
+  insightsJson?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null
@@ -404,7 +405,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                 <UsageTab messages={messages} loading={loadingMessages} />
               )}
               {activeTab === 'insights' && (
-                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} />
+                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={session.insightsJson ?? null} />
               )}
             </div>
           </div>
@@ -685,15 +686,139 @@ function formatTimestamp(timestamp: number): string {
   })
 }
 
-function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: string; transcript: string; hasTranscript: boolean }) {
-  const [insights, setInsights] = useState<Record<string, string | null>>({
-    sentiment: null,
-    topics: null,
-    keyPhrases: null,
-  })
+interface ParsedInsights {
+  sentiment: unknown
+  topics: unknown
+  keyPhrases: unknown
+}
+
+function parseInsightsJson(raw: string): ParsedInsights | null {
+  try {
+    const data = JSON.parse(raw)
+    return {
+      sentiment: data.sentiment ? (typeof data.sentiment === 'string' ? JSON.parse(data.sentiment) : data.sentiment) : null,
+      topics: data.topics ? (typeof data.topics === 'string' ? JSON.parse(data.topics) : data.topics) : null,
+      keyPhrases: data.keyPhrases ? (typeof data.keyPhrases === 'string' ? JSON.parse(data.keyPhrases) : data.keyPhrases) : null,
+    }
+  } catch { return null }
+}
+
+function SentimentCard({ data }: { data: unknown }) {
+  if (!data || typeof data !== 'object') return null
+  const d = data as Record<string, unknown>
+  const overall = d.overall_sentiment as Record<string, unknown> | undefined
+  const shifts = d.key_sentiment_shifts as Array<Record<string, string>> | undefined
+  const speakers = d.per_speaker_sentiment as Record<string, unknown> | undefined
+
+  const sentimentColor = (s: string) =>
+    s?.includes('positive') ? 'text-green-600 bg-green-50' :
+    s?.includes('negative') ? 'text-red-600 bg-red-50' :
+    'text-amber-600 bg-amber-50'
+
+  return (
+    <div className="space-y-4">
+      {overall && (
+        <div className="flex items-center gap-3">
+          <span className={`px-3 py-1 rounded-full text-sm font-semibold capitalize ${sentimentColor(overall.sentiment as string)}`}>
+            {(overall.sentiment as string) || 'Unknown'}
+          </span>
+          {typeof overall.confidence_score === 'number' && (
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-xs text-gray-500">Confidence</span>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full max-w-[120px]">
+                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${overall.confidence_score * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-500">{Math.round(overall.confidence_score * 100)}%</span>
+            </div>
+          )}
+        </div>
+      )}
+      {typeof overall?.reasoning === 'string' && (
+        <p className="text-sm text-gray-600">{overall.reasoning}</p>
+      )}
+      {shifts && shifts.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Sentiment shifts</h4>
+          <div className="space-y-2">
+            {shifts.map((shift, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className={`mt-0.5 px-2 py-0.5 rounded text-xs font-medium capitalize ${sentimentColor(shift.sentiment)}`}>
+                  {shift.sentiment?.replace('_', ' ')}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{shift.moment}</p>
+                  <p className="text-xs text-gray-500">{shift.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {speakers && Object.keys(speakers).length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Per speaker</h4>
+          <div className="grid grid-cols-2 gap-3">
+            {Object.entries(speakers).map(([name, info]) => {
+              const s = info as Record<string, unknown>
+              return (
+                <div key={name} className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-sm font-medium text-gray-800">{name}</p>
+                  <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium capitalize ${sentimentColor(s.sentiment as string)}`}>
+                    {(s.sentiment as string) || 'unknown'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TopicsCard({ data }: { data: unknown }) {
+  if (!Array.isArray(data)) return null
+  return (
+    <div className="space-y-3">
+      {data.map((topic, i) => {
+        const t = topic as Record<string, unknown>
+        const pct = t.approximate_duration_percent as number | undefined
+        return (
+          <div key={i} className="bg-gray-50 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-sm font-semibold text-gray-800">{t.topic as string}</h4>
+              {pct != null && <span className="text-xs text-gray-400">{pct}% of meeting</span>}
+            </div>
+            <p className="text-xs text-gray-600">{t.description as string}</p>
+            {pct != null && (
+              <div className="mt-2 h-1.5 bg-gray-200 rounded-full">
+                <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function KeyPhrasesCard({ data }: { data: unknown }) {
+  if (!Array.isArray(data)) return null
+  return (
+    <div className="flex flex-wrap gap-2">
+      {data.map((phrase, i) => (
+        <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 text-sm font-medium rounded-full">
+          {typeof phrase === 'string' ? phrase : JSON.stringify(phrase)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { sessionId: string; transcript: string; hasTranscript: boolean; savedInsights: string | null }) {
+  const [insights, setInsights] = useState<ParsedInsights | null>(() => savedInsights ? parseInsightsJson(savedInsights) : null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [expandedSection, setExpandedSection] = useState<string | null>('sentiment')
 
   const handleAnalyze = async () => {
     if (!hasTranscript) return
@@ -707,15 +832,28 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
         sessionId,
       })
 
+      if (!result) {
+        setError('Empty response from server')
+        setIsAnalyzing(false)
+        return
+      }
       if (result?.error) {
-        setError(result.error)
-      } else if (result) {
-        setInsights({
-          sentiment: (result.sentiment as string) || null,
-          topics: (result.topics as string) || null,
-          keyPhrases: (result.keyPhrases as string) || null,
-        })
-        setExpandedSection('sentiment')
+        setError(result.error as string)
+      } else {
+        const rawInsights = {
+          sentiment: result.sentiment || null,
+          topics: result.topics || null,
+          keyPhrases: result.keyPhrases || null,
+        }
+        const hasAny = Object.values(rawInsights).some(v => v !== null)
+        if (hasAny) {
+          const insightsStr = JSON.stringify(rawInsights)
+          await window.raven.sessions.update(sessionId, { insightsJson: insightsStr } as Record<string, unknown>)
+          const parsed = parseInsightsJson(insightsStr)
+          setInsights(parsed)
+        } else {
+          setError('No insights generated. The transcript may be too short or unclear.')
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
@@ -723,8 +861,6 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
 
     setIsAnalyzing(false)
   }
-
-  const hasInsights = Object.values(insights).some(v => v !== null)
 
   if (!hasTranscript) {
     return (
@@ -735,7 +871,7 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
     )
   }
 
-  if (!hasInsights) {
+  if (!insights) {
     return (
       <div className="text-center py-12">
         <div className="mb-4">
@@ -761,55 +897,44 @@ function InsightsTab({ sessionId, transcript, hasTranscript }: { sessionId: stri
             'Generate Insights'
           )}
         </button>
-        {error && (
-          <p className="text-red-500 text-sm mt-3">{error}</p>
-        )}
+        {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
       </div>
     )
   }
 
-  const sections = [
-    { key: 'sentiment', title: 'Sentiment', icon: '📊' },
-    { key: 'topics', title: 'Topics', icon: '💡' },
-    { key: 'keyPhrases', title: 'Key Phrases', icon: '🔑' },
-  ]
-
   return (
-    <div className="space-y-3 max-w-3xl">
-      {sections.map(({ key, title, icon }) => {
-        const content = insights[key]
-        if (!content) return null
-        const isExpanded = expandedSection === key
+    <div className="space-y-5 max-w-3xl">
+      {insights.sentiment != null && (
+        <div className="border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+            Sentiment Analysis
+          </h3>
+          <SentimentCard data={insights.sentiment} />
+        </div>
+      )}
 
-        return (
-          <div key={key} className="border border-gray-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setExpandedSection(isExpanded ? null : key)}
-              className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
-            >
-              <span className="flex items-center gap-2.5 text-sm font-medium text-gray-900">
-                <span>{icon}</span>
-                {title}
-              </span>
-              <svg
-                className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {isExpanded && (
-              <div className="px-5 pb-4 border-t border-gray-100">
-                <div className="pt-3 text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
-                  <Markdown>{content}</Markdown>
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })}
+      {insights.topics != null && (
+        <div className="border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+            Topics Discussed
+          </h3>
+          <TopicsCard data={insights.topics} />
+        </div>
+      )}
 
-      <div className="pt-2">
+      {insights.keyPhrases != null && (
+        <div className="border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+            Key Phrases
+          </h3>
+          <KeyPhrasesCard data={insights.keyPhrases} />
+        </div>
+      )}
+
+      <div className="pt-1">
         <button
           onClick={handleAnalyze}
           disabled={isAnalyzing}

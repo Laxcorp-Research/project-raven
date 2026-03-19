@@ -48,6 +48,7 @@ export interface Session {
   transcript: TranscriptEntry[];
   aiResponses: AIResponse[];
   summary: string | null;
+  insightsJson: string | null;
   modeId: string | null;
   durationSeconds: number;
   startedAt: number;
@@ -61,6 +62,7 @@ export interface SessionRow {
   transcript_json: string;
   ai_responses_json: string;
   summary: string | null;
+  insights_json: string | null;
   mode_id: string | null;
   duration_seconds: number;
   started_at: number;
@@ -232,6 +234,12 @@ class DatabaseService {
           CREATE INDEX IF NOT EXISTS idx_context_chunks_file ON mode_context_chunks(file_id);
         `,
       },
+      {
+        name: '007_add_session_insights',
+        sql: `
+          ALTER TABLE sessions ADD COLUMN insights_json TEXT DEFAULT NULL;
+        `,
+      },
     ];
 
     const applied = this.db
@@ -314,6 +322,10 @@ class DatabaseService {
     if (updates.summary !== undefined) {
       setClauses.push('summary = ?');
       values.push(updates.summary);
+    }
+    if (updates.insightsJson !== undefined) {
+      setClauses.push('insights_json = ?');
+      values.push(updates.insightsJson);
     }
     if (updates.modeId !== undefined) {
       setClauses.push('mode_id = ?');
@@ -500,6 +512,7 @@ class DatabaseService {
       transcript,
       aiResponses,
       summary: row.summary || null,
+      insightsJson: row.insights_json || null,
       modeId: row.mode_id,
       durationSeconds: row.duration_seconds,
       startedAt: row.started_at,
