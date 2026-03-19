@@ -277,7 +277,7 @@ contextBridge.exposeInMainWorld('raven', {
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
-  authOpenCheckout: (plan: 'PRO' | 'TEAM') => ipcRenderer.invoke('auth:open-checkout', plan),
+  authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),
   authOpenBillingPortal: () => ipcRenderer.invoke('auth:open-billing-portal'),
   proxyGetUsage: () => ipcRenderer.invoke('proxy:get-usage'),
   proxyCheckSession: () => ipcRenderer.invoke('proxy:check-session'),

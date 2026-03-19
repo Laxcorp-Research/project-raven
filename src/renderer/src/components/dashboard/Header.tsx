@@ -81,12 +81,20 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
     let email = ''
     let oauthAvatar: string | null = null
 
+    const cached = await window.raven.storeGet('cachedUserProfile') as { name: string; email: string; avatarUrl: string | null } | null
+    if (cached) {
+      setDisplayName(cached.name || '')
+      setUserEmail(cached.email || '')
+      setAvatarUrl(cached.avatarUrl || null)
+    }
+
     try {
       const authUser = await window.raven.authGetCurrentUser()
       if (authUser) {
         name = authUser.name || ''
         email = authUser.email || ''
         oauthAvatar = authUser.avatarUrl || null
+        window.raven.storeSet('cachedUserProfile', { name, email, avatarUrl: oauthAvatar })
       }
     } catch { /* not in pro mode or not authenticated */ }
 

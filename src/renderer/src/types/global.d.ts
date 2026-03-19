@@ -92,7 +92,7 @@ declare global {
       authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;
-      authOpenCheckout: (plan: 'PRO' | 'TEAM') => Promise<{ success: boolean; error?: string }>;
+      authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
       authOpenBillingPortal: () => Promise<{ success: boolean; error?: string }>;
       proxyGetUsage: () => Promise<{
         plan: string;

@@ -12,8 +12,9 @@ import { AudioTab } from './settings/AudioTab'
 import { LanguageTab } from './settings/LanguageTab'
 import { HotkeysTab } from './settings/HotkeysTab'
 import { AboutTab } from './settings/AboutTab'
+import { BillingTab } from './settings/BillingTab'
 
-type SettingsTab = 'general' | 'profile' | 'api-keys' | 'audio' | 'language' | 'hotkeys' | 'about'
+type SettingsTab = 'general' | 'profile' | 'api-keys' | 'billing' | 'audio' | 'language' | 'hotkeys' | 'about'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -46,6 +47,15 @@ const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'billing',
+    label: 'Billing',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
       </svg>
     ),
   },
@@ -91,7 +101,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
-  const visibleTabs = isPro ? tabs.filter((t) => t.id !== 'api-keys') : tabs
+  const visibleTabs = isPro ? tabs.filter((t) => t.id !== 'api-keys') : tabs.filter((t) => t.id !== 'billing')
 
   useEffect(() => {
     if (isOpen) {
@@ -163,6 +173,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'profile' && <ProfileTab />}
             {activeTab === 'api-keys' && <ApiKeysTab />}
+            {activeTab === 'billing' && <BillingTab />}
             {activeTab === 'audio' && <AudioTab />}
             {activeTab === 'language' && <LanguageTab />}
             {activeTab === 'hotkeys' && <HotkeysTab />}
