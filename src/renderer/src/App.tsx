@@ -86,19 +86,26 @@ function App(): JSX.Element {
             setProAuthenticated(true)
             setView('onboarding-pro')
           } else {
-            try {
-              const [authUser, sub] = await Promise.all([
-                window.raven.authGetCurrentUser(),
-                window.raven.authGetSubscription().catch(() => null),
-              ])
+            const cachedProfile = settings.cachedUserProfile as UserProfile | undefined
+            const cachedSub = settings.cachedSubscription as CachedSubscription | undefined
+            if (cachedProfile) setUserProfile(cachedProfile)
+            if (cachedSub) setCachedSubscription(cachedSub)
+            setView('dashboard')
+
+            Promise.all([
+              window.raven.authGetCurrentUser().catch(() => null),
+              window.raven.authGetSubscription().catch(() => null),
+            ]).then(([authUser, sub]) => {
               if (authUser) {
-                setUserProfile({ name: authUser.name || '', email: authUser.email || '', avatarUrl: authUser.avatarUrl || null })
+                const profile = { name: authUser.name || '', email: authUser.email || '', avatarUrl: authUser.avatarUrl || null }
+                setUserProfile(profile)
+                window.raven.storeSet('cachedUserProfile', profile)
               }
               if (sub) {
                 setCachedSubscription(sub)
+                window.raven.storeSet('cachedSubscription', sub)
               }
-            } catch { /* profile fetch failed — Header will show defaults */ }
-            setView('dashboard')
+            })
           }
         } else {
           const hasKeys = await window.raven.apiKeysHas()

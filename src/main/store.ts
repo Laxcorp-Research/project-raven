@@ -152,6 +152,8 @@ export function getAllSettings(): LocalSettings {
     profilePicturePath: store.get('profilePicturePath'),
     proOnboardingComplete: store.get('proOnboardingComplete'),
     proOnboardingStep: store.get('proOnboardingStep'),
+    cachedUserProfile: store.get('cachedUserProfile' as keyof LocalSettings) || null,
+    cachedSubscription: store.get('cachedSubscription' as keyof LocalSettings) || null,
   };
 }
 
