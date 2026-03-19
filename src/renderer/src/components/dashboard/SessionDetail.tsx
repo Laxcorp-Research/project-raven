@@ -395,7 +395,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               )}
 
               {activeTab === 'summary' && (
-                <SummaryTab summary={session.summary} hasTranscript={hasTranscript} />
+                <SummaryTab summary={session.summary} hasTranscript={hasTranscript} sessionId={session.id} />
               )}
               {activeTab === 'transcript' && (
                 <TranscriptTab transcript={session.transcript} displayName={displayName} />
@@ -454,19 +454,99 @@ function SummarySkeleton() {
   )
 }
 
-function SummaryTab({ summary, hasTranscript }: { summary: string | null; hasTranscript: boolean }) {
-  if (!summary && hasTranscript) {
+function SummaryTab({ summary, hasTranscript, sessionId }: { summary: string | null; hasTranscript: boolean; sessionId: string }) {
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState(summary || '')
+  const [savedSummary, setSavedSummary] = useState(summary)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setSavedSummary(summary)
+    setEditText(summary || '')
+  }, [summary])
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus()
+      textareaRef.current.selectionStart = textareaRef.current.value.length
+    }
+  }, [editing])
+
+  const handleSave = async (text: string) => {
+    if (text === savedSummary) return
+    setSavedSummary(text)
+    try {
+      await window.raven.sessions.update(sessionId, { summary: text })
+    } catch (err) {
+      console.error('Failed to save summary:', err)
+    }
+  }
+
+  const handleChange = (text: string) => {
+    setEditText(text)
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    saveTimeoutRef.current = setTimeout(() => handleSave(text), 1000)
+  }
+
+  if (!savedSummary && hasTranscript && !editing) {
     return <SummarySkeleton />
   }
 
-  if (!summary || !hasTranscript) {
-    return <p className="text-gray-400 text-lg">Write your notes here...</p>
+  if (editing) {
+    return (
+      <div className="max-w-3xl">
+        <textarea
+          ref={textareaRef}
+          value={editText}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={() => {
+            handleSave(editText)
+            setEditing(false)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              handleSave(editText)
+              setEditing(false)
+            }
+          }}
+          className="w-full min-h-[400px] p-4 text-sm text-gray-700 leading-relaxed border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 resize-y font-mono"
+          placeholder="Write your notes here..."
+        />
+        <p className="text-xs text-gray-400 mt-2">Markdown supported. Auto-saves as you type. Press Escape or click outside to exit.</p>
+      </div>
+    )
   }
 
-  const sections = parseSummary(summary)
+  if (!savedSummary || !hasTranscript) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-gray-400 text-lg hover:text-gray-500 transition-colors cursor-text"
+      >
+        Write your notes here...
+      </button>
+    )
+  }
+
+  const sections = parseSummary(savedSummary)
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div
+      className="space-y-6 max-w-3xl cursor-text group"
+      onClick={() => setEditing(true)}
+      title="Click to edit"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div />
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(true) }}
+          className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-blue-500 transition-all flex items-center gap-1"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+          Edit
+        </button>
+      </div>
       {sections.map((section, index) => (
         <div key={index}>
           {section.heading && (
