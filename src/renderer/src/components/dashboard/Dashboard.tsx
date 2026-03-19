@@ -45,7 +45,12 @@ interface SessionDetailData {
   modeId: string | null
 }
 
-export function Dashboard() {
+interface DashboardProps {
+  initialUserProfile?: { name: string; email: string; avatarUrl: string | null } | null
+  initialSubscription?: { plan: string; status: string; currentPeriodEnd: string | null } | null
+}
+
+export function Dashboard({ initialUserProfile, initialSubscription }: DashboardProps = {}) {
   const { isPro } = useAppMode()
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
@@ -256,6 +261,7 @@ export function Dashboard() {
         isRecording={isRecording}
         onOpenSettings={handleOpenSettings}
         onReplayTour={isPro ? () => setShowOverlayTour(true) : undefined}
+        initialUserProfile={initialUserProfile}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
@@ -324,6 +330,7 @@ export function Dashboard() {
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        initialSubscription={initialSubscription}
       />
 
       {showOverlayTour && (

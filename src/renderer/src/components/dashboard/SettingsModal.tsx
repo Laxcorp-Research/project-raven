@@ -19,6 +19,7 @@ type SettingsTab = 'general' | 'profile' | 'api-keys' | 'billing' | 'audio' | 'l
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
+  initialSubscription?: { plan: string; status: string; currentPeriodEnd: string | null } | null
 }
 
 const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
@@ -97,7 +98,7 @@ const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
   },
 ]
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialSubscription }: SettingsModalProps) {
   const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
@@ -173,7 +174,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'profile' && <ProfileTab />}
             {activeTab === 'api-keys' && <ApiKeysTab />}
-            {activeTab === 'billing' && <BillingTab />}
+            {activeTab === 'billing' && <BillingTab initialSubscription={initialSubscription} />}
             {activeTab === 'audio' && <AudioTab />}
             {activeTab === 'language' && <LanguageTab />}
             {activeTab === 'hotkeys' && <HotkeysTab />}

@@ -27,23 +27,21 @@ const FEATURES = [
   { icon: BarChart3, label: 'Post-meeting insights' },
 ]
 
-export function BillingTab() {
+interface BillingTabProps {
+  initialSubscription?: SubscriptionInfo | null
+}
+
+export function BillingTab({ initialSubscription }: BillingTabProps = {}) {
   const { isPro } = useAppMode()
-  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null)
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(initialSubscription || null)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('yearly')
   const [loading, setLoading] = useState(false)
   const [portalLoading, setPortalLoading] = useState(false)
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useState(!!initialSubscription)
 
   useEffect(() => {
-    async function init() {
-      const cached = await window.raven.storeGet('cachedSubscription') as SubscriptionInfo | null
-      if (cached) {
-        setSubscription(cached)
-        setReady(true)
-      }
-
+    async function refresh() {
       try {
         const [sub, use] = await Promise.all([
           window.raven.authGetSubscription(),
@@ -51,11 +49,10 @@ export function BillingTab() {
         ])
         setSubscription(sub)
         setUsage(use)
-        window.raven.storeSet('cachedSubscription', sub)
       } catch { /* not authenticated or backend unavailable */ }
       setReady(true)
     }
-    init()
+    refresh()
   }, [])
 
   const isSubscribed = subscription?.plan === 'PRO' || subscription?.plan === 'TEAM'

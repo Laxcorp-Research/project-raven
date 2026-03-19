@@ -24,9 +24,23 @@ const ProOnboarding = lazy<React.ComponentType<ProOnboardingProps>>(async () => 
   }
 })
 
+interface UserProfile {
+  name: string
+  email: string
+  avatarUrl: string | null
+}
+
+interface CachedSubscription {
+  plan: string
+  status: string
+  currentPeriodEnd: string | null
+}
+
 function App(): JSX.Element {
   const [view, setView] = useState<AppView>('loading')
   const [proAuthenticated, setProAuthenticated] = useState(false)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [cachedSubscription, setCachedSubscription] = useState<CachedSubscription | null>(null)
 
   const [windowType, setWindowType] = useState<'dashboard' | 'overlay' | 'unknown' | null>(null)
 
@@ -72,6 +86,18 @@ function App(): JSX.Element {
             setProAuthenticated(true)
             setView('onboarding-pro')
           } else {
+            try {
+              const [authUser, sub] = await Promise.all([
+                window.raven.authGetCurrentUser(),
+                window.raven.authGetSubscription().catch(() => null),
+              ])
+              if (authUser) {
+                setUserProfile({ name: authUser.name || '', email: authUser.email || '', avatarUrl: authUser.avatarUrl || null })
+              }
+              if (sub) {
+                setCachedSubscription(sub)
+              }
+            } catch { /* profile fetch failed — Header will show defaults */ }
             setView('dashboard')
           }
         } else {
@@ -161,7 +187,7 @@ function App(): JSX.Element {
     )
   }
 
-  return <Dashboard />
+  return <Dashboard initialUserProfile={userProfile} initialSubscription={cachedSubscription} />
 }
 
 export default App

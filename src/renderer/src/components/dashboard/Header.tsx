@@ -19,6 +19,7 @@ interface HeaderProps {
   isRecording: boolean
   onOpenSettings: () => void
   onReplayTour?: () => void
+  initialUserProfile?: { name: string; email: string; avatarUrl: string | null } | null
   searchQuery: string
   onSearchChange: (query: string) => void
   onSearchSubmit: (query: string) => void
@@ -47,17 +48,17 @@ function getInitials(name: string): string {
   return parts[0][0].toUpperCase()
 }
 
-export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
+export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, initialUserProfile, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
   const { isPro } = useAppMode()
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [displayName, setDisplayName] = useState('')
-  const [userEmail, setUserEmail] = useState('')
+  const [displayName, setDisplayName] = useState(initialUserProfile?.name || '')
+  const [userEmail, setUserEmail] = useState(initialUserProfile?.email || '')
   const [profilePicData, setProfilePicData] = useState<string | null>(null)
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialUserProfile?.avatarUrl || null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [syncStatus, setSyncStatus] = useState<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number } | null>(null)
