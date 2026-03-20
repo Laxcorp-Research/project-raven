@@ -78,23 +78,29 @@ export async function initializeProFeatures(): Promise<void> {
  */
 async function retroactivePush(
   queueFn: (s: { id: string; title?: string; summary?: string; insightsJson?: string; transcriptJson?: string; aiResponsesJson?: string; modeId?: string; durationSeconds?: number; startedAt: string; endedAt?: string; clientUpdatedAt?: string }) => void,
-  pullFn: () => Promise<{ id: string }[]>,
+  pullFn: () => Promise<{ id: string; clientUpdatedAt?: string }[]>,
   processQueueFn: () => Promise<void>,
 ): Promise<void> {
   const localSessions = databaseService.getAllSessions()
   if (localSessions.length === 0) return
 
   const remoteSessions = await pullFn()
-  const remoteIds = new Set(remoteSessions.map((s) => s.id))
+  const remoteMap = new Map(remoteSessions.map((s) => [s.id, s.clientUpdatedAt]))
 
-  const missing = localSessions.filter((s) => !remoteIds.has(s.id) && s.endedAt !== null)
-  if (missing.length === 0) {
-    log.debug('Retroactive push: all local sessions already on backend')
+  const needsUpload = localSessions.filter((s) => {
+    if (s.endedAt === null) return false
+    const remoteUpdatedAt = remoteMap.get(s.id)
+    if (!remoteUpdatedAt) return true
+    return s.updatedAt > new Date(remoteUpdatedAt).getTime()
+  })
+
+  if (needsUpload.length === 0) {
+    log.debug('Retroactive push: all local sessions up to date on backend')
     return
   }
 
-  log.info(`Retroactive push: uploading ${missing.length} sessions not yet on backend`)
-  for (const session of missing) {
+  log.info(`Retroactive push: uploading ${needsUpload.length} sessions`)
+  for (const session of needsUpload) {
     queueFn({
       id: session.id,
       title: session.title,
