@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 const { mockBrowserWindowInstance, mockWebRequestHandlers } = vi.hoisted(() => ({
   mockBrowserWindowInstance: {
@@ -84,11 +84,18 @@ import {
 import { app } from 'electron'
 
 describe('windowManager', () => {
+  const originalPlatform = process.platform
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetSetting.mockReturnValue(null)
     mockBrowserWindowInstance.isDestroyed.mockReturnValue(false)
     mockBrowserWindowInstance.isVisible.mockReturnValue(false)
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
   })
 
   describe('clampOverlayBoundsToDisplay', () => {

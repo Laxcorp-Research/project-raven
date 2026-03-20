@@ -3,8 +3,6 @@ import { createLogger } from './logger'
 
 const log = createLogger('Permissions')
 
-const isMac = process.platform === 'darwin'
-
 export interface PermissionStatus {
   microphone: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
   screen: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
@@ -12,7 +10,7 @@ export interface PermissionStatus {
 }
 
 export function getPermissionStatus(): PermissionStatus {
-  if (!isMac) {
+  if (process.platform !== 'darwin') {
     return { microphone: 'granted', screen: 'granted', accessibility: 'granted' }
   }
 
@@ -24,7 +22,7 @@ export function getPermissionStatus(): PermissionStatus {
 }
 
 export function requestAccessibilityAccess(): boolean {
-  if (!isMac) return true
+  if (process.platform !== 'darwin') return true
   log.info('Requesting Accessibility permission...')
   const granted = systemPreferences.isTrustedAccessibilityClient(true)
   log.info(`Accessibility permission ${granted ? 'granted' : 'prompt shown'}`)
@@ -32,7 +30,7 @@ export function requestAccessibilityAccess(): boolean {
 }
 
 export async function requestMicrophoneAccess(): Promise<boolean> {
-  if (!isMac) return true
+  if (process.platform !== 'darwin') return true
 
   const status = systemPreferences.getMediaAccessStatus('microphone')
   if (status === 'granted') return true
@@ -58,7 +56,7 @@ export function checkPermissionsForRecording(): { ok: boolean; missing: string[]
 }
 
 export function openScreenRecordingPreferences(): void {
-  if (!isMac) return
+  if (process.platform !== 'darwin') return
   log.info('Opening Screen Recording preferences pane...')
   shell.openExternal(
     'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
@@ -66,7 +64,7 @@ export function openScreenRecordingPreferences(): void {
 }
 
 export function openMicrophonePreferences(): void {
-  if (!isMac) return
+  if (process.platform !== 'darwin') return
   log.info('Opening Microphone preferences pane...')
   shell.openExternal(
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
@@ -74,7 +72,7 @@ export function openMicrophonePreferences(): void {
 }
 
 export function openAccessibilityPreferences(): void {
-  if (!isMac) return
+  if (process.platform !== 'darwin') return
   log.info('Opening Accessibility preferences pane...')
   shell.openExternal(
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
