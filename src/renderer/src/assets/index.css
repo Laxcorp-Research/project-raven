@@ -237,17 +237,22 @@ html, body, #root {
   text-underline-offset: 2px;
 }
 
-/* Thin scrollbar — visible but unobtrusive, like Cluely */
+/* Scrollbar — visible and grabbable, subtle when idle, darker on hover */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
+  width: 10px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
+  margin: 4px 0;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
