@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, RefreshCw, AlertTriangle, Cloud } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { useAppMode } from '../../hooks/useAppMode'
@@ -204,8 +204,8 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
             </div>
           </div>
 
-          {/* Cloud sync — runs automatically, button only shown when there's a problem */}
-          {isPro && syncStatus && syncStatus.consecutiveFailures >= 3 && (
+          {/* Cloud sync */}
+          {isPro && (
             <div className="relative group">
               <button
                 onClick={async () => {
@@ -217,16 +217,22 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                   setSyncing(false)
                 }}
                 disabled={syncing}
-                className="p-2.5 rounded-full transition-colors bg-red-50 text-red-600 hover:bg-red-100"
+                className={`p-2.5 rounded-full transition-colors ${
+                  syncStatus && syncStatus.consecutiveFailures >= 3
+                    ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
               >
                 {syncing ? (
                   <RefreshCw size={18} className="animate-spin" />
-                ) : (
+                ) : syncStatus && syncStatus.consecutiveFailures >= 3 ? (
                   <AlertTriangle size={18} />
+                ) : (
+                  <Cloud size={18} />
                 )}
               </button>
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {syncing ? 'Syncing...' : 'Sync failing — click to retry'}
+                {syncing ? 'Syncing...' : syncStatus && syncStatus.consecutiveFailures >= 3 ? 'Sync failing — click to retry' : 'Sync to cloud'}
               </div>
             </div>
           )}
