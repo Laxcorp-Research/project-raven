@@ -274,12 +274,12 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const createdAt = Date.now();
-    const fullSession: Session = { ...session, summary: session.summary ?? null, createdAt };
+    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, createdAt };
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, mode_id, duration_seconds, started_at, ended_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, insights_json, mode_id, duration_seconds, started_at, ended_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullSession.id,
@@ -287,6 +287,7 @@ class DatabaseService {
         JSON.stringify(fullSession.transcript),
         JSON.stringify(fullSession.aiResponses),
         fullSession.summary,
+        fullSession.insightsJson,
         fullSession.modeId,
         fullSession.durationSeconds,
         fullSession.startedAt,

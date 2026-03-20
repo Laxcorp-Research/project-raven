@@ -328,6 +328,7 @@ class SessionManager {
             id: session.id,
             title: session.title,
             summary: session.summary ?? undefined,
+            insightsJson: session.insightsJson ?? undefined,
             transcriptJson: JSON.stringify(session.transcript),
             aiResponsesJson: JSON.stringify(session.aiResponses),
             modeId: session.modeId ?? undefined,
