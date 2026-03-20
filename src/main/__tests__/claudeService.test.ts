@@ -128,6 +128,153 @@ describe('ClaudeService', () => {
     expect(msg).toContain('USER QUESTION: What is the budget?');
     expect(msg).not.toContain('Execute the priority system');
   });
+
+  it('buildUserMessage appends screenshot note when includeScreenshot is true', async () => {
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: 'some text',
+      action: 'assist',
+      includeScreenshot: true,
+    });
+
+    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
+  });
+
+  it('buildUserMessage shows TRANSCRIPT (unchanged) when no new content', async () => {
+    (service as any).conversation.messages.push({
+      id: '1', role: 'user', content: 'test', timestamp: 1,
+    });
+    (service as any).conversation.lastProcessedTranscriptLength = 100;
+
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: 'Same old text',
+      action: 'assist',
+    });
+
+    expect(msg).toContain('TRANSCRIPT (unchanged)');
+  });
+
+  it('windowTranscript truncates long transcripts', () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `Line ${i}`).join('\n');
+
+    const result = (service as any).windowTranscript(lines);
+
+    expect(result).toContain('[...earlier conversation omitted');
+  });
+
+  it('windowTranscript preserves short transcripts', () => {
+    const shortTranscript = 'Line 1\nLine 2\nLine 3';
+
+    const result = (service as any).windowTranscript(shortTranscript);
+
+    expect(result).toBe(shortTranscript);
+  });
+
+  it('buildAIMessages creates user-only message without screenshot', () => {
+    const messages = (service as any).buildAIMessages('Hello', null);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('user');
+    expect(messages[0].content).toBe('Hello');
+  });
+
+  it('buildAIMessages creates multipart message with screenshot', () => {
+    const screenshot = { mediaType: 'image/png', data: 'base64data', previewData: 'preview' };
+    const messages = (service as any).buildAIMessages('Hello', screenshot);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('user');
+    expect(Array.isArray(messages[0].content)).toBe(true);
+    expect(messages[0].content).toHaveLength(2);
+  });
+
+  it('buildAIMessages includes conversation history', () => {
+    (service as any).conversation.messages.push(
+      { id: '1', role: 'user', content: 'First question', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'First answer', timestamp: 2 },
+      { id: '3', role: 'user', content: 'Current question', timestamp: 3 },
+    );
+
+    const messages = (service as any).buildAIMessages('Current message', null);
+
+    expect(messages.length).toBeGreaterThanOrEqual(3);
+    expect(messages[0].content).toContain('First question');
+    expect(messages[1].content).toBe('First answer');
+  });
+
+  it('setWindow sets the overlay window', () => {
+    const win = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any;
+    service.setWindow(win);
+  });
+
+  it('setWindows sets both windows', () => {
+    const dash = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any;
+    const overlay = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any;
+    service.setWindows(dash, overlay);
+  });
+
+  it('broadcast sends to overlay window', () => {
+    const overlaySend = vi.fn();
+    service.setWindow({ isDestroyed: () => false, webContents: { send: overlaySend } } as any);
+
+    (service as any).broadcast({ type: 'cleared' });
+
+    expect(overlaySend).toHaveBeenCalledWith('claude:response', expect.objectContaining({ type: 'cleared' }));
+  });
+
+  it('broadcast handles destroyed window gracefully', () => {
+    service.setWindow({ isDestroyed: () => true, webContents: { send: vi.fn() } } as any);
+
+    expect(() => (service as any).broadcast({ type: 'cleared' })).not.toThrow();
+  });
+
+  it('broadcastError sends error message', () => {
+    const overlaySend = vi.fn();
+    service.setWindow({ isDestroyed: () => false, webContents: { send: overlaySend } } as any);
+
+    (service as any).broadcastError('Something went wrong');
+
+    expect(overlaySend).toHaveBeenCalledWith('claude:response', expect.objectContaining({
+      type: 'error',
+      error: 'Something went wrong',
+    }));
+  });
+
+  it('broadcastAuthExpired sends to all windows', () => {
+    const dashSend = vi.fn();
+    const overlaySend = vi.fn();
+    service.setWindows(
+      { isDestroyed: () => false, webContents: { send: dashSend } } as any,
+      { isDestroyed: () => false, webContents: { send: overlaySend } } as any,
+    );
+
+    (service as any).broadcastAuthExpired();
+
+    expect(overlaySend).toHaveBeenCalledWith('auth:session-expired', expect.any(Object));
+    expect(dashSend).toHaveBeenCalledWith('auth:session-expired', expect.any(Object));
+  });
+
+  it('generateId returns unique strings', () => {
+    const id1 = (service as any).generateId();
+    const id2 = (service as any).generateId();
+
+    expect(id1).toBeDefined();
+    expect(typeof id1).toBe('string');
+    expect(id1).not.toBe(id2);
+  });
+
+  it('getActionLabel handles fact-check and tell-me-more', () => {
+    expect((service as any).getActionLabel('fact-check')).toBe('Fact Check');
+    expect((service as any).getActionLabel('tell-me-more')).toBe('Tell me more');
+  });
+
+  it('registers IPC handlers', () => {
+    expect(ipcMain.handle).toHaveBeenCalled();
+
+    const registeredChannels = vi.mocked(ipcMain.handle).mock.calls.map(c => c[0]);
+    expect(registeredChannels).toContain('claude:get-response');
+    expect(registeredChannels).toContain('claude:get-history');
+    expect(registeredChannels).toContain('claude:clear-history');
+  });
 });
 
 // ---------------------------------------------------------------------------

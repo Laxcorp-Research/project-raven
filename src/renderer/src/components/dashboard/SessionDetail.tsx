@@ -46,6 +46,7 @@ const MAX_TITLE_LENGTH = 200
 export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailProps) {
   const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<Tab>('summary')
+  const [currentInsightsJson, setCurrentInsightsJson] = useState<string | null>(session.insightsJson ?? null)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState(session.title)
   const [showTitleTooltip, setShowTitleTooltip] = useState(false)
@@ -95,6 +96,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     setMessages([])
     setLoadingMessages(false)
     setActiveTab('summary')
+    setCurrentInsightsJson(session.insightsJson ?? null)
   }, [session.id])
 
   useEffect(() => {
@@ -222,9 +224,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         .map((message) => `${message.role === 'user' ? userName : 'Raven'}: ${message.content}`)
         .join('\n\n')
     }
-    if (activeTab === 'insights' && session.insightsJson) {
+    if (activeTab === 'insights' && currentInsightsJson) {
       try {
-        const parsed = parseInsightsJson(session.insightsJson)
+        const parsed = parseInsightsJson(currentInsightsJson)
         if (!parsed) return ''
         const lines: string[] = []
         if (parsed.sentiment && typeof parsed.sentiment === 'object') {
@@ -412,7 +414,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         <div className="flex-1 h-0 relative">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto">
             <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
-              {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && session.insightsJson)) &&
+              {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
                 !(activeTab === 'summary' && !session.summary && hasTranscript) && (
                 <div className="flex justify-end mb-4">
                   <button
@@ -437,7 +439,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                 <UsageTab messages={messages} loading={loadingMessages} />
               )}
               {activeTab === 'insights' && (
-                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={session.insightsJson ?? null} />
+                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={currentInsightsJson} onInsightsSaved={setCurrentInsightsJson} />
               )}
             </div>
           </div>
@@ -906,7 +908,7 @@ function KeyPhrasesCard({ data }: { data: unknown }) {
   )
 }
 
-function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { sessionId: string; transcript: string; hasTranscript: boolean; savedInsights: string | null }) {
+function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights, onInsightsSaved }: { sessionId: string; transcript: string; hasTranscript: boolean; savedInsights: string | null; onInsightsSaved?: (json: string) => void }) {
   const [insights, setInsights] = useState<ParsedInsights | null>(() => savedInsights ? parseInsightsJson(savedInsights) : null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -944,6 +946,7 @@ function InsightsTab({ sessionId, transcript, hasTranscript, savedInsights }: { 
           const insightsStr = JSON.stringify(rawInsights)
           try {
             await window.raven.sessions.update(sessionId, { insightsJson: insightsStr } as Record<string, unknown>)
+            onInsightsSaved?.(insightsStr)
           } catch (saveErr) {
             console.warn('[Insights] Failed to save:', saveErr)
           }

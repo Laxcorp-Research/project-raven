@@ -7,6 +7,7 @@ const mockDatabaseService = vi.hoisted(() => ({
   getActiveMode: vi.fn(() => null),
   getInProgressSession: vi.fn(() => null),
   getMode: vi.fn(),
+  addSessionMessage: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -56,6 +57,7 @@ vi.mock('uuid', () => ({
 import { sessionManager } from '../services/sessionManager';
 import { generateSessionSummary } from '../services/summaryService';
 import { generateSessionTitle } from '../claudeService';
+import { getSetting } from '../store';
 
 describe('SessionManager', () => {
   beforeEach(() => {
@@ -273,6 +275,233 @@ describe('SessionManager', () => {
       expect(savedTranscript).toHaveLength(1);
       expect(savedTranscript[0].isFinal).toBe(true);
       expect(savedTranscript[0].text).toBe('Final text');
+    });
+  });
+
+  describe('addAIResponse', () => {
+    it('adds AI response to active session', () => {
+      sessionManager.startSession();
+
+      sessionManager.addAIResponse({
+        id: 'ai-1',
+        action: 'assist',
+        userMessage: 'Help me',
+        response: 'Here is help',
+        timestamp: Date.now(),
+      });
+
+      const session = sessionManager.getActiveSession()!;
+      expect(session.aiResponses).toHaveLength(1);
+      expect(session.aiResponses[0].response).toBe('Here is help');
+    });
+
+    it('does nothing when no active session', () => {
+      sessionManager.addAIResponse({
+        id: 'ai-1',
+        action: 'assist',
+        userMessage: 'Help me',
+        response: 'Here is help',
+        timestamp: Date.now(),
+      });
+    });
+  });
+
+  describe('addSessionMessage', () => {
+    it('persists message to database for non-incognito session', () => {
+      sessionManager.startSession();
+
+      sessionManager.addSessionMessage('user', 'Hello');
+
+      expect(mockDatabaseService.addSessionMessage).toHaveBeenCalledWith(
+        'test-uuid-1234',
+        'user',
+        'Hello',
+      );
+    });
+
+    it('does nothing when no active session', () => {
+      sessionManager.addSessionMessage('user', 'Hello');
+    });
+  });
+
+  describe('setWindows', () => {
+    it('sets window references', () => {
+      const dashboard = { webContents: { send: vi.fn() } } as any;
+      const overlay = { webContents: { send: vi.fn() } } as any;
+
+      sessionManager.setWindows(dashboard, overlay);
+    });
+  });
+
+  describe('generateTitle', () => {
+    it('returns fallback for non-existent session', async () => {
+      mockDatabaseService.getSession.mockReturnValue(null);
+
+      const title = await sessionManager.generateTitle('nonexistent');
+      expect(title).toBe('Untitled Session');
+    });
+
+    it('returns existing title for empty transcript', async () => {
+      mockDatabaseService.getSession.mockReturnValue({
+        id: 'session-1',
+        title: 'My Session',
+        transcript: [],
+        startedAt: Date.now(),
+      });
+
+      const title = await sessionManager.generateTitle('session-1');
+      expect(title).toBe('My Session');
+    });
+
+    it('generates title from transcript', async () => {
+      vi.mocked(generateSessionTitle).mockResolvedValue('Q4 Review');
+      mockDatabaseService.getSession.mockReturnValue({
+        id: 'session-1',
+        title: 'Untitled Session',
+        transcript: [
+          { id: '1', source: 'mic', text: 'Hello', isFinal: true, timestamp: 1000 },
+        ],
+        startedAt: Date.now(),
+      });
+
+      const title = await sessionManager.generateTitle('session-1');
+
+      expect(title).toBe('Q4 Review');
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ title: 'Q4 Review' }),
+      );
+    });
+
+    it('generates fallback title on error', async () => {
+      vi.mocked(generateSessionTitle).mockRejectedValue(new Error('fail'));
+      mockDatabaseService.getSession.mockReturnValue({
+        id: 'session-1',
+        title: 'Untitled Session',
+        transcript: [
+          { id: '1', source: 'mic', text: 'Hello', isFinal: true, timestamp: 1000 },
+        ],
+        startedAt: 1700000000000,
+      });
+
+      const title = await sessionManager.generateTitle('session-1');
+
+      expect(title).toContain('Session at');
+      expect(mockDatabaseService.updateSession).toHaveBeenCalled();
+    });
+  });
+
+  describe('recoverSession', () => {
+    it('returns null when no in-progress session', () => {
+      mockDatabaseService.getInProgressSession.mockReturnValue(null);
+
+      const result = sessionManager.recoverSession();
+      expect(result).toBeNull();
+    });
+
+    it('recovers and closes in-progress session', () => {
+      const crashedSession = {
+        id: 'crashed-session',
+        title: 'Untitled Session',
+        transcript: [],
+        startedAt: Date.now() - 60000,
+      };
+      mockDatabaseService.getInProgressSession.mockReturnValue(crashedSession);
+
+      const result = sessionManager.recoverSession();
+
+      expect(result).toBeDefined();
+      expect(result!.id).toBe('crashed-session');
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'crashed-session',
+        expect.objectContaining({
+          endedAt: expect.any(Number),
+          title: 'Recovered Session',
+        }),
+      );
+    });
+
+    it('preserves existing title when recovering', () => {
+      const crashedSession = {
+        id: 'crashed-session',
+        title: 'Important Meeting',
+        transcript: [],
+        startedAt: Date.now() - 60000,
+      };
+      mockDatabaseService.getInProgressSession.mockReturnValue(crashedSession);
+
+      sessionManager.recoverSession();
+
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'crashed-session',
+        expect.objectContaining({
+          title: 'Important Meeting',
+        }),
+      );
+    });
+  });
+
+  describe('endSession (with transcript)', () => {
+    it('returns ended session with duration', () => {
+      const session = sessionManager.startSession();
+
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      const ended = sessionManager.endSession();
+
+      expect(ended).toBeDefined();
+      expect(ended!.durationSeconds).toBeGreaterThanOrEqual(0);
+      expect(ended!.endedAt).toBeGreaterThan(0);
+    });
+
+    it('triggers async summary generation', async () => {
+      sessionManager.startSession();
+
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      await vi.waitFor(() => {
+        expect(generateSessionSummary).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('incognito mode', () => {
+    it('starts incognito session when incognitoMode enabled', () => {
+      vi.mocked(getSetting).mockImplementation((key: string) => {
+        if (key === 'incognitoMode') return true;
+        return '' as any;
+      });
+
+      const session = sessionManager.startSession();
+
+      expect(session.title).toBe('Incognito Session');
+      expect(mockDatabaseService.createSession).not.toHaveBeenCalled();
+    });
+
+    it('does not persist messages in incognito mode', () => {
+      vi.mocked(getSetting).mockImplementation((key: string) => {
+        if (key === 'incognitoMode') return true;
+        return '' as any;
+      });
+
+      sessionManager.startSession();
+      sessionManager.addSessionMessage('user', 'secret');
+
+      expect(mockDatabaseService.addSessionMessage).not.toHaveBeenCalled();
     });
   });
 
