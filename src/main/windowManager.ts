@@ -143,7 +143,7 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
             + '<button onclick="window.raven?.windowMaximize?.()" title="Maximize"><svg viewBox="0 0 10 10"><rect fill="none" stroke="currentColor" stroke-width="1" x="0.5" y="0.5" width="9" height="9"/></svg></button>'
             + '<button class="close" onclick="window.raven?.windowClose?.()" title="Close"><svg viewBox="0 0 10 10"><line stroke="currentColor" stroke-width="1.2" x1="0" y1="0" x2="10" y2="10"/><line stroke="currentColor" stroke-width="1.2" x1="10" y1="0" x2="0" y2="10"/></svg></button>';
           document.body.appendChild(c);
-          setInterval(function() {
+          function nudgeOverlapping() {
             document.querySelectorAll('div').forEach(function(el) {
               if (el.classList.contains('win-controls')) return;
               var r = el.getBoundingClientRect();
@@ -151,7 +151,9 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
                 el.style.setProperty('top', '44px', 'important');
               }
             });
-          }, 500);
+          }
+          nudgeOverlapping();
+          new MutationObserver(nudgeOverlapping).observe(document.body, { childList: true, subtree: true });
         })()
       `)
     })

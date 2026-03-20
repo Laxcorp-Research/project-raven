@@ -47,6 +47,25 @@ import { isProMode } from './store'
 const log = createLogger('Raven')
 const ipcLog = createLogger('IPC')
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeHandle(channel: string, handler: (...args: any[]) => any): void {
+  ipcMain.handle(channel, (_event, ...args) => {
+    try {
+      const result = handler(...args)
+      if (result instanceof Promise) {
+        return result.catch((err: unknown) => {
+          ipcLog.error(`[${channel}] handler error:`, err)
+          return null
+        })
+      }
+      return result
+    } catch (err) {
+      ipcLog.error(`[${channel}] handler error:`, err)
+      return null
+    }
+  })
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const preloadPath = join(__dirname, '../preload/index.cjs')
 
@@ -290,36 +309,37 @@ app.whenReady().then(() => {
   boot()
 
   // Session IPC handlers
-  ipcMain.handle('sessions:create', (_event, session: Omit<Session, 'createdAt'>) => {
+  safeHandle('sessions:create', (session: Omit<Session, 'createdAt'>) => {
     return databaseService.createSession(session)
   })
 
-  ipcMain.handle('sessions:update', (_event, id: string, updates: Partial<Session>) => {
+  safeHandle('sessions:update', (id: string, updates: Partial<Session>) => {
     databaseService.updateSession(id, updates)
+    sessionManager.syncSessionToCloud(id)
     return true
   })
 
-  ipcMain.handle('sessions:get', (_event, id: string) => {
+  safeHandle('sessions:get', (id: string) => {
     return databaseService.getSession(id)
   })
 
-  ipcMain.handle('sessions:getAll', () => {
+  safeHandle('sessions:getAll', () => {
     return databaseService.getAllSessions()
   })
 
-  ipcMain.handle('sessions:search', (_event, query: string) => {
+  safeHandle('sessions:search', (query: string) => {
     return databaseService.searchSessions(query)
   })
 
-  ipcMain.handle('sessions:get-messages', (_event, sessionId: string) => {
+  safeHandle('sessions:get-messages', (sessionId: string) => {
     return databaseService.getSessionMessages(sessionId)
   })
 
-  ipcMain.handle('sessions:add-message', (_event, sessionId: string, role: 'user' | 'assistant', content: string) => {
+  safeHandle('sessions:add-message', (sessionId: string, role: 'user' | 'assistant', content: string) => {
     return databaseService.addSessionMessage(sessionId, role, content)
   })
 
-  ipcMain.handle('sessions:delete', (_event, id: string) => {
+  safeHandle('sessions:delete', (id: string) => {
     const deleted = databaseService.deleteSession(id)
     if (deleted) {
       BrowserWindow.getAllWindows().forEach((win) => {
@@ -334,27 +354,28 @@ app.whenReady().then(() => {
     return deleted
   })
 
-  ipcMain.handle('sessions:update-title', (_event, id: string, title: string) => {
+  safeHandle('sessions:update-title', (id: string, title: string) => {
     databaseService.updateSession(id, { title })
+    sessionManager.syncSessionToCloud(id)
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send('sessions:list-updated')
     })
     return true
   })
 
-  ipcMain.handle('sessions:getInProgress', () => {
+  safeHandle('sessions:getInProgress', () => {
     return databaseService.getInProgressSession()
   })
 
-  ipcMain.handle('session:getActive', () => {
+  safeHandle('session:getActive', () => {
     return sessionManager.getActiveSession()
   })
 
-  ipcMain.handle('session:hasActive', () => {
+  safeHandle('session:hasActive', () => {
     return sessionManager.hasActiveSession()
   })
 
-  ipcMain.handle('session:regenerateTitle', async (_event, sessionId: string) => {
+  safeHandle('session:regenerateTitle', async (sessionId: string) => {
     return sessionManager.generateTitle(sessionId)
   })
 
@@ -529,7 +550,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('profile:select-picture', async () => {
+  safeHandle('profile:select-picture', async () => {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -558,7 +579,7 @@ app.whenReady().then(() => {
     return destPath
   })
 
-  ipcMain.handle('profile:select-picture-raw', async () => {
+  safeHandle('profile:select-picture-raw', async () => {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -575,7 +596,7 @@ app.whenReady().then(() => {
     return `data:image/${mime};base64,${data.toString('base64')}`
   })
 
-  ipcMain.handle('profile:save-picture-data', async (_event, dataUrl: string) => {
+  safeHandle('profile:save-picture-data', async (dataUrl: string) => {
     const fsMod = await import('fs')
     const pathMod = await import('path')
     const appDataPath = app.getPath('userData')
@@ -595,7 +616,7 @@ app.whenReady().then(() => {
     return destPath
   })
 
-  ipcMain.handle('profile:get-picture-data', async (_event, filePath: string) => {
+  safeHandle('profile:get-picture-data', async (filePath: string) => {
     if (!filePath) return null
     const fsMod = await import('fs')
     const pathMod = await import('path')
@@ -612,7 +633,7 @@ app.whenReady().then(() => {
     return `data:image/${mime};base64,${data.toString('base64')}`
   })
 
-  ipcMain.handle('profile:remove-picture', async () => {
+  safeHandle('profile:remove-picture', async () => {
     const { getSetting: getSettingLocal, saveSetting: saveSettingLocal } = await import('./store')
     const currentPath = getSettingLocal('profilePicturePath')
     if (currentPath) {
@@ -625,7 +646,7 @@ app.whenReady().then(() => {
     return true
   })
 
-  ipcMain.handle('context:select-file', async () => {
+  safeHandle('context:select-file', async () => {
     const { dialog } = await import('electron')
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
@@ -857,7 +878,7 @@ app.on('before-quit', () => {
   }
 
   if (testAssemblyAITranscriber) {
-    testAssemblyAITranscriber.close().catch(() => {})
+    testAssemblyAITranscriber.close().catch((err) => ipcLog.warn('Transcriber close error:', err))
     testAssemblyAITranscriber = null
   }
   if (testTranscriptionWs) {

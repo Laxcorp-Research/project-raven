@@ -8,11 +8,27 @@ import { databaseService, type Session, type TranscriptEntry, type AIResponse } 
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
-import { getSetting, isProMode } from '../store';
+import { getSetting } from '../store';
 import { createLogger } from '../logger';
 import { SESSION_AUTOSAVE_INTERVAL_MS } from '../constants';
 
 const log = createLogger('SessionManager');
+
+interface SyncableSession {
+  id: string
+  title?: string
+  summary?: string
+  insightsJson?: string
+  transcriptJson?: string
+  aiResponsesJson?: string
+  modeId?: string
+  durationSeconds?: number
+  startedAt: string
+  endedAt?: string
+  clientUpdatedAt?: string
+}
+
+type QueueFn = (session: SyncableSession) => void
 
 class SessionManager {
   private activeSession: Session | null = null;
@@ -20,6 +36,16 @@ class SessionManager {
   private dashboardWindow: BrowserWindow | null = null;
   private overlayWindow: BrowserWindow | null = null;
   private isIncognito = false;
+  private _queueForSync: QueueFn | null = null;
+
+  /**
+   * Called by proLoader once syncService is loaded — eliminates
+   * the fragile dynamic import that was silently failing.
+   */
+  setSyncFunction(fn: QueueFn): void {
+    this._queueForSync = fn;
+    log.info('Cloud sync function injected');
+  }
 
   /**
    * Set window references for IPC broadcasts
@@ -311,36 +337,29 @@ class SessionManager {
   }
 
   /**
-   * Queue a completed session for cloud sync (pro mode only).
-   * Reads the latest version from SQLite (which includes title/summary)
-   * and converts to the format expected by the backend.
+   * Queue a session for cloud sync. Called after endSession, after
+   * insight generation, after summary edits — any local mutation.
    */
-  private syncSessionToCloud(sessionId: string): void {
-    if (!isProMode()) return
+  syncSessionToCloud(sessionId: string): void {
+    if (!this._queueForSync) return
 
-    try {
-      const session = databaseService.getSession(sessionId)
-      if (!session) return
+    const session = databaseService.getSession(sessionId)
+    if (!session) return
 
-      import(/* @vite-ignore */ '../../pro/main/syncService')
-        .then(({ queueSessionForSync }) => {
-          queueSessionForSync({
-            id: session.id,
-            title: session.title,
-            summary: session.summary ?? undefined,
-            insightsJson: session.insightsJson ?? undefined,
-            transcriptJson: JSON.stringify(session.transcript),
-            aiResponsesJson: JSON.stringify(session.aiResponses),
-            modeId: session.modeId ?? undefined,
-            durationSeconds: session.durationSeconds,
-            startedAt: new Date(session.startedAt).toISOString(),
-            endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : undefined,
-          })
-        })
-        .catch((err) => log.warn('Cloud sync failed:', err))
-    } catch (err) {
-      log.warn('Pro sync module not available:', err)
-    }
+    log.info('Queuing session for cloud sync:', sessionId)
+    this._queueForSync({
+      id: session.id,
+      title: session.title,
+      summary: session.summary ?? undefined,
+      insightsJson: session.insightsJson ?? undefined,
+      transcriptJson: JSON.stringify(session.transcript),
+      aiResponsesJson: JSON.stringify(session.aiResponses),
+      modeId: session.modeId ?? undefined,
+      durationSeconds: session.durationSeconds,
+      startedAt: new Date(session.startedAt).toISOString(),
+      endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : undefined,
+      clientUpdatedAt: new Date(session.updatedAt).toISOString(),
+    })
   }
 
   /**

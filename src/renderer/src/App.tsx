@@ -137,6 +137,25 @@ function App(): JSX.Element {
     }
 
     try {
+      const subChangeHandler = (_event: unknown) => {
+        let polls = 0
+        const pollInterval = setInterval(async () => {
+          polls++
+          if (polls > 6) { clearInterval(pollInterval); return }
+          try {
+            const sub = await window.raven.authGetSubscription()
+            if (sub) {
+              setCachedSubscription(sub)
+              window.raven.storeSet('cachedSubscription', sub)
+            }
+          } catch { /* ignore */ }
+        }, 10000)
+      }
+      window.raven.onSubscriptionMayChange?.(subChangeHandler)
+      cleanups.push(() => window.raven.offSubscriptionMayChange?.(subChangeHandler))
+    } catch { /* not in pro mode */ }
+
+    try {
       cleanups.push(window.raven.onAuthSessionExpired?.(() => {
         // Only redirect to login from the dashboard — the overlay handles
         // auth expiry by showing a card, not by replacing its UI.

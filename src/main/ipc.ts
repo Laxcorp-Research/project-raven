@@ -21,6 +21,28 @@ import {
   getOverlayWindow,
   clampOverlayBoundsToDisplay
 } from './windowManager'
+import { createLogger } from './logger'
+
+const ipcLog = createLogger('IPC')
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeHandle(channel: string, handler: (...args: any[]) => any): void {
+  ipcMain.handle(channel, (_event, ...args) => {
+    try {
+      const result = handler(...args)
+      if (result instanceof Promise) {
+        return result.catch((err: unknown) => {
+          ipcLog.error(`[${channel}] handler error:`, err)
+          return null
+        })
+      }
+      return result
+    } catch (err) {
+      ipcLog.error(`[${channel}] handler error:`, err)
+      return null
+    }
+  })
+}
 
 function assertString(val: unknown, name: string, maxLen = 10_000): asserts val is string {
   if (typeof val !== 'string') throw new Error(`${name} must be a string`)
@@ -43,20 +65,20 @@ export function registerIpcHandlers(): void {
 
   let overlayActiveMinHeight = OVERLAY_COMPACT_MIN_HEIGHT
 
-  ipcMain.handle('store:get-all', () => {
+  safeHandle('store:get-all', () => {
     return getAllSettings()
   })
 
-  ipcMain.handle('store:get', (_event, key: keyof LocalSettings) => {
+  safeHandle('store:get', (key: keyof LocalSettings) => {
     assertString(key, 'key', 100)
     return getSetting(key)
   })
 
   const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'apiKeysConfigured']
 
-  ipcMain.handle(
+  safeHandle(
     'store:set',
-    (_event, key: keyof LocalSettings, value: LocalSettings[keyof LocalSettings]) => {
+    (key: keyof LocalSettings, value: LocalSettings[keyof LocalSettings]) => {
       if (PROTECTED_STORE_KEYS.includes(key as string)) {
         return false
       }
@@ -68,7 +90,7 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle('store:save-many', (_event, settings: Partial<LocalSettings>) => {
+  safeHandle('store:save-many', (settings: Partial<LocalSettings>) => {
     const filtered = { ...settings }
     for (const key of PROTECTED_STORE_KEYS) {
       delete (filtered as Record<string, unknown>)[key]
@@ -77,9 +99,9 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle(
+  safeHandle(
     'store:save-api-keys',
-    (_event, deepgramKey: string, anthropicKey: string, openaiKey?: string) => {
+    (deepgramKey: string, anthropicKey: string, openaiKey?: string) => {
       assertString(deepgramKey, 'deepgramKey', 500)
       assertString(anthropicKey, 'anthropicKey', 500)
       if (openaiKey !== undefined) assertString(openaiKey, 'openaiKey', 500)
@@ -88,41 +110,41 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle('store:has-api-keys', () => {
+  safeHandle('store:has-api-keys', () => {
     return hasApiKeys()
   })
 
-  ipcMain.handle('store:clear-api-keys', () => {
+  safeHandle('store:clear-api-keys', () => {
     clearApiKeys()
     return true
   })
 
-  ipcMain.handle('store:is-free-mode', () => {
+  safeHandle('store:is-free-mode', () => {
     return isFreeMode()
   })
 
-  ipcMain.handle('store:is-pro-mode', () => {
+  safeHandle('store:is-pro-mode', () => {
     return isProMode()
   })
 
-  ipcMain.handle('store:reset-all', () => {
+  safeHandle('store:reset-all', () => {
     resetAll()
     return true
   })
 
   // ---- Validation ----
 
-  ipcMain.handle(
+  safeHandle(
     'validate-api-keys',
-    async (_event, deepgramKey: string, anthropicKey: string) => {
+    async (deepgramKey: string, anthropicKey: string) => {
       const { validateBothKeys } = await import('./validators')
       return validateBothKeys(deepgramKey, anthropicKey)
     }
   )
 
-  ipcMain.handle(
+  safeHandle(
     'validate-keys',
-    async (_event, deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
+    async (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
       const { validateKeys } = await import('./validators')
       return validateKeys(deepgramKey, aiProvider, aiKey)
     }
@@ -130,7 +152,7 @@ export function registerIpcHandlers(): void {
 
   // ---- Shell ----
 
-  ipcMain.handle('open-external', (_event, url: string) => {
+  safeHandle('open-external', (url: string) => {
     try {
       const parsed = new URL(url)
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
@@ -143,27 +165,27 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle('app:quit', () => {
+  safeHandle('app:quit', () => {
     app.quit()
   })
 
-  ipcMain.handle('app:get-version', () => {
+  safeHandle('app:get-version', () => {
     return app.getVersion()
   })
 
   // ---- Window ----
 
-  ipcMain.handle('window:toggle-overlay', () => {
+  safeHandle('window:toggle-overlay', () => {
     toggleOverlay()
     return true
   })
 
-  ipcMain.handle('window:show-overlay', () => {
+  safeHandle('window:show-overlay', () => {
     showOverlay()
     return true
   })
 
-  ipcMain.handle('window:auto-size-overlay', (_event, mode: 'compact' | 'expanded') => {
+  safeHandle('window:auto-size-overlay', (mode: 'compact' | 'expanded') => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return false
 
@@ -204,7 +226,7 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle('window:move-overlay', (_event, direction: 'up' | 'down' | 'left' | 'right') => {
+  safeHandle('window:move-overlay', (direction: 'up' | 'down' | 'left' | 'right') => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return false
 
@@ -227,14 +249,14 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle('window:set-ignore-mouse-events', (_event, ignore: boolean) => {
+  safeHandle('window:set-ignore-mouse-events', (ignore: boolean) => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return false
     overlay.setIgnoreMouseEvents(ignore, { forward: true })
     return true
   })
 
-  ipcMain.handle('window:resize', (_event, width: number, height: number) => {
+  safeHandle('window:resize', (width: number, height: number) => {
     assertNumber(width, 'width')
     assertNumber(height, 'height')
     const overlay = getOverlayWindow()
@@ -260,19 +282,19 @@ export function registerIpcHandlers(): void {
     return true
   })
 
-  ipcMain.handle('window:get-overlay-bounds', () => {
+  safeHandle('window:get-overlay-bounds', () => {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return null
     return overlay.getBounds()
   })
 
-  ipcMain.handle('window:get-cursor-point', () => {
+  safeHandle('window:get-cursor-point', () => {
     return screen.getCursorScreenPoint()
   })
 
-  ipcMain.handle(
+  safeHandle(
     'window:set-overlay-bounds',
-    (_event, bounds: { x: number; y: number; width: number; height: number }) => {
+    (bounds: { x: number; y: number; width: number; height: number }) => {
       const overlay = getOverlayWindow()
       if (!overlay || overlay.isDestroyed()) return false
 
@@ -290,7 +312,7 @@ export function registerIpcHandlers(): void {
     }
   )
 
-  ipcMain.handle('window:show-dashboard', () => {
+  safeHandle('window:show-dashboard', () => {
     const dashboard = getDashboardWindow()
     if (dashboard && !dashboard.isDestroyed()) {
       dashboard.show()
@@ -300,7 +322,7 @@ export function registerIpcHandlers(): void {
     return false
   })
 
-  ipcMain.handle('window:hide-overlay', () => {
+  safeHandle('window:hide-overlay', () => {
     hideOverlay()
     return true
   })
@@ -318,7 +340,7 @@ export function registerIpcHandlers(): void {
     BrowserWindow.fromWebContents(event.sender)?.close()
   })
 
-  ipcMain.handle('window:set-stealth', (_event, enabled: boolean) => {
+  safeHandle('window:set-stealth', (enabled: boolean) => {
     assertBoolean(enabled, 'enabled')
     setStealthMode(enabled)
     return true

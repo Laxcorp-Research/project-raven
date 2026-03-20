@@ -185,8 +185,8 @@ describe('DatabaseService', () => {
 
       // The migrate() method calls exec() for the migrations table creation
       expect(mockExec).toHaveBeenCalled()
-      // transaction() should be called once per unapplied migration (7 total)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(7)
+      // transaction() should be called once per unapplied migration (8 total)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(8)
     })
 
     it('skips migrations already applied', () => {
@@ -198,6 +198,7 @@ describe('DatabaseService', () => {
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
         { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
 
       databaseService.initialize()
@@ -213,8 +214,8 @@ describe('DatabaseService', () => {
 
       databaseService.initialize()
 
-      // 5 unapplied migrations remain
-      expect(mockTransactionFn).toHaveBeenCalledTimes(5)
+      // 6 unapplied migrations remain (003 through 008)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(6)
     })
 
     it('is idempotent — second call is a no-op', () => {
@@ -242,6 +243,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -315,6 +318,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -350,6 +355,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -388,6 +395,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -399,8 +408,9 @@ describe('DatabaseService', () => {
       databaseService.updateSession('sess-1', { title: 'New Title' })
 
       const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).toContain('updated_at = ?')
       expect(sql).toContain('title = ?')
-      expect(mockRun).toHaveBeenCalledWith('New Title', 'sess-1')
+      expect(mockRun).toHaveBeenCalledWith(expect.any(Number), 'New Title', 'sess-1')
     })
 
     it('builds SET clause for multiple fields', () => {
@@ -413,6 +423,7 @@ describe('DatabaseService', () => {
       })
 
       const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).toContain('updated_at = ?')
       expect(sql).toContain('title = ?')
       expect(sql).toContain('duration_seconds = ?')
       expect(sql).toContain('ended_at = ?')
@@ -424,13 +435,17 @@ describe('DatabaseService', () => {
       const transcript = [{ id: 'e1', source: 'mic' as const, text: 'Hello', timestamp: 1, isFinal: true }]
       databaseService.updateSession('sess-1', { transcript })
 
-      expect(mockRun).toHaveBeenCalledWith(JSON.stringify(transcript), 'sess-1')
+      expect(mockRun).toHaveBeenCalledWith(expect.any(Number), JSON.stringify(transcript), 'sess-1')
     })
 
-    it('does nothing when updates object is empty', () => {
+    it('always bumps updated_at even with empty updates', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
       databaseService.updateSession('sess-1', {})
 
-      expect(mockPrepare).not.toHaveBeenCalled()
+      const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).toContain('updated_at = ?')
+      expect(mockRun).toHaveBeenCalledWith(expect.any(Number), 'sess-1')
     })
   })
 
@@ -443,6 +458,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -476,6 +493,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -515,6 +534,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -547,6 +568,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -589,6 +612,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -659,6 +684,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -704,6 +731,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -733,6 +762,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -782,6 +813,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -834,6 +867,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -883,6 +918,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -917,6 +954,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -958,6 +997,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -1044,6 +1085,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -1092,6 +1135,8 @@ describe('DatabaseService', () => {
         { name: '004_add_session_summary' },
         { name: '005_add_session_messages' },
         { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
       ])
       databaseService.initialize()
       resetMocks()

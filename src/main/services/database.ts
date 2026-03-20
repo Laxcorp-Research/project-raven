@@ -54,6 +54,7 @@ export interface Session {
   startedAt: number;
   endedAt: number | null;
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface SessionRow {
@@ -68,6 +69,7 @@ export interface SessionRow {
   started_at: number;
   ended_at: number | null;
   created_at: number;
+  updated_at: number;
 }
 
 export interface SessionMessage {
@@ -97,7 +99,7 @@ export interface NotesSection {
   instructions: string;
 }
 
-const LATEST_VERSION = 5;
+const LATEST_VERSION = 6;
 
 class DatabaseService {
   private db: Database.Database | null = null;
@@ -240,6 +242,14 @@ class DatabaseService {
           ALTER TABLE sessions ADD COLUMN insights_json TEXT DEFAULT NULL;
         `,
       },
+      {
+        name: '008_add_session_updated_at',
+        run: (db: Database.Database) => {
+          db.exec(`ALTER TABLE sessions ADD COLUMN updated_at INTEGER;`)
+          db.exec(`UPDATE sessions SET updated_at = COALESCE(ended_at, started_at, created_at);`)
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);`)
+        },
+      },
     ];
 
     const applied = this.db
@@ -270,16 +280,16 @@ class DatabaseService {
   /**
    * Create a new session
    */
-  createSession(session: Omit<Session, 'createdAt'>): Session {
+  createSession(session: Omit<Session, 'createdAt' | 'updatedAt'>): Session {
     if (!this.db) throw new Error('Database not initialized');
 
-    const createdAt = Date.now();
-    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, createdAt };
+    const now = Date.now();
+    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, createdAt: now, updatedAt: now };
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, insights_json, mode_id, duration_seconds, started_at, ended_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, insights_json, mode_id, duration_seconds, started_at, ended_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullSession.id,
@@ -292,7 +302,8 @@ class DatabaseService {
         fullSession.durationSeconds,
         fullSession.startedAt,
         fullSession.endedAt,
-        fullSession.createdAt
+        fullSession.createdAt,
+        fullSession.updatedAt,
       );
 
     log.debug('Created session:', fullSession.id);
@@ -302,11 +313,11 @@ class DatabaseService {
   /**
    * Update an existing session
    */
-  updateSession(id: string, updates: Partial<Omit<Session, 'id' | 'createdAt'>>): void {
+  updateSession(id: string, updates: Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>): void {
     if (!this.db) throw new Error('Database not initialized');
 
-    const setClauses: string[] = [];
-    const values: (string | number | null)[] = [];
+    const setClauses: string[] = ['updated_at = ?'];
+    const values: (string | number | null)[] = [Date.now()];
 
     if (updates.title !== undefined) {
       setClauses.push('title = ?');
@@ -519,6 +530,7 @@ class DatabaseService {
       startedAt: row.started_at,
       endedAt: row.ended_at,
       createdAt: row.created_at,
+      updatedAt: row.updated_at ?? row.created_at,
     };
   }
 

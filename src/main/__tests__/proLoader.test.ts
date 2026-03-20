@@ -13,6 +13,14 @@ vi.mock('../logger', () => ({
   }),
 }))
 
+vi.mock('../services/sessionManager', () => ({
+  sessionManager: { setSyncFunction: vi.fn() },
+}))
+
+vi.mock('../services/database', () => ({
+  databaseService: { getAllSessions: vi.fn(() => []) },
+}))
+
 import { initializeProFeatures } from '../proLoader'
 import { isProMode } from '../store'
 
