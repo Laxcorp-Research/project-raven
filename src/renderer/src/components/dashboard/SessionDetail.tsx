@@ -412,7 +412,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         </div>
 
         <div className="flex-1 h-0 relative">
-          <div ref={scrollContainerRef} className="h-full overflow-y-auto">
+          <div ref={scrollContainerRef} className="h-full overflow-y-auto scrollbar-thin">
             <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
               {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
                 !(activeTab === 'summary' && !session.summary && hasTranscript) && (

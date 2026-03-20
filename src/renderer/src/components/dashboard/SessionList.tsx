@@ -224,10 +224,14 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
   function openMenu(event: ReactMouseEvent<HTMLButtonElement>, sessionId: string) {
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
+    const menuHeight = 80
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openAbove = spaceBelow < menuHeight + 8
+
     setMenuState({
       sessionId,
       x: rect.right - 120,
-      y: rect.bottom + 4,
+      y: openAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
     })
   }
 
@@ -282,7 +286,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
   const groupedSessions = groupSessionsByDate(filteredSessions, activeId)
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
         <div className="max-w-[900px] mx-auto w-full px-6">
         {Array.from(groupedSessions.entries()).map(([dateGroup, groupSessions]) => (
           <div key={dateGroup} className="mb-2">
