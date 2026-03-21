@@ -31,13 +31,13 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 <td>
 
 **Stealth Mode OFF — Overlay visible to screen share**
-![Detectable](docs/Detectable.jpeg)
+![Detectable](docs/Detectable.png)
 
 </td>
 <td>
 
 **Stealth Mode ON — Overlay invisible to screen share**
-![Undetectable](docs/Undetectable.jpeg)
+![Undetectable](docs/Undetectable.png)
 
 </td>
 </tr>
