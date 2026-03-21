@@ -142,6 +142,8 @@ declare global {
       windowHideOverlay: () => Promise<boolean>;
       windowHide: () => Promise<boolean>;
       windowSetStealth: (enabled: boolean) => Promise<boolean>;
+      windowSetTheme: (theme: 'light' | 'dark' | 'system') => Promise<boolean>;
+      onThemeChanged: (callback: (theme: 'dark' | 'light') => void) => () => void;
       windowGetType: () => Promise<'dashboard' | 'overlay' | 'unknown'>;
       desktopGetSources: () => Promise<Array<{ id: string; name: string; displayId: string }>>;
       systemAudioIsAvailable: () => Promise<boolean>;

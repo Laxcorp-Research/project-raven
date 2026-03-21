@@ -1,4 +1,4 @@
-import { app, ipcMain, shell, screen, BrowserWindow } from 'electron'
+import { app, ipcMain, shell, screen, BrowserWindow, nativeTheme } from 'electron'
 import {
   getAllSettings,
   getSetting,
@@ -171,6 +171,11 @@ export function registerIpcHandlers(): void {
 
   safeHandle('app:get-version', () => {
     return app.getVersion()
+  })
+
+  safeHandle('window:set-theme', (theme: 'light' | 'dark' | 'system') => {
+    nativeTheme.themeSource = theme
+    return true
   })
 
   // ---- Window ----

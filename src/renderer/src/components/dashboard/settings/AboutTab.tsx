@@ -124,6 +124,32 @@ export function AboutTab() {
         )}
       </div>
 
+      {/* Resources */}
+      <div>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Resources</h3>
+        <div className="space-y-0.5">
+          {[
+            { label: 'Blog', url: 'https://useraven.ai/blog', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" /> },
+            { label: 'Changelog', url: 'https://useraven.ai/changelog', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /> },
+            { label: 'Report a Bug', url: isPro ? 'mailto:support@useraven.ai' : 'https://github.com/Laxcorp-Research/project-raven/issues/new', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.867.966 1.867 2.013 0 .89-.616 1.688-1.489 1.866a15.18 15.18 0 01-7.522 0C7.366 16.688 6.75 15.89 6.75 15c0-1.047.83-1.867 1.867-2.013A15.247 15.247 0 0112 12.75zm0 0c-2.209 0-4.267.427-6.108 1.177M12 12.75c2.209 0 4.267.427 6.108 1.177M12 12.75V9m0 0a3 3 0 10-6 0v1.5M12 9a3 3 0 016 0v1.5" /> },
+          ].map((link) => (
+            <button
+              key={link.label}
+              onClick={() => handleOpenLink(link.url)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors text-left group"
+            >
+              <svg className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {link.icon}
+              </svg>
+              <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{link.label}</span>
+              <svg className="w-3 h-3 text-gray-300 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Footer */}
       <div className="pt-4 border-t border-gray-100">
         <p className="text-xs text-gray-400 text-center">

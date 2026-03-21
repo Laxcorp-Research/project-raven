@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('raven', {
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
   windowSetStealth: (enabled: boolean) => ipcRenderer.invoke('window:set-stealth', enabled),
+  windowSetTheme: (theme: 'light' | 'dark' | 'system') => ipcRenderer.invoke('window:set-theme', theme),
   windowGetType: () => ipcRenderer.invoke('window:get-type'),
   desktopGetSources: () => ipcRenderer.invoke('desktop:get-sources'),
   systemAudioIsAvailable: () => ipcRenderer.invoke('system-audio:is-available'),

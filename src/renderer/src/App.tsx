@@ -125,6 +125,18 @@ function App(): JSX.Element {
     const cleanups: Array<() => void> = []
 
     try {
+      cleanups.push(window.raven.onThemeChanged((theme: 'dark' | 'light') => {
+        document.documentElement.classList.toggle('dark', theme === 'dark')
+      }))
+    } catch { /* theme bridge not available */ }
+
+    // Apply theme on mount
+    window.raven.storeGet('theme').then((t) => {
+      if (t === 'dark') document.documentElement.classList.add('dark')
+      else if (t === 'light') document.documentElement.classList.remove('dark')
+    }).catch(() => {})
+
+    try {
       cleanups.push(window.raven.onAuthLoginCompleted((data) => {
         if (data.success) {
           log.info('Auth login completed via deep link — updating state')

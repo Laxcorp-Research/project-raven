@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer, Menu } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, desktopCapturer, Menu, nativeTheme } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -296,6 +296,12 @@ app.whenReady().then(() => {
   const appMode = process.env.RAVEN_MODE === 'pro' ? 'pro' : 'free'
   saveSetting('mode', appMode)
   log.info(`App mode: ${appMode}`)
+
+  // Restore theme preference
+  const savedTheme = getSetting('theme') as string | undefined
+  if (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system') {
+    nativeTheme.themeSource = savedTheme
+  }
 
   // Initialize database
   databaseService.initialize()

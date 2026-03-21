@@ -62,8 +62,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies
-        continue-on-error: true
+      - name: Security audit
         run: npm audit --audit-level=critical
 
       - name: Type check
@@ -93,8 +92,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies
-        continue-on-error: true
+      - name: Security audit
         run: npm audit --audit-level=critical
 
       - name: Generate Prisma client
