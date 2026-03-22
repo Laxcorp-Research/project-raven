@@ -12,6 +12,7 @@ interface TranscriptEntry {
   text: string
   timestamp: number
   isFinal: boolean
+  speakerName?: string | null
 }
 
 interface SessionDetailData {
@@ -201,7 +202,12 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
 
   const userName = displayName || 'You'
   const transcriptText = session.transcript
-    .map((entry) => `${entry.source === 'mic' ? userName : 'Them'}: ${entry.text}`)
+    .map((entry) => {
+      const name = entry.source === 'mic'
+        ? userName
+        : (entry.speakerName || 'Them')
+      return `${name}: ${entry.text}`
+    })
     .join('\n')
   const hasTranscript = transcriptText.trim().length > 0
 
@@ -703,7 +709,7 @@ function parseTranscript(transcript: TranscriptEntry[], userName: string): Utter
   return transcript
     .filter((entry) => entry.text && entry.text.trim())
     .map((entry) => ({
-      speaker: entry.source === 'mic' ? userName : 'Them',
+      speaker: entry.source === 'mic' ? userName : (entry.speakerName || 'Them'),
       isUser: entry.source === 'mic',
       timestamp: formatTimestamp(entry.timestamp),
       text: entry.text.trim(),

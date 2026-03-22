@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 const mockIpcHandlers: Record<string, (...args: unknown[]) => unknown> = {}
 
 vi.mock('electron', () => ({
+  app: { getVersion: () => '1.0.0' },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       mockIpcHandlers[channel] = handler
@@ -12,6 +13,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../store', () => ({
   getSetting: vi.fn(() => false),
+  saveSetting: vi.fn(),
 }))
 
 vi.mock('../logger', () => ({
@@ -23,7 +25,17 @@ vi.mock('../logger', () => ({
   }),
 }))
 
-import { initAnalytics, trackEvent, identifyUser } from '../analytics'
+import {
+  initAnalytics,
+  trackEvent,
+  trackSessionStarted,
+  trackSessionEnded,
+  trackAIRequest,
+  trackTranscriptionProvider,
+  trackErrorBoundaryCaught,
+  identifyUser,
+  shutdownAnalytics,
+} from '../analytics'
 import { getSetting } from '../store'
 
 describe('analytics', () => {
@@ -62,7 +74,7 @@ describe('analytics', () => {
     })
 
     it('analytics:track calls trackEvent', async () => {
-      vi.mocked(getSetting).mockReturnValue(true as any)
+      vi.mocked(getSetting).mockReturnValue(true as never)
       initAnalytics()
 
       await mockIpcHandlers['analytics:set-enabled']({}, true)
@@ -77,10 +89,37 @@ describe('analytics', () => {
     })
 
     it('logs event when analytics enabled', () => {
-      vi.mocked(getSetting).mockReturnValue(true as any)
+      vi.mocked(getSetting).mockReturnValue(true as never)
       initAnalytics()
 
       trackEvent({ name: 'test-event', properties: { a: 1 } })
+    })
+  })
+
+  describe('helper track functions', () => {
+    it('trackSessionStarted does not throw', () => {
+      initAnalytics()
+      expect(() => trackSessionStarted()).not.toThrow()
+    })
+
+    it('trackSessionEnded does not throw', () => {
+      initAnalytics()
+      expect(() => trackSessionEnded(120)).not.toThrow()
+    })
+
+    it('trackAIRequest does not throw', () => {
+      initAnalytics()
+      expect(() => trackAIRequest('assist')).not.toThrow()
+    })
+
+    it('trackTranscriptionProvider does not throw', () => {
+      initAnalytics()
+      expect(() => trackTranscriptionProvider('assemblyai')).not.toThrow()
+    })
+
+    it('trackErrorBoundaryCaught does not throw', () => {
+      initAnalytics()
+      expect(() => trackErrorBoundaryCaught('OverlayWindow')).not.toThrow()
     })
   })
 
@@ -88,6 +127,12 @@ describe('analytics', () => {
     it('does nothing when analytics disabled', () => {
       initAnalytics()
       identifyUser('user-1', { plan: 'pro' })
+    })
+  })
+
+  describe('shutdownAnalytics', () => {
+    it('resolves without error when no client', async () => {
+      await expect(shutdownAnalytics()).resolves.toBeUndefined()
     })
   })
 })

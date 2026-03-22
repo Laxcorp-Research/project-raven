@@ -140,6 +140,7 @@ export function OverlayWindow() {
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [limitInfo, setLimitInfo] = useState<{ type: 'ai' | 'session'; used: number; limit: number; resetAt: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
+  const [meetingBanner, setMeetingBanner] = useState<{ platform: string | null; windowId: number } | null>(null)
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
@@ -193,6 +194,8 @@ export function OverlayWindow() {
       setIsRecording(state.isRecording)
       if (!state.isRecording) {
         setIsStarting(false)
+      } else {
+        setMeetingBanner(null)
       }
     })
 
@@ -303,6 +306,18 @@ export function OverlayWindow() {
       })
     })
 
+    const unsubMeetingDetected = window.raven.on('recall:meeting-detected', (data: unknown) => {
+      const meeting = data as { platform: string | null; windowId: number; title: string | null }
+      if (meeting?.windowId != null && !isRecording) {
+        setMeetingBanner({ platform: meeting.platform, windowId: meeting.windowId })
+      }
+    })
+
+    const unsubMeetingClosed = window.raven.on('recall:meeting-closed', (data: unknown) => {
+      const meeting = data as { windowId: number }
+      setMeetingBanner((prev) => (prev?.windowId === meeting?.windowId ? null : prev))
+    })
+
     const unsubAuthExpired = window.raven.onAuthSessionExpired?.(() => {
       requestInFlightRef.current = false
       setIsLoadingResponse(false)
@@ -328,6 +343,8 @@ export function OverlayWindow() {
       unsubAi()
       unsubSessionLimit()
       unsubAuthExpired()
+      unsubMeetingDetected()
+      unsubMeetingClosed()
       clearHideXTimer()
       cleanupResize()
       if (copiedResetTimerRef.current) {
@@ -586,6 +603,55 @@ export function OverlayWindow() {
       className="fixed inset-0 bg-transparent pointer-events-none"
       style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
     >
+    {/* Meeting detection banner */}
+    <AnimatePresence>
+      {meetingBanner && !isRecording && (
+        <motion.div
+          key="meeting-banner"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-[90] pointer-events-auto"
+          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+        >
+          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#1a1d26]/95 border border-white/15 shadow-2xl shadow-black/40 backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+              <span className="text-white/90 text-sm font-medium">
+                {meetingBanner.platform
+                  ? `${meetingBanner.platform.charAt(0).toUpperCase() + meetingBanner.platform.slice(1)} meeting detected`
+                  : 'Meeting detected'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void handleToggleRecording()
+              }}
+              className="px-3 py-1.5 bg-gradient-to-b from-blue-500 to-blue-700 text-white text-xs font-semibold rounded-lg hover:from-blue-400 hover:to-blue-600 transition-colors shadow-sm"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              Start recording
+            </button>
+            <button
+              type="button"
+              onClick={() => setMeetingBanner(null)}
+              className="w-5 h-5 flex items-center justify-center text-white/40 hover:text-white/70 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
     {/* Notification area — top right */}
     <div className="absolute top-4 right-4 flex flex-col gap-2 z-[80] pointer-events-none">
       <AnimatePresence>

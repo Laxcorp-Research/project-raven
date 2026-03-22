@@ -5,6 +5,7 @@ interface TranscriptEntry {
   source: 'mic' | 'system';
   text: string;
   speaker: 'you' | 'them';
+  speakerName?: string | null;
   timestamp: number;
   isFinal: boolean;
 }
@@ -258,7 +259,7 @@ export function TranscriptTab() {
               }`}
             >
               <div className={`text-[10px] leading-tight ${entry.speaker === 'you' ? 'text-blue-200/60' : 'text-white/40'}`}>
-                {entry.speaker === 'you' ? userName : 'Them'}
+                {entry.speaker === 'you' ? userName : (entry.speakerName || 'Them')}
               </div>
               <div className="text-sm leading-snug">{entry.text}{interimText ? ` ${interimText}` : ''}</div>
             </div>

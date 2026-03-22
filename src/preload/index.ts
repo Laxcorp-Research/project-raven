@@ -351,6 +351,8 @@ contextBridge.exposeInMainWorld('raven', {
     const ALLOWED_CHANNELS = [
       'overlay:notification',
       'tray:open-settings',
+      'recall:meeting-detected',
+      'recall:meeting-closed',
     ]
     if (!ALLOWED_CHANNELS.includes(channel)) {
       return () => {}

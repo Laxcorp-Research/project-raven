@@ -4,6 +4,7 @@ interface TranscriptEntry {
   text: string;
   timestamp: number;
   isFinal: boolean;
+  speakerName?: string | null;
 }
 
 interface AIResponse {
@@ -270,6 +271,7 @@ declare global {
       onHotkeyScrollUp: (callback: () => void) => () => void;
       onHotkeyScrollDown: (callback: () => void) => () => void;
       onHotkeyMove: (callback: (direction: 'up' | 'down' | 'left' | 'right') => void) => () => void;
+      analyticsTrack: (name: string, properties?: Record<string, unknown>) => Promise<void>;
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
 
       // Legacy overlay API (used by Settings.tsx, TitleBar.tsx, InputBar.tsx)

@@ -39,7 +39,8 @@ import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
-import { initAnalytics } from './analytics'
+import { initAnalytics, shutdownAnalytics } from './analytics'
+import { initSentry } from './sentry'
 import { registerPermissionHandlers } from './permissions'
 import { createLogger } from './logger'
 import { isProMode } from './store'
@@ -285,6 +286,7 @@ function boot(): void {
   createTray()
   initAutoUpdater()
   initAnalytics()
+  initSentry()
 }
 
 app.whenReady().then(() => {
@@ -597,7 +599,13 @@ app.whenReady().then(() => {
     return `data:image/${mime};base64,${data.toString('base64')}`
   })
 
+  const PICTURE_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
+
   safeHandle('profile:save-picture-data', async (dataUrl: string) => {
+    if (typeof dataUrl !== 'string' || dataUrl.length > PICTURE_MAX_BYTES * 1.37) {
+      return { error: 'PAYLOAD_TOO_LARGE', message: 'Profile picture must be under 5 MB' }
+    }
+
     const fsMod = await import('fs')
     const pathMod = await import('path')
     const appDataPath = app.getPath('userData')
@@ -609,6 +617,11 @@ app.whenReady().then(() => {
     if (!matches) return null
     const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
     const buffer = Buffer.from(matches[2], 'base64')
+
+    if (buffer.byteLength > PICTURE_MAX_BYTES) {
+      return { error: 'PAYLOAD_TOO_LARGE', message: 'Profile picture must be under 5 MB' }
+    }
+
     const destPath = pathMod.join(profileDir, `avatar.${ext}`)
     fsMod.writeFileSync(destPath, buffer)
 
@@ -832,7 +845,12 @@ app.whenReady().then(() => {
     return { success: true }
   })
 
+  const AUDIO_CHUNK_MAX_BYTES = 1 * 1024 * 1024 // 1 MB
+
   ipcMain.handle('transcription:send-test-audio', async (_event, buffer: ArrayBuffer) => {
+    if (!buffer || buffer.byteLength > AUDIO_CHUNK_MAX_BYTES) {
+      return { success: false, error: 'PAYLOAD_TOO_LARGE', message: 'Audio chunk must be under 1 MB' }
+    }
     const buf = Buffer.from(buffer)
 
     if (testTranscriptionProvider === 'assemblyai' && testAssemblyAITranscriber) {
@@ -865,6 +883,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   destroyTray()
   stopAutoUpdater()
+  void shutdownAnalytics()
 
   // Stop active recording: kills audiocapture child process, closes Deepgram WebSockets, saves session
   audioManager.shutdown().catch((err) => {

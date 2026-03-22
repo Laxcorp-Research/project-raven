@@ -19,6 +19,7 @@ export interface TranscriptEntry {
   text: string;
   timestamp: number;
   isFinal: boolean;
+  speakerName?: string | null;
 }
 
 export interface AIResponse {
