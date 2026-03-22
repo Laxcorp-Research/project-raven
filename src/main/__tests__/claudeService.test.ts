@@ -380,3 +380,62 @@ describe('Provider routing based on mode', () => {
     expect(getProFastProvider).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// LLM Quality Validation (C-12 through C-16)
+// ---------------------------------------------------------------------------
+
+describe('LLM prompt quality', () => {
+  let service: ClaudeService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = new ClaudeService(null);
+  });
+
+  // C-12: User question takes priority over transcript
+  it('C-12: custom prompt creates USER QUESTION override that takes priority', async () => {
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: 'Alice: We need to discuss the budget\nThem: Sure, what about it?',
+      action: 'custom',
+      customPrompt: 'What is the GDP of France?',
+    });
+
+    expect(msg).toContain('USER QUESTION: What is the GDP of France?');
+    expect(msg).not.toContain('Execute the priority system');
+  });
+
+  // C-13: Screenshot interpretation
+  it('C-13: screenshot note appended when includeScreenshot is true', async () => {
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: '',
+      action: 'assist',
+      includeScreenshot: true,
+    });
+
+    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
+  });
+
+  it('C-13: assist with empty transcript still works (screenshot-only)', async () => {
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: '',
+      action: 'assist',
+      includeScreenshot: true,
+    });
+
+    expect(msg).toContain('Execute the priority system');
+    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
+    expect(msg).not.toContain('TRANSCRIPT');
+  });
+
+  // C-15: "What should I say?" action
+  it('C-15: what-should-i-say action appends coaching prompt', async () => {
+    const msg: string = await (service as any).buildUserMessage({
+      transcript: 'Alice: How was your weekend?\nThem: It was great, thanks!',
+      action: 'what-should-i-say',
+    });
+
+    expect(msg).toContain('Craft a direct response I can say RIGHT NOW');
+    expect(msg).toContain('TRANSCRIPT');
+  });
+});

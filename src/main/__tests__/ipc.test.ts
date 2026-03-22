@@ -134,6 +134,16 @@ vi.mock('../windowManager', () => ({
   clampOverlayBoundsToDisplay: mockClampOverlayBoundsToDisplay,
 }))
 
+vi.mock('../ipcThrottle', () => ({
+  cooldownHandle: vi.fn((channel: string, _cooldownMs: number, handler: (...args: unknown[]) => unknown) => {
+    handlers[channel] = (_event: unknown, ...args: unknown[]) => handler(...args)
+  }),
+  inflightHandle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+    handlers[channel] = (_event: unknown, ...args: unknown[]) => handler(...args)
+  }),
+  resetThrottleState: vi.fn(),
+}))
+
 vi.mock('../validators', () => ({
   validateBothKeys: mockValidateBothKeys,
   validateKeys: mockValidateKeys,

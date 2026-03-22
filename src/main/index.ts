@@ -40,6 +40,7 @@ import { initializeProFeatures } from './proLoader'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
+import { inflightHandle, cooldownHandle } from './ipcThrottle'
 import { initSentry } from './sentry'
 import { registerPermissionHandlers } from './permissions'
 import { createLogger } from './logger'
@@ -106,7 +107,7 @@ async function initDeepLinksReady(): Promise<void> {
   }
 }
 
-ipcMain.handle('desktop:get-sources', async () => {
+cooldownHandle('desktop:get-sources', 1000, async () => {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window'],
@@ -378,11 +379,11 @@ app.whenReady().then(() => {
     return sessionManager.hasActiveSession()
   })
 
-  safeHandle('session:regenerateTitle', async (sessionId: string) => {
+  inflightHandle('session:regenerateTitle', async (sessionId: string) => {
     return sessionManager.generateTitle(sessionId)
   })
 
-  ipcMain.handle('sessions:regenerate-summary', async (_event, sessionId: string) => {
+  inflightHandle('sessions:regenerate-summary', async (sessionId: string) => {
     const session = databaseService.getSession(sessionId)
     if (!session || !session.transcript || session.transcript.length === 0) return false
 
@@ -499,6 +500,11 @@ app.whenReady().then(() => {
   // ---- Context / RAG ----
 
   ipcMain.handle('context:upload-file', async (event, modeId: string, filePath: string, fileName: string, fileSize: number) => {
+    // Inflight guard — one upload at a time
+    if ((globalThis as Record<string, unknown>).__uploadInFlight) {
+      return { success: false, error: 'An upload is already in progress' }
+    }
+    (globalThis as Record<string, unknown>).__uploadInFlight = true
     try {
       const pathMod = await import('path')
       const fsMod = await import('fs')
@@ -530,6 +536,8 @@ app.whenReady().then(() => {
       ipcLog.error('context:upload-file error:', error)
       const msg = error instanceof Error ? error.message : 'Upload failed'
       return { success: false, error: msg }
+    } finally {
+      (globalThis as Record<string, unknown>).__uploadInFlight = false
     }
   })
 

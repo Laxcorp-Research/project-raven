@@ -22,6 +22,7 @@ import {
   clampOverlayBoundsToDisplay
 } from './windowManager'
 import { createLogger } from './logger'
+import { cooldownHandle } from './ipcThrottle'
 
 const ipcLog = createLogger('IPC')
 
@@ -134,16 +135,16 @@ export function registerIpcHandlers(): void {
 
   // ---- Validation ----
 
-  safeHandle(
-    'validate-api-keys',
+  cooldownHandle(
+    'validate-api-keys', 2000,
     async (deepgramKey: string, anthropicKey: string) => {
       const { validateBothKeys } = await import('./validators')
       return validateBothKeys(deepgramKey, anthropicKey)
     }
   )
 
-  safeHandle(
-    'validate-keys',
+  cooldownHandle(
+    'validate-keys', 2000,
     async (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
       const { validateKeys } = await import('./validators')
       return validateKeys(deepgramKey, aiProvider, aiKey)

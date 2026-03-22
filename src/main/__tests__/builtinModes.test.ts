@@ -148,4 +148,43 @@ describe('builtinModes', () => {
       expect(mode).toBeNull()
     })
   })
+
+  // C-16: Mode prompt content validation
+  describe('mode prompt content (C-16)', () => {
+    it('Interview mode contains STAR methodology keywords', () => {
+      const mode = BUILTIN_MODES.find((m) => m.id === 'mode-interview')
+      expect(mode).toBeDefined()
+      expect(mode!.systemPrompt).toContain('STAR')
+      expect(mode!.systemPrompt).toContain('Situation')
+      expect(mode!.systemPrompt).toContain('Action')
+      expect(mode!.systemPrompt).toContain('Result')
+      expect(mode!.systemPrompt).toContain('BEHAVIORAL QUESTIONS')
+      expect(mode!.systemPrompt).toContain('TECHNICAL QUESTIONS')
+    })
+
+    it('Sales mode contains objection handling keywords', () => {
+      const mode = BUILTIN_MODES.find((m) => m.id === 'mode-sales')
+      expect(mode).toBeDefined()
+      expect(mode!.systemPrompt).toContain('OBJECTION HANDLING')
+      expect(mode!.systemPrompt).toContain('DISCOVERY')
+      expect(mode!.systemPrompt).toContain('CLOSING')
+    })
+
+    it('Meeting mode contains action items and tracking keywords', () => {
+      const mode = BUILTIN_MODES.find((m) => m.id === 'mode-meeting')
+      expect(mode).toBeDefined()
+      expect(mode!.systemPrompt).toContain('action items')
+      expect(mode!.systemPrompt).toContain('TRACKING')
+      expect(mode!.systemPrompt).toContain('RECAPS')
+    })
+
+    it('Learning mode contains Socratic-style teaching keywords', () => {
+      const mode = BUILTIN_MODES.find((m) => m.id === 'mode-learning')
+      expect(mode).toBeDefined()
+      expect(mode!.systemPrompt).toContain('EXPLANATIONS')
+      expect(mode!.systemPrompt).toContain('PROBLEM-SOLVING')
+      expect(mode!.systemPrompt).toContain('step by step')
+      expect(mode!.systemPrompt).toContain('analogies')
+    })
+  })
 })
