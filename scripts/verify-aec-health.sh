@@ -56,7 +56,7 @@ fi
 # 3. Verify bypass logic exists in source
 echo ""
 echo "Step 3: Verify bypass logic in source code"
-if grep -q "AEC bypassed" "$FILE"; then
+if grep -q "AEC BYPASSED" "$FILE"; then
   echo "  [PASS] Bypass logging present"
   PASS=$((PASS + 1))
 else
@@ -64,7 +64,7 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-if grep -q "AEC re-enabled" "$FILE"; then
+if grep -q "AEC RE-ENABLED" "$FILE"; then
   echo "  [PASS] Re-enable logging present"
   PASS=$((PASS + 1))
 else
@@ -89,13 +89,13 @@ echo ""
 echo "  --- Test bypass ---"
 echo "  4. Play loud system audio (e.g., YouTube video) while speaking into mic"
 echo "  5. Rapidly start/stop system sounds to create drift"
-echo "  6. Expected: '[SystemAudio] AEC bypassed — drift Xms exceeds 200ms threshold'"
+echo "  6. Expected: '[SystemAudio] AEC BYPASSED: drift=Xms exceeds 200ms'"
 echo "  7. When AEC is bypassed, raw mic audio is returned (no echo cancellation)"
 echo ""
 echo "  --- Test recovery ---"
 echo "  8. Stop the disruptive system audio"
 echo "  9. Wait 5+ seconds (holdoff period)"
-echo "  10. Expected: '[SystemAudio] AEC re-enabled — drift Xms within 100ms threshold'"
+echo "  10. Expected: '[SystemAudio] AEC RE-ENABLED: drift=Xms, overflows=0, output flowing'"
 echo ""
 echo "  --- Verify normal operation ---"
 echo "  11. During normal recording, AEC health logs should show drift < 50ms"
@@ -103,7 +103,7 @@ echo "  12. Transcript should still flow correctly during bypass/recovery"
 echo ""
 echo "Log patterns to search for:"
 echo "  grep 'AEC health' (normal health check)"
-echo "  grep 'AEC bypassed' (bypass triggered)"
-echo "  grep 'AEC re-enabled' (recovery)"
+echo "  grep 'AEC BYPASSED' (bypass triggered)"
+echo "  grep 'AEC RE-ENABLED' (recovery)"
 
 exit "$FAIL"
