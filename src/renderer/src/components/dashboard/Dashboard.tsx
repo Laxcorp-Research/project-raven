@@ -17,14 +17,20 @@ function OverlayTourFallback(_props: OverlayTourProps): JSX.Element {
   return <div />
 }
 
-const overlayTourModule = '../../../../pro/renderer/onboarding/OverlayTour'
+const overlayTourLoaders = import.meta.glob('../../../../pro/renderer/onboarding/OverlayTour.tsx')
+const loadOverlayTour = Object.values(overlayTourLoaders)[0] as
+  | (() => Promise<{ OverlayTour: React.ComponentType<OverlayTourProps> }>) | undefined
+
 const OverlayTour = lazy<React.ComponentType<OverlayTourProps>>(async () => {
-  try {
-    const mod = await import(/* @vite-ignore */ overlayTourModule)
-    return { default: mod.OverlayTour }
-  } catch {
-    return { default: OverlayTourFallback }
+  if (loadOverlayTour) {
+    try {
+      const mod = await loadOverlayTour()
+      return { default: mod.OverlayTour }
+    } catch {
+      return { default: OverlayTourFallback }
+    }
   }
+  return { default: OverlayTourFallback }
 })
 
 interface TranscriptEntry {

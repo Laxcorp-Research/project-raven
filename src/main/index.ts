@@ -81,6 +81,9 @@ let testAssemblyAITranscriber: { sendAudio: (buf: Buffer) => void; close: () => 
 // Enable screen capture on macOS
 app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
 
+// Sentry must init before app 'ready' event
+initSentry()
+
 // Register raven:// protocol + macOS open-url listener early (before app.whenReady)
 async function initDeepLinksEarly(): Promise<void> {
   try {
@@ -269,7 +272,10 @@ function boot(): void {
   ipcMain.on('onboarding:completed', () => {
     log.info('Onboarding completed — showing overlay')
     createDefaultMode()
-    setStealthMode(true)
+    const stealthPref = getSetting('stealthEnabled')
+    if (stealthPref) {
+      setStealthMode(true)
+    }
     setOverlayEnabled(true)
     overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
@@ -287,7 +293,6 @@ function boot(): void {
   createTray()
   initAutoUpdater()
   initAnalytics()
-  initSentry()
 }
 
 app.whenReady().then(() => {
@@ -295,11 +300,40 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null)
   }
 
-  // Set app mode from environment variable (defaults to 'free' for open-source)
-  const appMode = process.env.RAVEN_MODE === 'pro' ? 'pro' : 'free'
+  // Determine app mode:
+  // 1. Explicit env var (dev scripts: RAVEN_MODE=pro or RAVEN_MODE=free)
+  // 2. Packaged app: check for .raven-pro marker file in resources
+  // 3. Default: free (open-source)
+  let appMode: 'pro' | 'free' = 'free'
+  if (process.env.RAVEN_MODE === 'pro') {
+    appMode = 'pro'
+  } else if (!process.env.RAVEN_MODE && app.isPackaged) {
+    try {
+      const markerPath = join(process.resourcesPath, '.raven-pro')
+      if (existsSync(markerPath)) appMode = 'pro'
+    } catch { /* not present — stay free */ }
+  }
   saveSetting('mode', appMode)
   log.info(`App mode: ${appMode}`)
 
+  // First packaged run: clear stale dev settings (dev and packaged share the same store path)
+  if (app.isPackaged && appMode === 'pro') {
+    const initVersion = store.get('_packagedInit' as keyof import('./store').LocalSettings) as string | undefined
+    if (!initVersion) {
+      log.info('First packaged run — clearing stale dev settings')
+      store.set('proOnboardingComplete' as keyof import('./store').LocalSettings, false)
+      store.set('proOnboardingStep' as keyof import('./store').LocalSettings, '')
+      store.set('onboardingComplete' as keyof import('./store').LocalSettings, false)
+      store.set('stealthEnabled' as keyof import('./store').LocalSettings, false)
+      store.delete('auth_tokens' as keyof import('./store').LocalSettings)
+      store.delete('auth_user' as keyof import('./store').LocalSettings)
+      store.delete('cachedUserProfile' as keyof import('./store').LocalSettings)
+      store.delete('cachedSubscription' as keyof import('./store').LocalSettings)
+      store.delete('sync_queue' as keyof import('./store').LocalSettings)
+      store.delete('backendUrl' as keyof import('./store').LocalSettings)
+      store.set('_packagedInit' as keyof import('./store').LocalSettings, app.getVersion())
+    }
+  }
 
   // Initialize database
   databaseService.initialize()

@@ -69,7 +69,7 @@ const STORE_DEFAULTS: LocalSettings = {
   proOnboardingStep: '',
   dashboardBounds: null,
   overlayBounds: null,
-  stealthEnabled: true,
+  stealthEnabled: false,
   theme: 'system',
   openOnLogin: false,
   transcriptionLanguage: 'en',

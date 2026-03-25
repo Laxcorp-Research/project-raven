@@ -14,14 +14,20 @@ function ProOnboardingFallback(_props: ProOnboardingProps): JSX.Element {
   return <div />
 }
 
-const proOnboardingModule = '../../pro/renderer/onboarding/ProOnboarding'
+const proOnboardingLoaders = import.meta.glob('../../pro/renderer/onboarding/ProOnboarding.tsx')
+const loadProOnboarding = Object.values(proOnboardingLoaders)[0] as
+  | (() => Promise<{ ProOnboarding: React.ComponentType<ProOnboardingProps> }>) | undefined
+
 const ProOnboarding = lazy<React.ComponentType<ProOnboardingProps>>(async () => {
-  try {
-    const mod = await import(/* @vite-ignore */ proOnboardingModule)
-    return { default: mod.ProOnboarding }
-  } catch {
-    return { default: ProOnboardingFallback }
+  if (loadProOnboarding) {
+    try {
+      const mod = await loadProOnboarding()
+      return { default: mod.ProOnboarding }
+    } catch {
+      return { default: ProOnboardingFallback }
+    }
   }
+  return { default: ProOnboardingFallback }
 })
 
 interface UserProfile {

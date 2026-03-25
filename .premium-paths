@@ -32,6 +32,7 @@ docs/USAGE_GATING.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml
 build/entitlements.mac.plist
+build/.raven-pro
 
 ---
 
