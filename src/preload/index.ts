@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('validate-keys', deepgramKey, aiProvider, aiKey),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   quitApp: () => ipcRenderer.invoke('app:quit'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   profileSelectPicture: () => ipcRenderer.invoke('profile:select-picture'),
   profileSelectPictureRaw: () => ipcRenderer.invoke('profile:select-picture-raw'),

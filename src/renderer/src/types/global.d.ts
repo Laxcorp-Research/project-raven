@@ -122,6 +122,7 @@ declare global {
       validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string }>;
       openExternal: (url: string) => Promise<boolean>;
       quitApp: () => Promise<void>;
+      relaunchApp: () => Promise<void>;
       getAppVersion: () => Promise<string>;
       updateCheck: () => Promise<void>;
       updateInstall: () => Promise<void>;

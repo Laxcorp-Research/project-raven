@@ -15,7 +15,7 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             rollupOptions: {
-              external: ['better-sqlite3', 'assemblyai', 'pdf-parse'],
+              external: ['better-sqlite3', 'assemblyai', 'pdf-parse', '@sentry/electron', '@sentry/electron/main'],
               output: {
                 entryFileNames: 'index.js',
               },

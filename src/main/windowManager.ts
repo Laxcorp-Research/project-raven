@@ -181,6 +181,12 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
 
   dashboardWindow.on('ready-to-show', () => {
     dashboardWindow?.show()
+    // Electron may switch to Accessory activation policy during the gap between
+    // window creation (show:false) and ready-to-show, especially when a panel-type
+    // overlay window exists. Force the dock icon back.
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.show()
+    }
   })
 
   // On macOS, hide instead of close so the window can be re-shown

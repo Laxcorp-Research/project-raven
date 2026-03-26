@@ -1,5 +1,9 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  app: { isPackaged: false },
+}))
+
 vi.mock('../logger', () => ({
   createLogger: () => ({
     debug: vi.fn(),

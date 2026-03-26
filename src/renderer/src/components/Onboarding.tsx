@@ -25,6 +25,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [fadeKey, setFadeKey] = useState(0)
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
   const [showAiKey, setShowAiKey] = useState(false)
+  const [screenNeedsRestart, setScreenNeedsRestart] = useState(false)
 
   const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
@@ -122,24 +123,30 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       const hasPermission = await window.raven.systemAudioHasPermission()
       if (hasPermission) {
         setScreenPermission('granted')
+        setScreenNeedsRestart(false)
         return
       }
 
       await window.raven.permissionsOpenScreenRecording()
 
       if (screenPollRef.current) clearInterval(screenPollRef.current)
+      let pollCount = 0
       screenPollRef.current = setInterval(async () => {
+        pollCount++
         try {
           const status = await window.raven.permissionsGetStatus()
           if (status.screen === 'granted') {
             setScreenPermission('granted')
+            setScreenNeedsRestart(false)
             if (screenPollRef.current) {
               clearInterval(screenPollRef.current)
               screenPollRef.current = null
             }
+          } else if (pollCount >= 5) {
+            setScreenNeedsRestart(true)
           }
         } catch { /* ignore */ }
-      }, 1500)
+      }, 2000)
     } catch {
       setScreenPermission('denied')
     }
@@ -522,6 +529,26 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       </button>
                     )}
                   </div>
+
+                  {screenNeedsRestart && screenPermission !== 'granted' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3">
+                      <div className="shrink-0 mt-0.5 text-amber-500">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-amber-800 mb-1">Restart required</p>
+                        <p className="text-xs text-amber-700 leading-relaxed mb-2">
+                          If you enabled Screen Recording in System Settings, macOS requires a restart for it to take effect.
+                        </p>
+                        <button
+                          onClick={() => window.raven.relaunchApp()}
+                          className="text-xs font-medium text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-md transition-colors"
+                        >
+                          Quit & Reopen Raven
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 p-4">
                     <div className="flex items-center gap-3">

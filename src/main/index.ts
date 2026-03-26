@@ -84,14 +84,26 @@ app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
 // Sentry must init before app 'ready' event
 initSentry()
 
+// Buffer any deep link URL that arrives before the async handler is registered
+let earlyOpenUrl: string | null = null
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  earlyOpenUrl = url
+})
+
 // Register raven:// protocol + macOS open-url listener early (before app.whenReady)
 async function initDeepLinksEarly(): Promise<void> {
   try {
-    const { registerProtocol, registerOpenUrlHandler } = await import(
+    const { registerProtocol, registerOpenUrlHandler, handleDeepLink } = await import(
       /* @vite-ignore */ '../pro/main/deepLink'
     )
     registerProtocol()
     registerOpenUrlHandler()
+    // Drain any URL that arrived before the handler was ready
+    if (earlyOpenUrl) {
+      handleDeepLink(earlyOpenUrl)
+      earlyOpenUrl = null
+    }
   } catch {
     // src/pro/ not present (open-source build) — skip silently
   }

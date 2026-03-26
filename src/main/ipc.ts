@@ -170,6 +170,11 @@ export function registerIpcHandlers(): void {
     app.quit()
   })
 
+  safeHandle('app:relaunch', () => {
+    app.relaunch()
+    app.quit()
+  })
+
   safeHandle('app:get-version', () => {
     return app.getVersion()
   })
