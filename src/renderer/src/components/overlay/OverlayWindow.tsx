@@ -585,10 +585,26 @@ export function OverlayWindow() {
   }, [hasResponse])
 
   useEffect(() => {
+    if (activeTab === 'responses' && responseAreaRef.current) {
+      requestAnimationFrame(() => {
+        if (responseAreaRef.current) {
+          responseAreaRef.current.scrollTop = responseAreaRef.current.scrollHeight
+        }
+      })
+    }
+  }, [activeTab])
+
+  useEffect(() => {
     if (isRecording && !hasResponse) {
       setActiveTab('transcript')
     }
   }, [isRecording])
+
+  useEffect(() => {
+    if (limitInfo) {
+      setActiveTab('responses')
+    }
+  }, [limitInfo])
 
   useEffect(() => {
     if (isPanelExpanded && !panelHeight) {
@@ -965,7 +981,7 @@ export function OverlayWindow() {
                         <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
                       </div>
                     ) : (
-                      <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] pr-[18px]">
+                      <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] pr-[18px] overflow-hidden break-words">
                         <Markdown
                           remarkPlugins={[remarkMath]}
                           rehypePlugins={[rehypeKatex, rehypeHighlight]}
@@ -1081,7 +1097,7 @@ export function OverlayWindow() {
           {isRecording && (
             <div className="px-4 py-2.5 flex items-center gap-2 text-xs tracking-tight text-white/75 border-t border-white/15 flex-nowrap overflow-x-auto whitespace-nowrap">
               <button
-                onClick={() => handleQuickAction('assist')}
+                onClick={() => { void handleAssist() }}
                 className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0"
               >
                 <Sparkles size={14} className="text-white/70" />

@@ -435,7 +435,7 @@ describe('LLM prompt quality', () => {
       action: 'what-should-i-say',
     });
 
-    expect(msg).toContain('Craft a direct response I can say RIGHT NOW');
+    expect(msg).toContain('suggest what I should say next');
     expect(msg).toContain('TRANSCRIPT');
   });
 });

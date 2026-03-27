@@ -118,7 +118,7 @@ CONVERSATION HISTORY:
 
 const ACTION_PROMPTS: Record<string, string> = {
   assist: 'Execute the priority system. Focus on the END of the transcript — what just happened, what was just asked. If the screen shows a problem, solve it. If there is a question, answer it. If neither, suggest what to say next.',
-  'what-should-i-say': 'The other person ("Them") just said or asked something at the END of the transcript. Craft a direct response I can say RIGHT NOW. Use the FULL transcript for context — if they reference something discussed earlier, pull from that. Give me the exact words as a verbatim quote. Make it natural, conversational, and directly responsive.',
+  'what-should-i-say': 'Based on the conversation so far, suggest what I should say next. Give me the exact words as a verbatim quote I can say RIGHT NOW. If someone asked me a question, answer it. If only I have been speaking, suggest how to continue, what to ask, or how to advance the discussion. Keep it natural, conversational, and immediately usable.',
   'follow-up': 'Suggest 2-3 follow-up questions I can ask RIGHT NOW. Each must be directly usable — natural spoken language, not formal. Each should advance the conversation in a meaningful direction based on what was just discussed.',
   recap: 'Concise recap of this conversation. Use bullets. Include: key points discussed, decisions made, action items with owners, and anything unresolved. Be specific — names, numbers, commitments.',
   'fact-check': 'Review the recent claims, statements, and facts mentioned in the transcript. For each significant claim: state the claim, whether it is accurate/inaccurate/unverifiable, and a brief correction or confirmation. Focus on factual assertions (numbers, dates, technical claims), not opinions.',
