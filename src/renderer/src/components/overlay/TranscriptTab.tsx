@@ -35,9 +35,14 @@ export function TranscriptTab() {
   }, []);
 
   useEffect(() => {
-    window.raven.storeGet('displayName').then((name) => {
-      setDisplayName((name as string) || '');
-    }).catch(() => {});
+    (async () => {
+      try {
+        const user = await window.raven.authGetCurrentUser();
+        if (user?.name) { setDisplayName(user.name); return; }
+      } catch { /* not pro */ }
+      const name = (await window.raven.storeGet('displayName')) as string;
+      setDisplayName(name || '');
+    })().catch(() => {});
 
     window.raven.getTranscriptEntries?.().then((e: TranscriptEntry[]) => {
       if (e) setEntries(e);

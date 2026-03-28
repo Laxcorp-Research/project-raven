@@ -238,7 +238,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
   async function handleDeleteContextFile(fileId: string) {
     if (!selectedMode) return
-    await window.raven.context.deleteFile(fileId)
+    await window.raven.context.deleteFile(selectedMode.id, fileId)
     await loadContextFiles(selectedMode.id)
   }
 

@@ -42,12 +42,14 @@ export function LanguageTab() {
     setTranscriptionLang(value)
     setTranscriptionDropdownOpen(false)
     await window.raven.storeSet('transcriptionLanguage', value)
+    try { await window.raven.authUpdateProfile({ preferences: { transcriptionLanguage: value } }) } catch { /* free mode */ }
   }
 
   const handleOutputLangChange = async (value: string) => {
     setOutputLang(value)
     setOutputDropdownOpen(false)
     await window.raven.storeSet('outputLanguage', value)
+    try { await window.raven.authUpdateProfile({ preferences: { outputLanguage: value } }) } catch { /* free mode */ }
   }
 
   const transcriptionLanguages = [

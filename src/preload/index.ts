@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('raven', {
     uploadFile: (modeId: string, filePath: string, fileName: string, fileSize: number) =>
       ipcRenderer.invoke('context:upload-file', modeId, filePath, fileName, fileSize),
     getFiles: (modeId: string) => ipcRenderer.invoke('context:get-files', modeId),
-    deleteFile: (fileId: string) => ipcRenderer.invoke('context:delete-file', fileId),
+    deleteFile: (modeId: string, fileId: string) => ipcRenderer.invoke('context:delete-file', modeId, fileId),
     onUploadProgress: (callback: (data: { stage: string; current: number; total: number }) => void) => {
       const handler = (_event: unknown, data: { stage: string; current: number; total: number }) => callback(data)
       ipcRenderer.on('context:upload-progress', handler)
@@ -265,6 +265,7 @@ contextBridge.exposeInMainWorld('raven', {
   authStartGoogleLogin: () => ipcRenderer.invoke('auth:start-google-login'),
   authStartAppleLogin: () => ipcRenderer.invoke('auth:start-apple-login'),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authDeleteAccount: () => ipcRenderer.invoke('auth:delete-account'),
   onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => {
     const handler = (_event: unknown, data: { success: boolean; user?: unknown }) => callback(data)
     ipcRenderer.on('auth:login-completed', handler)
@@ -282,6 +283,8 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.removeListener('auth:subscription-may-change', callback)
   },
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
+  authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) =>
+    ipcRenderer.invoke('auth:update-profile', updates),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
   authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),

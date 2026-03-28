@@ -471,6 +471,7 @@ export function OverlayWindow() {
     const next = !smartMode
     setSmartMode(next)
     await window.raven.storeSet('smartMode', next)
+    try { await window.raven.authUpdateProfile({ preferences: { smartMode: next } }) } catch { /* free mode */ }
   }, [smartMode])
 
   const handleToggleIncognito = useCallback(async () => {

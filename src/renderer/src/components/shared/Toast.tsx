@@ -8,10 +8,12 @@ interface ToastProps {
 
 export function Toast({ message, type, onComplete }: ToastProps) {
   useEffect(() => {
-    if (type === 'success' || type === 'error') {
-      const timer = setTimeout(() => {
-        onComplete?.()
-      }, 2000)
+    if (type === 'success') {
+      const timer = setTimeout(() => { onComplete?.() }, 2000)
+      return () => clearTimeout(timer)
+    }
+    if (type === 'error') {
+      const timer = setTimeout(() => { onComplete?.() }, 5000)
       return () => clearTimeout(timer)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -42,6 +44,13 @@ export function Toast({ message, type, onComplete }: ToastProps) {
         </div>
       )}
       <span className="text-sm font-medium text-gray-900">{message}</span>
+      {type === 'error' && (
+        <button onClick={() => onComplete?.()} className="ml-1 p-0.5 text-gray-400 hover:text-gray-600 transition-colors">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, RefreshCw, AlertTriangle, Cloud } from 'lucide-react'
+import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, RefreshCw, AlertTriangle, Cloud, WifiOff } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { useAppMode } from '../../hooks/useAppMode'
@@ -64,6 +64,18 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   const [syncStatus, setSyncStatus] = useState<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number } | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true)
+    const goOffline = () => setIsOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
 
   const loadSyncStatus = useCallback(async () => {
     if (!isPro) return
@@ -205,6 +217,14 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
             </div>
           </div>
 
+          {/* Offline indicator */}
+          {!isOnline && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
+              <WifiOff size={13} />
+              <span>Offline</span>
+            </div>
+          )}
+
           {/* Cloud sync */}
           {isPro && (
             <div className="relative group">
@@ -219,9 +239,15 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                     const merged = result?.merged || 0
                     setSyncFeedback(merged > 0 ? `Synced ${merged} session${merged > 1 ? 's' : ''}` : 'All synced')
                     setTimeout(() => setSyncFeedback(null), 3000)
-                  } catch {
-                    setSyncFeedback('Sync failed')
-                    setTimeout(() => setSyncFeedback(null), 3000)
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Unknown error'
+                    const feedback = msg.includes('401') || msg.includes('auth')
+                      ? 'Sync failed — please sign in again'
+                      : msg.includes('fetch') || msg.includes('network') || !navigator.onLine
+                      ? 'Sync failed — no internet connection'
+                      : `Sync failed — ${msg.slice(0, 40)}`
+                    setSyncFeedback(feedback)
+                    setTimeout(() => setSyncFeedback(null), 5000)
                   }
                   setSyncing(false)
                 }}
@@ -231,7 +257,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                     ? 'bg-red-50 text-red-600 hover:bg-red-100'
                     : syncFeedback === 'All synced' || syncFeedback?.startsWith('Synced')
                     ? 'bg-green-50 text-green-600'
-                    : syncFeedback === 'Sync failed'
+                    : syncFeedback?.startsWith('Sync failed')
                     ? 'bg-red-50 text-red-600'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 }`}
@@ -245,7 +271,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                 )}
               </button>
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {syncing ? 'Syncing...' : syncFeedback || (syncStatus && syncStatus.consecutiveFailures >= 3 ? 'Sync failing — click to retry' : 'Sync to cloud')}
+                {syncing ? 'Syncing...' : syncFeedback || (syncStatus && syncStatus.consecutiveFailures >= 3 ? `Sync failing (${syncStatus.consecutiveFailures} attempts) — click to retry` : 'Sync to cloud')}
               </div>
             </div>
           )}

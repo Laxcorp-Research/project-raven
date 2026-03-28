@@ -251,6 +251,12 @@ class DatabaseService {
           db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);`)
         },
       },
+      {
+        name: '009_add_session_messages_created_at_index',
+        sql: `
+          CREATE INDEX IF NOT EXISTS idx_session_messages_session_created ON session_messages(session_id, created_at ASC);
+        `,
+      },
     ];
 
     const applied = this.db
@@ -391,6 +397,34 @@ class DatabaseService {
     return rows.map((row) => this.rowToSession(row));
   }
 
+  getAllSessionSummaries(limit = 100, offset = 0): Array<{
+    id: string; title: string; summary: string | null; modeId: string | null;
+    durationSeconds: number; startedAt: number; endedAt: number | null; createdAt: number;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, summary, mode_id, duration_seconds, started_at, ended_at, created_at
+         FROM sessions ORDER BY started_at DESC LIMIT ? OFFSET ?`
+      )
+      .all(limit, offset) as Array<{
+        id: string; title: string; summary: string | null; mode_id: string | null;
+        duration_seconds: number; started_at: number; ended_at: number | null; created_at: number;
+      }>;
+
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      summary: r.summary,
+      modeId: r.mode_id,
+      durationSeconds: r.duration_seconds,
+      startedAt: r.started_at,
+      endedAt: r.ended_at,
+      createdAt: r.created_at,
+    }));
+  }
+
   /**
    * Get sessions within a date range
    */
@@ -499,6 +533,22 @@ class DatabaseService {
     return { id, sessionId, role, content, createdAt };
   }
 
+  addSessionMessageWithId(
+    id: string,
+    sessionId: string,
+    role: 'user' | 'assistant',
+    content: string,
+    createdAt: string
+  ): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO session_messages (id, session_id, role, content, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(id, sessionId, role, content, createdAt);
+  }
+
   /**
    * Get all messages for a session
    */
@@ -578,6 +628,34 @@ class DatabaseService {
       );
 
     log.debug('Created mode:', fullMode.id, fullMode.name);
+    return fullMode;
+  }
+
+  createModeWithId(id: string, mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>): Mode {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const now = Date.now();
+    const fullMode: Mode = { ...mode, id, createdAt: now, updatedAt: now };
+
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO modes (id, name, system_prompt, icon, color, is_default, is_builtin, notes_template_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        fullMode.id,
+        fullMode.name,
+        fullMode.systemPrompt,
+        fullMode.icon,
+        fullMode.color,
+        fullMode.isDefault ? 1 : 0,
+        fullMode.isBuiltin ? 1 : 0,
+        fullMode.notesTemplate ? JSON.stringify(fullMode.notesTemplate) : null,
+        fullMode.createdAt,
+        fullMode.updatedAt
+      );
+
+    log.debug('Created mode with ID:', fullMode.id, fullMode.name);
     return fullMode;
   }
 
@@ -834,6 +912,32 @@ class DatabaseService {
     const rows = this.db.prepare(
       'SELECT id, chunk_index, chunk_text, embedding_json, file_name FROM mode_context_chunks WHERE mode_id = ? ORDER BY file_name, chunk_index'
     ).all(modeId) as Array<{
+      id: string;
+      chunk_index: number;
+      chunk_text: string;
+      embedding_json: string;
+      file_name: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      chunkIndex: r.chunk_index,
+      chunkText: r.chunk_text,
+      embeddingJson: r.embedding_json,
+      fileName: r.file_name,
+    }));
+  }
+
+  getContextChunksForFile(fileId: string): Array<{
+    id: string;
+    chunkIndex: number;
+    chunkText: string;
+    embeddingJson: string;
+    fileName: string;
+  }> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db.prepare(
+      'SELECT id, chunk_index, chunk_text, embedding_json, file_name FROM mode_context_chunks WHERE file_id = ? ORDER BY chunk_index'
+    ).all(fileId) as Array<{
       id: string;
       chunk_index: number;
       chunk_text: string;

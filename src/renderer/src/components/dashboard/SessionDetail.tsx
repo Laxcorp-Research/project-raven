@@ -73,9 +73,15 @@ export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanne
   const insightsTabRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    window.raven.storeGet('displayName').then((name) => {
-      setDisplayName((name as string) || '')
-    }).catch(() => {})
+    async function loadName() {
+      try {
+        const user = await window.raven.authGetCurrentUser()
+        if (user?.name) { setDisplayName(user.name); return }
+      } catch { /* not pro or not authenticated */ }
+      const name = (await window.raven.storeGet('displayName')) as string
+      setDisplayName(name || '')
+    }
+    loadName().catch(() => {})
   }, [])
 
   useEffect(() => {

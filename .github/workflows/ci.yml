@@ -75,7 +75,6 @@ jobs:
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/production'
     defaults:
       run:
         working-directory: backend

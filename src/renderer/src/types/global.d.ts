@@ -88,11 +88,13 @@ declare global {
       authStartGoogleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authLogout: () => Promise<{ success: boolean }>;
+      authDeleteAccount: () => Promise<{ success: boolean; error?: string }>;
       onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => () => void;
       onAuthSessionExpired: (callback: (data: { reason: string }) => void) => () => void;
       onSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
       offSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
       authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; avatarUrl: string | null; preferences?: Record<string, unknown> }; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;
       authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
@@ -186,7 +188,7 @@ declare global {
           error?: string;
         }>;
         getFiles: (modeId: string) => Promise<Array<{ id: string; modeId: string; fileName: string; fileSize: number; fileType: string; chunkCount: number; createdAt: number }>>;
-        deleteFile: (fileId: string) => Promise<boolean>;
+        deleteFile: (modeId: string, fileId: string) => Promise<boolean>;
         onUploadProgress: (callback: (data: { stage: string; current: number; total: number }) => void) => () => void;
       };
       audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;

@@ -57,13 +57,13 @@ function safeHandle(channel: string, handler: (...args: any[]) => any): void {
       if (result instanceof Promise) {
         return result.catch((err: unknown) => {
           ipcLog.error(`[${channel}] handler error:`, err)
-          return null
+          return { __ipcError: true, error: err instanceof Error ? err.message : 'Unknown error' }
         })
       }
       return result
     } catch (err) {
       ipcLog.error(`[${channel}] handler error:`, err)
-      return null
+      return { __ipcError: true, error: err instanceof Error ? err.message : 'Unknown error' }
     }
   })
 }
@@ -374,6 +374,10 @@ app.whenReady().then(() => {
   })
 
   safeHandle('sessions:getAll', () => {
+    return databaseService.getAllSessionSummaries()
+  })
+
+  safeHandle('sessions:getAllFull', () => {
     return databaseService.getAllSessions()
   })
 
@@ -458,6 +462,20 @@ app.whenReady().then(() => {
 
   // ==================== MODE IPC HANDLERS ====================
 
+  function syncModeToCloud(): void {
+    if (!isProMode()) return
+    import(/* @vite-ignore */ '../pro/main/syncService')
+      .then(({ pushModesToCloud }) => pushModesToCloud())
+      .catch((err) => ipcLog.warn('Mode sync failed:', err))
+  }
+
+  function deleteModeFromCloud(modeId: string): void {
+    if (!isProMode()) return
+    import(/* @vite-ignore */ '../pro/main/syncService')
+      .then(({ deleteModeFromBackend }) => deleteModeFromBackend(modeId))
+      .catch((err) => ipcLog.warn('Mode delete sync failed:', err))
+  }
+
   ipcMain.handle('modes:get-all', async () => {
     try {
       return databaseService.getAllModes()
@@ -478,7 +496,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('modes:create', async (_event, mode: Omit<Mode, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      return databaseService.createMode(mode)
+      const result = databaseService.createMode(mode)
+      syncModeToCloud()
+      return result
     } catch (error) {
       ipcLog.error('modes:create error:', error)
       throw error
@@ -487,7 +507,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('modes:update', async (_event, id: string, updates: Partial<Mode>) => {
     try {
-      return databaseService.updateMode(id, updates)
+      const result = databaseService.updateMode(id, updates)
+      syncModeToCloud()
+      return result
     } catch (error) {
       ipcLog.error('modes:update error:', error)
       return null
@@ -496,7 +518,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('modes:delete', async (_event, id: string) => {
     try {
-      return databaseService.deleteMode(id)
+      const result = databaseService.deleteMode(id)
+      deleteModeFromCloud(id)
+      return result
     } catch (error) {
       ipcLog.error('modes:delete error:', error)
       return { success: false, error: 'Failed to delete mode' }
@@ -505,7 +529,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle('modes:duplicate', async (_event, id: string, newName: string) => {
     try {
-      return databaseService.duplicateMode(id, newName)
+      const result = databaseService.duplicateMode(id, newName)
+      syncModeToCloud()
+      return result
     } catch (error) {
       ipcLog.error('modes:duplicate error:', error)
       return null
@@ -516,6 +542,7 @@ app.whenReady().then(() => {
     try {
       const success = resetBuiltinMode(id)
       if (success) {
+        syncModeToCloud()
         return databaseService.getMode(id)
       }
       return null
@@ -577,6 +604,13 @@ app.whenReady().then(() => {
       const result = await uploadContextFile(modeId, resolved, fileName, fileSize, (stage, current, total) => {
         sender.send('context:upload-progress', { stage, current, total })
       })
+
+      if (isProMode()) {
+        import(/* @vite-ignore */ '../pro/main/syncService')
+          .then(({ pushContextToCloud }) => pushContextToCloud(modeId))
+          .catch((err) => ipcLog.warn('Context cloud sync failed:', err))
+      }
+
       return { success: true, file: result }
     } catch (error: unknown) {
       ipcLog.error('context:upload-file error:', error)
@@ -597,10 +631,18 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('context:delete-file', async (_event, fileId: string) => {
+  ipcMain.handle('context:delete-file', async (_event, modeId: string, fileId: string) => {
     try {
       const { deleteContextFile } = await import('./services/ragService')
-      return deleteContextFile(fileId)
+      const result = deleteContextFile(fileId)
+
+      if (isProMode() && result) {
+        import(/* @vite-ignore */ '../pro/main/syncService')
+          .then(({ deleteContextFileFromCloud }) => deleteContextFileFromCloud(modeId, fileId))
+          .catch((err) => ipcLog.warn('Context cloud delete failed:', err))
+      }
+
+      return result
     } catch (error) {
       ipcLog.error('context:delete-file error:', error)
       return false
@@ -931,6 +973,13 @@ app.whenReady().then(() => {
     } else if (BrowserWindow.getAllWindows().length === 0) {
       boot()
     }
+  })
+
+  app.on('browser-window-focus', () => {
+    if (!isProMode()) return
+    import(/* @vite-ignore */ '../pro/main/syncService')
+      .then(({ triggerBackgroundSync }) => triggerBackgroundSync())
+      .catch(() => {})
   })
 })
 

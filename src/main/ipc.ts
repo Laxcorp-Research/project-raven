@@ -34,13 +34,13 @@ function safeHandle(channel: string, handler: (...args: any[]) => any): void {
       if (result instanceof Promise) {
         return result.catch((err: unknown) => {
           ipcLog.error(`[${channel}] handler error:`, err)
-          return null
+          return { __ipcError: true, error: err instanceof Error ? err.message : 'Unknown error' }
         })
       }
       return result
     } catch (err) {
       ipcLog.error(`[${channel}] handler error:`, err)
-      return null
+      return { __ipcError: true, error: err instanceof Error ? err.message : 'Unknown error' }
     }
   })
 }
@@ -390,7 +390,9 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('auth:start-google-login', noopResult)
     ipcMain.handle('auth:start-apple-login', noopResult)
     ipcMain.handle('auth:logout', noopResult)
+    ipcMain.handle('auth:delete-account', noopResult)
     ipcMain.handle('auth:fetch-profile', noopResult)
+    ipcMain.handle('auth:update-profile', noopResult)
     ipcMain.handle('auth:get-subscription', () => ({ plan: 'FREE', status: 'ACTIVE', currentPeriodEnd: null }))
     ipcMain.handle('auth:get-managed-keys', noopNull)
     ipcMain.handle('auth:open-checkout', noopResult)

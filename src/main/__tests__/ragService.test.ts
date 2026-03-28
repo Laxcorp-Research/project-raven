@@ -42,6 +42,7 @@ import {
   getContextFiles,
   deleteContextFile,
   retrieveRelevantChunks,
+  invalidateEmbeddingCache,
 } from '../services/ragService'
 
 describe('ragService', () => {
@@ -165,6 +166,7 @@ describe('ragService', () => {
 
   describe('retrieveRelevantChunks', () => {
     beforeEach(() => {
+      invalidateEmbeddingCache('mode-1')
       mockPipelineFn.mockResolvedValue({
         data: new Float32Array([1, 0, 0]),
       })

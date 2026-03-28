@@ -16,48 +16,70 @@ export function ProfileTab() {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [resetLinkSent, setResetLinkSent] = useState(false)
+  const [userPlan, setUserPlan] = useState<string>('FREE')
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     loadProfile()
   }, [isPro])
 
+  function applyUser(user: { name: string | null; email: string; avatarUrl?: string | null }) {
+    setDisplayName(user.name || '')
+    setSavedName(user.name || '')
+    setUserEmail(user.email || '')
+    setAvatarUrl((user.avatarUrl as string) || null)
+    setIsAuthenticated(true)
+  }
+
   async function loadProfile() {
     try {
-      const authUser = await window.raven.authGetCurrentUser()
-      if (authUser) {
-        const localName = (await window.raven.storeGet('displayName')) as string
-        setDisplayName(localName || authUser.name || '')
-        setSavedName(localName || authUser.name || '')
-        setUserEmail(authUser.email || '')
-        setAvatarUrl(authUser.avatarUrl || null)
-        setIsAuthenticated(true)
-
-        const picPath = (await window.raven.storeGet('profilePicturePath')) as string
-        if (picPath) {
-          const data = await window.raven.profileGetPictureData(picPath)
-          setProfilePicData(data)
-        }
-        return
+      const cached = await window.raven.authGetCurrentUser()
+      if (cached) {
+        applyUser(cached)
       }
-    } catch { /* not in pro mode or not authenticated */ }
+    } catch { /* not pro */ }
 
-    const name = (await window.raven.storeGet('displayName')) as string
     const picPath = (await window.raven.storeGet('profilePicturePath')) as string
-    setDisplayName(name || '')
-    setSavedName(name || '')
-    setIsAuthenticated(false)
     if (picPath) {
       const data = await window.raven.profileGetPictureData(picPath)
       setProfilePicData(data)
+    }
+
+    try {
+      const sub = await window.raven.authGetSubscription()
+      if (sub?.plan) setUserPlan(sub.plan)
+    } catch { /* free mode */ }
+
+    try {
+      const result = await window.raven.authFetchProfile()
+      if (result.success && result.user) {
+        applyUser(result.user as { name: string | null; email: string; avatarUrl?: string | null })
+      }
+    } catch { /* network error — cached data is fine */ }
+
+    if (!displayName && !userEmail) {
+      const name = (await window.raven.storeGet('displayName')) as string
+      setDisplayName(name || '')
+      setSavedName(name || '')
+      setIsAuthenticated(false)
     }
   }
 
   async function handleSave() {
     setSaving(true)
-    await window.raven.storeSet('displayName', displayName.trim())
-    setSavedName(displayName.trim())
+    const trimmed = displayName.trim()
+
+    if (isAuthenticated) {
+      try {
+        await window.raven.authUpdateProfile({ name: trimmed })
+      } catch { /* fall back to local-only */ }
+    }
+    await window.raven.storeSet('displayName', trimmed)
+
+    setSavedName(trimmed)
     setSaving(false)
     setSaved(true)
+    window.dispatchEvent(new Event('profile-updated'))
     setTimeout(() => setSaved(false), 2000)
   }
 
@@ -292,26 +314,55 @@ export function ProfileTab() {
             <p className="text-sm text-gray-500 mb-2">
               This action cannot be undone. This will permanently delete your account and all of its data.
             </p>
-            <p className="text-sm text-red-600 mb-6">
-              Please first cancel your subscription to continue.
-            </p>
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  window.raven.authOpenBillingPortal()
-                  setShowDeleteModal(false)
-                }}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-              >
-                Cancel your subscription
-              </button>
-            </div>
+            {userPlan !== 'FREE' ? (
+              <>
+                <p className="text-sm text-red-600 mb-6">
+                  Please cancel your subscription first before deleting your account.
+                </p>
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setShowDeleteModal(false)}
+                    className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.raven.authOpenBillingPortal()
+                      setShowDeleteModal(false)
+                    }}
+                    className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                  >
+                    Manage subscription
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-between mt-6">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={deleting}
+                  onClick={async () => {
+                    setDeleting(true)
+                    try {
+                      await window.raven.authDeleteAccount()
+                      await window.raven.authLogout()
+                      window.location.reload()
+                    } catch {
+                      setDeleting(false)
+                    }
+                  }}
+                  className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting...' : 'Delete my account permanently'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

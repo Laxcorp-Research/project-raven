@@ -202,6 +202,7 @@ export async function uploadContextFile(
     onProgress?.('storing', i + 1, chunks.length);
   }
 
+  invalidateEmbeddingCache(modeId);
   log.info(`Stored ${chunks.length} chunks for file "${fileName}" in mode ${modeId}`);
 
   return {
@@ -223,19 +224,38 @@ export function deleteContextFile(fileId: string): boolean {
   return databaseService.deleteContextFile(fileId);
 }
 
+const parsedEmbeddingCache = new Map<string, Array<{ chunkText: string; fileName: string; embedding: number[] }>>();
+
+export function invalidateEmbeddingCache(modeId: string): void {
+  parsedEmbeddingCache.delete(modeId);
+}
+
+function getParsedChunks(modeId: string): Array<{ chunkText: string; fileName: string; embedding: number[] }> {
+  const cached = parsedEmbeddingCache.get(modeId);
+  if (cached) return cached;
+
+  const allChunks = databaseService.getContextChunks(modeId);
+  const parsed = allChunks.map((chunk) => ({
+    chunkText: chunk.chunkText,
+    fileName: chunk.fileName,
+    embedding: JSON.parse(chunk.embeddingJson) as number[],
+  }));
+  parsedEmbeddingCache.set(modeId, parsed);
+  return parsed;
+}
+
 export async function retrieveRelevantChunks(
   modeId: string,
   query: string,
   topK = RAG_DEFAULT_TOP_K
 ): Promise<Array<{ chunkText: string; fileName: string; score: number }>> {
-  const allChunks = databaseService.getContextChunks(modeId);
-  if (allChunks.length === 0) return [];
+  const parsedChunks = getParsedChunks(modeId);
+  if (parsedChunks.length === 0) return [];
 
   const queryEmbedding = await embedText(query);
 
-  const scored = allChunks.map((chunk) => {
-    const embedding = JSON.parse(chunk.embeddingJson) as number[];
-    const score = cosineSimilarity(queryEmbedding, embedding);
+  const scored = parsedChunks.map((chunk) => {
+    const score = cosineSimilarity(queryEmbedding, chunk.embedding);
     return {
       chunkText: chunk.chunkText,
       fileName: chunk.fileName,
