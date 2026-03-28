@@ -168,6 +168,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
   useEffect(() => {
     if (isOpen) {
+      setToast(null)
       setShowTemplates(false)
       loadModes(true)
     }
