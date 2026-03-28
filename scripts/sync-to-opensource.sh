@@ -34,13 +34,16 @@ bail() { echo -e "${RED}ERROR: $1${NC}" >&2; exit 1; }
 info() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 
-current_branch=$(git branch --show-current)
-if [ "$current_branch" != "production" ]; then
-  bail "Must be on the production branch. Currently on: $current_branch"
-fi
+ORIGINAL_BRANCH=$(git branch --show-current)
 
 if [ -n "$(git status --porcelain)" ]; then
   bail "Working tree is dirty. Commit or stash changes first."
+fi
+
+if [ "$ORIGINAL_BRANCH" != "production" ]; then
+  info "Switching to production branch..."
+  git checkout production --quiet
+  git pull private production --quiet 2>/dev/null || true
 fi
 
 git fetch origin main --quiet 2>/dev/null || bail "Could not fetch origin/main"
@@ -95,7 +98,7 @@ actually_changed=$(git diff --cached --name-only)
 
 if [ -z "$actually_changed" ]; then
   info "Open-source repo is already up to date. Nothing to sync."
-  git checkout production --quiet
+  git checkout "$ORIGINAL_BRANCH" --quiet
   exit 0
 fi
 
@@ -114,18 +117,18 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
   git reset HEAD --quiet
   git checkout -- . 2>/dev/null
   git clean -fd --quiet 2>/dev/null
-  git checkout production --quiet
+  git checkout "$ORIGINAL_BRANCH" --quiet
   exit 0
 fi
 
 info "Running tsc --noEmit..."
 if ! npx tsc --noEmit 2>&1; then
   echo ""
-  warn "TypeScript check failed. Restoring main and switching back to production..."
+  warn "TypeScript check failed. Restoring main and switching back to $ORIGINAL_BRANCH..."
   git reset HEAD --quiet
   git checkout -- . 2>/dev/null
   git clean -fd --quiet 2>/dev/null
-  git checkout production --quiet
+  git checkout "$ORIGINAL_BRANCH" --quiet
   bail "Fix the TypeScript errors on production first, then re-run."
 fi
 
@@ -138,7 +141,7 @@ if ! npx vitest run 2>&1; then
     git reset HEAD --quiet
     git checkout -- . 2>/dev/null
     git clean -fd --quiet 2>/dev/null
-    git checkout production --quiet
+    git checkout "$ORIGINAL_BRANCH" --quiet
     exit 1
   fi
 fi
@@ -149,8 +152,8 @@ git commit -m "$commit_msg"
 info "Pushing to origin/main..."
 git push origin main
 
-info "Switching back to production..."
-git checkout production --quiet
+info "Switching back to $ORIGINAL_BRANCH..."
+git checkout "$ORIGINAL_BRANCH" --quiet
 
 echo ""
 info "Done! Synced $changed_count files to origin/main."

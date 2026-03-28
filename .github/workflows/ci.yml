@@ -75,6 +75,7 @@ jobs:
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
+    if: hashFiles('backend/package.json') != ''
     defaults:
       run:
         working-directory: backend
