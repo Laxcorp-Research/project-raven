@@ -20,6 +20,7 @@ interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
   initialSubscription?: { plan: string; status: string; currentPeriodEnd: string | null } | null
+  initialTab?: SettingsTab
 }
 
 const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
@@ -98,7 +99,7 @@ const tabs: { id: SettingsTab; label: string; icon: JSX.Element }[] = [
   },
 ]
 
-export function SettingsModal({ isOpen, onClose, initialSubscription }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialSubscription, initialTab }: SettingsModalProps) {
   const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
@@ -106,9 +107,9 @@ export function SettingsModal({ isOpen, onClose, initialSubscription }: Settings
 
   useEffect(() => {
     if (isOpen) {
-      setActiveTab('general')
+      setActiveTab(initialTab || 'general')
     }
-  }, [isOpen])
+  }, [isOpen, initialTab])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

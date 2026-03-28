@@ -202,6 +202,20 @@ function App(): JSX.Element {
           onComplete={() => {
             setView('dashboard')
             window.raven.sendOnboardingCompleted()
+            Promise.all([
+              window.raven.authGetCurrentUser().catch(() => null),
+              window.raven.authGetSubscription().catch(() => null),
+            ]).then(([authUser, sub]) => {
+              if (authUser) {
+                const profile = { name: authUser.name || '', email: authUser.email || '', avatarUrl: authUser.avatarUrl || null }
+                setUserProfile(profile)
+                window.raven.storeSet('cachedUserProfile', profile)
+              }
+              if (sub) {
+                setCachedSubscription(sub)
+                window.raven.storeSet('cachedSubscription', sub)
+              }
+            })
           }}
         />
       </Suspense>

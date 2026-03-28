@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
+import { createRequire } from 'module';
 import { databaseService } from './database';
 import { createLogger } from '../logger';
 import { RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP, RAG_DEFAULT_TOP_K, RAG_MAX_CONTEXT_TOKENS } from '../constants';
@@ -39,11 +40,26 @@ async function parseFile(filePath: string): Promise<string> {
       return await readFile(filePath, 'utf-8');
     }
     case '.pdf': {
-      const mod = await import('pdf-parse');
-      const pdfParse = typeof mod.default === 'function' ? mod.default : mod;
+      const nodeRequire = createRequire(import.meta.url);
+      const pdfParsePath = nodeRequire.resolve('pdf-parse');
+      const { join } = await import('path');
+      const { tmpdir } = await import('os');
+      const { writeFileSync, existsSync } = await import('fs');
+      const helperPath = join(tmpdir(), 'raven-pdf-helper.cjs');
+      if (!existsSync(helperPath)) {
+        writeFileSync(helperPath, `
+          const { PDFParse, VerbosityLevel } = require(${JSON.stringify(pdfParsePath)});
+          module.exports = async function(buffer) {
+            const parser = new PDFParse({ verbosity: VerbosityLevel.ERRORS, data: new Uint8Array(buffer) });
+            await parser.load();
+            const result = await parser.getText();
+            return typeof result === 'string' ? result : result.text;
+          };
+        `);
+      }
+      const parsePdf = nodeRequire(helperPath);
       const buffer = await readFile(filePath);
-      const data = await pdfParse(buffer);
-      return data.text;
+      return await parsePdf(buffer);
     }
     case '.docx': {
       const mammoth = await import('mammoth');

@@ -271,9 +271,20 @@ export class ClaudeService {
         let systemPrompt: string
         if (getServerSystemPrompt) {
           const serverPrompt = await getServerSystemPrompt()
-          systemPrompt = serverPrompt || buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined)
+          systemPrompt = serverPrompt || buildSystemPrompt(params.modePrompt)
         } else {
-          systemPrompt = buildSystemPrompt(params.modePrompt, ragChunks.length > 0 ? ragChunks : undefined)
+          systemPrompt = buildSystemPrompt(params.modePrompt)
+        }
+
+        if (params.modePrompt) {
+          systemPrompt += `\n\nMODE-SPECIFIC INSTRUCTIONS (follow these in addition to the above):\n${params.modePrompt}`;
+        }
+
+        if (ragChunks.length > 0) {
+          systemPrompt += `\n\nREFERENCE DOCUMENTS (use these to inform your responses — this is the user's uploaded context and takes priority over your training data):\n`;
+          ragChunks.forEach((chunk, i) => {
+            systemPrompt += `\n[${i + 1}] (from "${chunk.fileName}"):\n${chunk.chunkText}\n`;
+          });
         }
 
         const streamTimeout = new Promise<never>((_, reject) =>

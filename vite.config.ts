@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
+import { dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 export default defineConfig({
   build: {
@@ -15,9 +17,25 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             rollupOptions: {
-              external: ['better-sqlite3', 'assemblyai', 'pdf-parse', '@sentry/electron', '@sentry/electron/main', '@recallai/desktop-sdk'],
+              external: [
+                'better-sqlite3',
+                'assemblyai',
+                'pdf-parse',
+                '@sentry/electron',
+                '@sentry/electron/main',
+                '@recallai/desktop-sdk',
+                'onnxruntime-node',
+                'onnxruntime-web',
+                'sharp',
+              ],
               output: {
                 entryFileNames: 'index.js',
+                banner: `
+                  import { fileURLToPath as __vite_fileURLToPath } from 'url';
+                  import { dirname as __vite_dirname } from 'path';
+                  const __filename = __vite_fileURLToPath(import.meta.url);
+                  const __dirname = __vite_dirname(__filename);
+                `,
               },
             },
           },

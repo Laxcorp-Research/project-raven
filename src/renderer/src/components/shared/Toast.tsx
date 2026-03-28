@@ -14,7 +14,8 @@ export function Toast({ message, type, onComplete }: ToastProps) {
       }, 2000)
       return () => clearTimeout(timer)
     }
-  }, [type, onComplete])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type])
 
   return (
     <div className="fixed top-4 right-4 flex items-center gap-3 px-5 py-3.5 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-100 z-50 animate-slide-in-right">

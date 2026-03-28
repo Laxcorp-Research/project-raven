@@ -66,7 +66,9 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'general' | 'billing' | undefined>(undefined)
   const [showOverlayTour, setShowOverlayTour] = useState(false)
+  const [subscription, setSubscription] = useState(initialSubscription)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
 
@@ -161,6 +163,17 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   }, [])
 
   useEffect(() => {
+    if (initialSubscription) setSubscription(initialSubscription)
+  }, [initialSubscription])
+
+  useEffect(() => {
+    if (!isPro || subscription) return
+    window.raven.authGetSubscription?.().then((sub) => {
+      if (sub) setSubscription(sub)
+    }).catch(() => {})
+  }, [isPro, subscription])
+
+  useEffect(() => {
     if (!isPro) return
     try {
       const unsub = window.raven.onSyncProgress((data) => {
@@ -215,6 +228,12 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   }
 
   const handleOpenSettings = () => {
+    setSettingsInitialTab(undefined)
+    setSettingsOpen(true)
+  }
+
+  const handleOpenBilling = () => {
+    setSettingsInitialTab('billing')
     setSettingsOpen(true)
   }
 
@@ -299,6 +318,23 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
         </div>
       )}
 
+      {isPro && !isRecording && subscription?.plan === 'FREE' && (
+        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white">
+          <div className="flex items-center gap-2 min-w-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+            </svg>
+            <span className="text-sm font-medium truncate">Unlock unlimited sessions, AI responses, and meeting insights.</span>
+          </div>
+          <button
+            onClick={handleOpenBilling}
+            className="px-3 py-1 bg-white text-purple-700 text-xs font-semibold rounded-md hover:bg-white/90 transition-colors shrink-0 ml-3"
+          >
+            Upgrade to Pro
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 flex flex-col overflow-hidden">
         {selectedSession ? (
           <SessionDetail
@@ -336,8 +372,9 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
 
       <SettingsModal
         isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => { setSettingsOpen(false); setSettingsInitialTab(undefined) }}
         initialSubscription={initialSubscription}
+        initialTab={settingsInitialTab}
       />
 
       {showOverlayTour && (

@@ -272,6 +272,12 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     overlayWindow = null
   })
 
+  overlayWindow.on('show', () => {
+    if (!overlayEnabled && overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.hide()
+    }
+  })
+
   // Load the overlay route
   if (rendererURL) {
     overlayWindow.loadURL(`${rendererURL}#overlay`)

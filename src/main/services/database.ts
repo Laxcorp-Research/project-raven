@@ -441,6 +441,13 @@ class DatabaseService {
     return result.changes > 0;
   }
 
+  clearAllSessions(): void {
+    if (!this.db) throw new Error('Database not initialized');
+    const result = this.db.prepare('DELETE FROM sessions').run();
+    this.db.prepare('DELETE FROM session_messages').run();
+    log.info('Cleared all local sessions:', result.changes, 'sessions deleted');
+  }
+
   /**
    * Get session count
    */
