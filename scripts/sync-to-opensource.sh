@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync open-source files from premium → origin/main
+# Sync open-source files from production → origin/main
 # Usage: ./scripts/sync-to-opensource.sh [commit message]
 #
 # Only syncs files that actually differ from what's already on main.
@@ -35,8 +35,8 @@ info() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 
 current_branch=$(git branch --show-current)
-if [ "$current_branch" != "premium" ]; then
-  bail "Must be on the premium branch. Currently on: $current_branch"
+if [ "$current_branch" != "production" ]; then
+  bail "Must be on the production branch. Currently on: $current_branch"
 fi
 
 if [ -n "$(git status --porcelain)" ]; then
@@ -45,7 +45,7 @@ fi
 
 git fetch origin main --quiet 2>/dev/null || bail "Could not fetch origin/main"
 
-all_diff=$(git diff --name-only origin/main premium)
+all_diff=$(git diff --name-only origin/main production)
 
 if [ -z "$all_diff" ]; then
   info "Open-source repo is already up to date. Nothing to sync."
@@ -68,19 +68,19 @@ while IFS= read -r file; do
 done <<< "$all_diff"
 
 if [ ${#candidate_files[@]} -eq 0 ]; then
-  info "All differences are premium-only. Nothing to sync."
+  info "All differences are production-only. Nothing to sync."
   exit 0
 fi
 
-# Switch to main and check out candidates from premium
+# Switch to main and check out candidates from production
 info "Switching to main to check for real changes..."
 git checkout main --quiet
 
 for f in "${candidate_files[@]}"; do
-  if git cat-file -e "premium:$f" 2>/dev/null; then
+  if git cat-file -e "production:$f" 2>/dev/null; then
     dir=$(dirname "$f")
     [ "$dir" != "." ] && mkdir -p "$dir"
-    git checkout premium -- "$f"
+    git checkout production -- "$f"
   else
     if [ -f "$f" ]; then
       git rm --quiet "$f" 2>/dev/null || true
@@ -95,7 +95,7 @@ actually_changed=$(git diff --cached --name-only)
 
 if [ -z "$actually_changed" ]; then
   info "Open-source repo is already up to date. Nothing to sync."
-  git checkout premium --quiet
+  git checkout production --quiet
   exit 0
 fi
 
@@ -114,19 +114,19 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
   git reset HEAD --quiet
   git checkout -- . 2>/dev/null
   git clean -fd --quiet 2>/dev/null
-  git checkout premium --quiet
+  git checkout production --quiet
   exit 0
 fi
 
 info "Running tsc --noEmit..."
 if ! npx tsc --noEmit 2>&1; then
   echo ""
-  warn "TypeScript check failed. Restoring main and switching back to premium..."
+  warn "TypeScript check failed. Restoring main and switching back to production..."
   git reset HEAD --quiet
   git checkout -- . 2>/dev/null
   git clean -fd --quiet 2>/dev/null
-  git checkout premium --quiet
-  bail "Fix the TypeScript errors on premium first, then re-run."
+  git checkout production --quiet
+  bail "Fix the TypeScript errors on production first, then re-run."
 fi
 
 info "Running tests..."
@@ -138,19 +138,19 @@ if ! npx vitest run 2>&1; then
     git reset HEAD --quiet
     git checkout -- . 2>/dev/null
     git clean -fd --quiet 2>/dev/null
-    git checkout premium --quiet
+    git checkout production --quiet
     exit 1
   fi
 fi
 
-commit_msg="${1:-Sync open-source files from premium}"
+commit_msg="${1:-Sync open-source files from production}"
 git commit -m "$commit_msg"
 
 info "Pushing to origin/main..."
 git push origin main
 
-info "Switching back to premium..."
-git checkout premium --quiet
+info "Switching back to production..."
+git checkout production --quiet
 
 echo ""
 info "Done! Synced $changed_count files to origin/main."

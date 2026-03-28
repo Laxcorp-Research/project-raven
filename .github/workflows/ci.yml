@@ -3,7 +3,8 @@ name: CI
 on:
   push:
     branches:
-      - premium
+      - staging
+      - production
       - main
   pull_request:
 
@@ -74,7 +75,7 @@ jobs:
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/premium'
+    if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/production'
     defaults:
       run:
         working-directory: backend
