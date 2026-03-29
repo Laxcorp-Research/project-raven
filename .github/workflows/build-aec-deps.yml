@@ -1,0 +1,92 @@
+name: Build AEC Dependencies
+
+# Builds libwebrtc-audio-processing + abseil from source for macOS.
+# Uploads the artifacts to S3 so the release workflow can download them.
+# Run manually when upgrading GStreamer or webrtc-audio-processing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gstreamer_version:
+        description: 'GStreamer version (must match brew)'
+        required: true
+        default: '1.28.0'
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-macos:
+    name: Build AEC deps (macOS ARM64)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          brew install meson ninja cmake pkg-config gstreamer
+
+      - name: Build webrtc-audio-processing from source
+        run: |
+          GST_VERSION="${{ inputs.gstreamer_version }}"
+          DEPS_DIR="$GITHUB_WORKSPACE/src/native/aec/deps"
+          BUILD_DIR="/tmp/webrtc-audio-processing-build"
+
+          echo "Building webrtc-audio-processing for GStreamer $GST_VERSION"
+
+          # Clone webrtc-audio-processing (matches GStreamer's bundled version)
+          git clone --depth 1 --branch v1.3 \
+            https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing.git \
+            /tmp/webrtc-audio-processing-src
+
+          cd /tmp/webrtc-audio-processing-src
+
+          # Build with meson (static libs, abseil included)
+          meson setup "$BUILD_DIR" \
+            --prefix="$DEPS_DIR" \
+            --default-library=static \
+            --buildtype=release \
+            -Dc_args="-fPIC" \
+            -Dcpp_args="-fPIC"
+
+          ninja -C "$BUILD_DIR"
+          ninja -C "$BUILD_DIR" install
+
+          echo "Installed to $DEPS_DIR"
+          ls -la "$DEPS_DIR/lib/"
+
+      - name: Build webrtcdsp GStreamer plugin
+        run: |
+          cd src/native/aec
+          ./build-webrtcdsp-plugin.sh
+
+      - name: Verify deps
+        run: |
+          DEPS_DIR="$GITHUB_WORKSPACE/src/native/aec/deps"
+          echo "=== Static libraries ==="
+          ls -la "$DEPS_DIR/lib/"*.a
+          echo ""
+          echo "=== Plugin ==="
+          ls -la "$DEPS_DIR/lib/gstreamer-1.0/"
+          echo ""
+          echo "=== Headers ==="
+          ls "$DEPS_DIR/include/"
+
+      - name: Package and upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          GST_VERSION="${{ inputs.gstreamer_version }}"
+          DEPS_DIR="$GITHUB_WORKSPACE/src/native/aec/deps"
+
+          tar czf /tmp/aec-deps-macos-arm64.tar.gz -C src/native/aec deps/
+          aws s3 cp /tmp/aec-deps-macos-arm64.tar.gz \
+            "s3://raven-production-releases/build-deps/aec-deps-macos-arm64-gst${GST_VERSION}.tar.gz"
+
+          # Also update the "latest" copy used by the release workflow
+          aws s3 cp /tmp/aec-deps-macos-arm64.tar.gz \
+            "s3://raven-production-releases/build-deps/aec-deps-macos-arm64.tar.gz"
+
+          echo "Uploaded aec-deps-macos-arm64-gst${GST_VERSION}.tar.gz to S3"

@@ -75,7 +75,6 @@ jobs:
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
-    if: hashFiles('backend/package.json') != ''
     defaults:
       run:
         working-directory: backend
@@ -83,7 +82,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check if backend exists
+        id: check
+        run: |
+          if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Setup Node.js
+        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -91,16 +96,21 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
         run: npm ci
 
       - name: Security audit
+        if: steps.check.outputs.exists == 'true'
         run: npm audit --audit-level=critical
 
       - name: Generate Prisma client
+        if: steps.check.outputs.exists == 'true'
         run: npx prisma generate
 
       - name: Type check
+        if: steps.check.outputs.exists == 'true'
         run: npx tsc --noEmit
 
       - name: Run tests
+        if: steps.check.outputs.exists == 'true'
         run: npm test

@@ -1,12 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAppMode } from '../../../hooks/useAppMode'
+
+interface UpdateState {
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  error?: string
+}
 
 export function GeneralTab() {
   const { isPro } = useAppMode()
   const [stealth, setStealth] = useState(false)
   const [openOnLogin, setOpenOnLogin] = useState(false)
   const [appVersion, setAppVersion] = useState('...')
-  const [updateState, setUpdateState] = useState<string | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' })
 
   useEffect(() => {
     async function load() {
@@ -15,8 +21,17 @@ export function GeneralTab() {
       setOpenOnLogin(settings.openOnLogin as boolean)
       const v = await window.raven.getAppVersion()
       setAppVersion(v)
+      const state = await window.raven.updateGetState()
+      setUpdateState(state as UpdateState)
     }
     load()
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.raven.onUpdateStateChanged((state) => {
+      setUpdateState(state as UpdateState)
+    })
+    return unsubscribe
   }, [])
 
   const handleStealth = async (enabled: boolean) => {
@@ -29,17 +44,17 @@ export function GeneralTab() {
     await window.raven.storeSet('openOnLogin', enabled)
   }
 
-  const handleCheckUpdate = async () => {
-    setUpdateState('checking')
-    try {
-      await window.raven.updateCheck()
-      setUpdateState('up-to-date')
-      setTimeout(() => setUpdateState(null), 3000)
-    } catch {
-      setUpdateState('error')
-      setTimeout(() => setUpdateState(null), 3000)
+  const handleCheckUpdate = useCallback(async () => {
+    setUpdateState({ status: 'checking' })
+    const result = await window.raven.updateCheck()
+    if (!result.success) {
+      setUpdateState({ status: 'error', error: result.error })
     }
-  }
+  }, [])
+
+  const handleInstallUpdate = useCallback(async () => {
+    await window.raven.updateInstall()
+  }, [])
 
   return (
     <div className="space-y-5">
@@ -125,22 +140,39 @@ export function GeneralTab() {
             </div>
             <div>
               <p className="text-sm font-medium text-gray-900">Version</p>
-              <p className="text-xs text-gray-400 mt-0.5">You are currently using Raven version {appVersion}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {updateState.status === 'available' || updateState.status === 'downloading'
+                  ? `Version ${updateState.version} is available`
+                  : updateState.status === 'downloaded'
+                    ? `Version ${updateState.version} is ready to install`
+                    : `You are currently using Raven version ${appVersion}`}
+              </p>
             </div>
           </div>
-          <button
-            onClick={handleCheckUpdate}
-            disabled={updateState === 'checking'}
-            className="px-3.5 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shrink-0 ml-4"
-          >
-            {updateState === 'checking'
-              ? 'Checking...'
-              : updateState === 'up-to-date'
-                ? 'Up to date ✓'
-                : updateState === 'error'
-                  ? 'Check failed'
-                  : 'Check for updates'}
-          </button>
+          {updateState.status === 'downloaded' ? (
+            <button
+              onClick={handleInstallUpdate}
+              className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
+            >
+              Restart & update
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckUpdate}
+              disabled={updateState.status === 'checking' || updateState.status === 'downloading'}
+              className="px-3.5 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shrink-0 ml-4"
+            >
+              {updateState.status === 'checking'
+                ? 'Checking...'
+                : updateState.status === 'available'
+                  ? 'Downloading...'
+                  : updateState.status === 'downloading'
+                    ? 'Downloading...'
+                    : updateState.status === 'error'
+                      ? 'Check failed — retry'
+                      : 'Check for updates'}
+            </button>
+          )}
         </div>}
       </div>
     </div>

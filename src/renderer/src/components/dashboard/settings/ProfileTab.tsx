@@ -17,11 +17,28 @@ export function ProfileTab() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [resetLinkSent, setResetLinkSent] = useState(false)
   const [userPlan, setUserPlan] = useState<string>('FREE')
+  const [subStatus, setSubStatus] = useState<string>('ACTIVE')
   const [deleting, setDeleting] = useState(false)
+  const [waitingForCancel, setWaitingForCancel] = useState(false)
 
   useEffect(() => {
     loadProfile()
   }, [isPro])
+
+  useEffect(() => {
+    if (!waitingForCancel) return
+    const interval = setInterval(async () => {
+      try {
+        const sub = await window.raven.authGetSubscription()
+        if (sub?.plan) setUserPlan(sub.plan)
+        if (sub?.status) setSubStatus(sub.status)
+        if (sub?.status === 'CANCELED' || sub?.plan === 'FREE') {
+          setWaitingForCancel(false)
+        }
+      } catch { /* ignore */ }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [waitingForCancel])
 
   function applyUser(user: { name: string | null; email: string; avatarUrl?: string | null }) {
     setDisplayName(user.name || '')
@@ -45,10 +62,11 @@ export function ProfileTab() {
       setProfilePicData(data)
     }
 
-    try {
-      const sub = await window.raven.authGetSubscription()
-      if (sub?.plan) setUserPlan(sub.plan)
-    } catch { /* free mode */ }
+        try {
+          const sub = await window.raven.authGetSubscription()
+          if (sub?.plan) setUserPlan(sub.plan)
+          if (sub?.status) setSubStatus(sub.status)
+        } catch { /* free mode */ }
 
     try {
       const result = await window.raven.authFetchProfile()
@@ -314,33 +332,42 @@ export function ProfileTab() {
             <p className="text-sm text-gray-500 mb-2">
               This action cannot be undone. This will permanently delete your account and all of its data.
             </p>
-            {userPlan !== 'FREE' ? (
+            {userPlan !== 'FREE' && subStatus !== 'CANCELED' ? (
               <>
-                <p className="text-sm text-red-600 mb-6">
+                <p className="text-sm text-red-600 mb-4">
                   Please cancel your subscription first before deleting your account.
                 </p>
+                {waitingForCancel && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Waiting for subscription cancellation...
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <button
-                    onClick={() => setShowDeleteModal(false)}
+                    onClick={() => { setShowDeleteModal(false); setWaitingForCancel(false) }}
                     className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={() => {
-                      window.raven.authOpenBillingPortal()
-                      setShowDeleteModal(false)
+                    onClick={async () => {
+                      await window.raven.authOpenBillingPortal()
+                      setWaitingForCancel(true)
                     }}
                     className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
                   >
-                    Manage subscription
+                    {waitingForCancel ? 'Open billing portal again' : 'Manage subscription'}
                   </button>
                 </div>
               </>
             ) : (
               <div className="flex items-center justify-between mt-6">
                 <button
-                  onClick={() => setShowDeleteModal(false)}
+                  onClick={() => { setShowDeleteModal(false); setWaitingForCancel(false) }}
                   className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
                 >
                   Cancel
