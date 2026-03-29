@@ -105,16 +105,17 @@ const LATEST_VERSION = 6;
 class DatabaseService {
   private db: Database.Database | null = null;
   private dbPath: string;
+  private dbDir: string;
 
   constructor() {
     const userDataPath = app.getPath('userData');
-    const dbDir = path.join(userDataPath, 'data');
+    this.dbDir = path.join(userDataPath, 'data');
 
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
+    if (!fs.existsSync(this.dbDir)) {
+      fs.mkdirSync(this.dbDir, { recursive: true });
     }
 
-    this.dbPath = path.join(dbDir, 'raven.db');
+    this.dbPath = path.join(this.dbDir, 'raven.db');
   }
 
   /**
@@ -126,14 +127,70 @@ class DatabaseService {
     log.info('Initializing at:', this.dbPath);
 
     this.db = new Database(this.dbPath);
-
-    // Enable WAL mode for better performance
     this.db.pragma('journal_mode = WAL');
-
-    // Run migrations
     this.migrate();
 
     log.info('Initialized successfully');
+  }
+
+  /**
+   * Switch to a per-account database. Closes the current connection,
+   * opens the account-specific DB, and runs migrations on it.
+   * Returns true if the switch resulted in a different database.
+   */
+  switchToAccountDatabase(backendUrl: string, userId: string): boolean {
+    const hash = this.hashAccount(backendUrl, userId);
+    const newPath = path.join(this.dbDir, `raven-${hash}.db`);
+
+    if (newPath === this.dbPath && this.db) return false;
+
+    const isNewDb = !fs.existsSync(newPath);
+    this.close();
+    this.dbPath = newPath;
+    this.db = new Database(this.dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.migrate();
+
+    if (isNewDb) {
+      log.info('Created new account database — seeding defaults');
+      this._onNewAccountDb?.();
+    }
+
+    log.info('Switched to account database:', newPath);
+    return true;
+  }
+
+  private _onNewAccountDb: (() => void) | null = null;
+
+  /**
+   * Register a callback that runs when a brand-new account database is created.
+   * Used to seed built-in modes and other defaults.
+   */
+  onNewAccountDatabase(callback: () => void): void {
+    this._onNewAccountDb = callback;
+  }
+
+  /**
+   * Switch back to the default shared database (for logout / unauthenticated state).
+   */
+  switchToDefaultDatabase(): boolean {
+    const defaultPath = path.join(this.dbDir, 'raven.db');
+
+    if (defaultPath === this.dbPath && this.db) return false;
+
+    this.close();
+    this.dbPath = defaultPath;
+    this.db = new Database(this.dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.migrate();
+
+    log.info('Switched to default database');
+    return true;
+  }
+
+  private hashAccount(backendUrl: string, userId: string): string {
+    const { createHash } = require('crypto');
+    return createHash('sha256').update(`${backendUrl}::${userId}`).digest('hex').slice(0, 12);
   }
 
   /**

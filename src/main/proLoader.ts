@@ -11,6 +11,7 @@ import { isProMode } from './store'
 import { createLogger } from './logger'
 import { sessionManager } from './services/sessionManager'
 import { databaseService } from './services/database'
+import { createDefaultMode, ensureActiveMode } from './services/builtinModes'
 
 const log = createLogger('ProLoader')
 
@@ -31,13 +32,29 @@ export async function initializeProFeatures(): Promise<void> {
     )
     await registerAuthHandlers()
 
+    // Seed built-in modes when a fresh account DB is created
+    databaseService.onNewAccountDatabase(() => {
+      createDefaultMode()
+      ensureActiveMode()
+    })
+
+    // If user is already authenticated from a previous session,
+    // switch to their account-specific database before loading any data
+    const { getCurrentUser } = await import(/* @vite-ignore */ '../pro/main/authService')
+    const { getBackendUrl } = await import(/* @vite-ignore */ '../pro/main/proEnv')
+    const user = getCurrentUser()
+    const backendUrl = getBackendUrl()
+    if (user?.id && backendUrl) {
+      databaseService.switchToAccountDatabase(backendUrl, user.id)
+      log.info('Restored account database for:', user.email)
+    }
+
     const { queueSessionForSync, processSyncQueue, pullAndMergeRemoteSessions, pullRemoteSessions } = await import(
       /* @vite-ignore */ '../pro/main/syncService'
     )
 
     sessionManager.setSyncFunction(queueSessionForSync)
 
-    // Retroactive push: upload any local sessions the backend doesn't have
     retroactivePush(queueSessionForSync, pullRemoteSessions, processSyncQueue)
       .catch((err) => log.warn('Retroactive push failed (non-fatal):', err))
 
@@ -73,8 +90,8 @@ export async function initializeProFeatures(): Promise<void> {
 
 /**
  * One-time push of all local sessions the backend doesn't have.
- * Compares local session IDs against what the backend returns,
- * then queues any missing ones.
+ * With per-account databases, the DB only contains this account's data,
+ * so no filtering by backend URL or user ID is needed.
  */
 async function retroactivePush(
   queueFn: (s: { id: string; title?: string; summary?: string; insightsJson?: string; transcriptJson?: string; aiResponsesJson?: string; modeId?: string; durationSeconds?: number; startedAt: string; endedAt?: string; clientUpdatedAt?: string }) => void,
