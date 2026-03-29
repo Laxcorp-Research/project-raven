@@ -127,9 +127,10 @@ declare global {
       relaunchApp: () => Promise<void>;
       getAppVersion: () => Promise<string>;
       updateCheck: () => Promise<{ success: boolean; error?: string }>;
+      updateDownload: () => Promise<{ success: boolean; error?: string }>;
       updateInstall: () => Promise<{ success: boolean }>;
-      updateGetState: () => Promise<{ status: string; version?: string; error?: string }>;
-      onUpdateStateChanged: (callback: (state: { status: string; version?: string; error?: string }) => void) => () => void;
+      updateGetState: () => Promise<{ status: string; version?: string; error?: string; progress?: number }>;
+      onUpdateStateChanged: (callback: (state: { status: string; version?: string; error?: string; progress?: number }) => void) => () => void;
       profileSelectPicture: () => Promise<string | null>;
       profileSelectPictureRaw: () => Promise<string | null>;
       profileSavePictureData: (dataUrl: string) => Promise<string | null>;

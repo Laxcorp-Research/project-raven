@@ -10,6 +10,7 @@ interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
   version?: string
   error?: string
+  progress?: number
 }
 
 let state: UpdateState = { status: 'idle' }
@@ -25,8 +26,8 @@ function broadcastState(): void {
 
 export function initAutoUpdater(): void {
   autoUpdater.logger = null
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
 
   autoUpdater.on('checking-for-update', () => {
     log.info('Checking for updates...')
@@ -46,8 +47,8 @@ export function initAutoUpdater(): void {
     broadcastState()
   })
 
-  autoUpdater.on('download-progress', () => {
-    state = { ...state, status: 'downloading' }
+  autoUpdater.on('download-progress', (info) => {
+    state = { ...state, status: 'downloading', progress: Math.round(info.percent) }
     broadcastState()
   })
 
@@ -66,6 +67,15 @@ export function initAutoUpdater(): void {
   ipcMain.handle('update:check', async () => {
     try {
       await autoUpdater.checkForUpdates()
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle('update:download', async () => {
+    try {
+      await autoUpdater.downloadUpdate()
       return { success: true }
     } catch (err) {
       return { success: false, error: String(err) }

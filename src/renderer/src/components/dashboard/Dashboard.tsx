@@ -10,6 +10,7 @@ import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
 import { SettingsModal } from './SettingsModal'
 import { SearchResultsView } from './SearchResultsView'
+import { UpdateBanner } from './UpdateBanner'
 
 type OverlayTourProps = { onBack: () => void; onNext: () => void }
 
@@ -293,6 +294,8 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
         onSearchSubmit={handleSearchSubmit}
         onSessionSelect={handleSessionSelect}
       />
+
+      {isPro && <UpdateBanner />}
 
       {syncProgress && (
         <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-blue-50 border-b border-blue-100">

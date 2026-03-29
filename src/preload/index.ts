@@ -198,6 +198,7 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('audio:get-transcript-by-source', source),
   // Auto-update
   updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   updateGetState: () => ipcRenderer.invoke('update:get-state'),
   onUpdateStateChanged: (callback: (state: unknown) => void) => {

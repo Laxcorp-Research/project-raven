@@ -5,6 +5,7 @@ interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
   version?: string
   error?: string
+  progress?: number
 }
 
 export function GeneralTab() {
@@ -50,6 +51,10 @@ export function GeneralTab() {
     if (!result.success) {
       setUpdateState({ status: 'error', error: result.error })
     }
+  }, [])
+
+  const handleDownloadUpdate = useCallback(async () => {
+    await window.raven.updateDownload()
   }, [])
 
   const handleInstallUpdate = useCallback(async () => {
@@ -152,9 +157,16 @@ export function GeneralTab() {
           {updateState.status === 'downloaded' ? (
             <button
               onClick={handleInstallUpdate}
-              className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
+              className="px-3.5 py-1.5 text-sm font-medium text-white bg-emerald-600 border border-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shrink-0 ml-4"
             >
               Restart & update
+            </button>
+          ) : updateState.status === 'available' ? (
+            <button
+              onClick={handleDownloadUpdate}
+              className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
+            >
+              Update now
             </button>
           ) : (
             <button
@@ -164,13 +176,11 @@ export function GeneralTab() {
             >
               {updateState.status === 'checking'
                 ? 'Checking...'
-                : updateState.status === 'available'
-                  ? 'Downloading...'
-                  : updateState.status === 'downloading'
-                    ? 'Downloading...'
-                    : updateState.status === 'error'
-                      ? 'Check failed — retry'
-                      : 'Check for updates'}
+                : updateState.status === 'downloading'
+                  ? `Downloading... ${updateState.progress ?? 0}%`
+                  : updateState.status === 'error'
+                    ? 'Check failed — retry'
+                    : 'Check for updates'}
             </button>
           )}
         </div>}

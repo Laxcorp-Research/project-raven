@@ -11,6 +11,7 @@ const { mockIpcHandlers, updaterListeners, mockAutoUpdater } = vi.hoisted(() => 
       updaterListeners[event] = handler
     }),
     checkForUpdates: vi.fn().mockResolvedValue(undefined),
+    downloadUpdate: vi.fn().mockResolvedValue(undefined),
     quitAndInstall: vi.fn(),
   }
   return { mockIpcHandlers, updaterListeners, mockAutoUpdater }
@@ -61,8 +62,8 @@ describe('autoUpdater', () => {
     it('configures auto-updater settings', () => {
       initAutoUpdater()
 
-      expect(mockAutoUpdater.autoDownload).toBe(true)
-      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true)
+      expect(mockAutoUpdater.autoDownload).toBe(false)
+      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false)
       expect(mockAutoUpdater.logger).toBeNull()
     })
 
@@ -141,9 +142,9 @@ describe('autoUpdater', () => {
 
       initAutoUpdater()
       updaterListeners['update-available']({ version: '2.0.0' })
-      updaterListeners['download-progress']()
+      updaterListeners['download-progress']({ percent: 45.6, bytesPerSecond: 1000000, transferred: 100000, total: 220000 })
 
-      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', expect.objectContaining({ status: 'downloading' }))
+      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', expect.objectContaining({ status: 'downloading', progress: 46 }))
     })
 
     it('update-downloaded broadcasts downloaded', () => {
@@ -192,6 +193,22 @@ describe('autoUpdater', () => {
 
       const result = await mockIpcHandlers['update:check']()
       expect(result).toEqual({ success: false, error: expect.stringContaining('fail') })
+    })
+
+    it('update:download calls downloadUpdate', async () => {
+      initAutoUpdater()
+
+      const result = await mockIpcHandlers['update:download']()
+      expect(result).toEqual({ success: true })
+      expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalled()
+    })
+
+    it('update:download returns error on failure', async () => {
+      mockAutoUpdater.downloadUpdate.mockRejectedValueOnce(new Error('network'))
+      initAutoUpdater()
+
+      const result = await mockIpcHandlers['update:download']()
+      expect(result).toEqual({ success: false, error: expect.stringContaining('network') })
     })
 
     it('update:install quits and installs when downloaded', async () => {
