@@ -72,8 +72,26 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
+  check-backend:
+    name: Check Backend Exists
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if backend directory exists
+        id: check
+        run: |
+          if [ -d backend ] && [ -f backend/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test-backend:
     name: Backend Tests
+    needs: check-backend
+    if: needs.check-backend.outputs.exists == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -82,13 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check if backend exists
-        id: check
-        run: |
-          if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-
       - name: Setup Node.js
-        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -96,21 +108,16 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        if: steps.check.outputs.exists == 'true'
         run: npm ci
 
       - name: Security audit
-        if: steps.check.outputs.exists == 'true'
         run: npm audit --audit-level=critical
 
       - name: Generate Prisma client
-        if: steps.check.outputs.exists == 'true'
         run: npx prisma generate
 
       - name: Type check
-        if: steps.check.outputs.exists == 'true'
         run: npx tsc --noEmit
 
       - name: Run tests
-        if: steps.check.outputs.exists == 'true'
         run: npm test
