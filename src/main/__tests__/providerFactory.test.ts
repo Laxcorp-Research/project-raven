@@ -35,7 +35,7 @@ describe('providerFactory', () => {
       const provider = getProvider({
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       })
 
       expect(provider).toBeInstanceOf(AnthropicProvider)
@@ -67,7 +67,7 @@ describe('providerFactory', () => {
       const config = {
         provider: 'anthropic' as const,
         model: 'claude-sonnet-4-6',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       }
 
       const first = getProvider(config)
@@ -80,7 +80,7 @@ describe('providerFactory', () => {
       const first = getProvider({
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       })
 
       const second = getProvider({
@@ -98,13 +98,13 @@ describe('providerFactory', () => {
       const first = getProvider({
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       })
 
       const second = getProvider({
         provider: 'anthropic',
         model: 'claude-haiku-4-5',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       })
 
       expect(first).not.toBe(second)
@@ -116,7 +116,7 @@ describe('providerFactory', () => {
       const config = {
         provider: 'anthropic' as const,
         model: 'claude-sonnet-4-6',
-        apiKey: 'sk-ant-test',
+        apiKey: 'test-ant-placeholder',
       }
 
       const first = getProvider(config)
@@ -133,7 +133,7 @@ describe('providerFactory', () => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
           aiModel: 'claude-sonnet-4-6',
-          anthropicApiKey: 'sk-ant-store-key',
+          anthropicApiKey: 'test-ant-store-key',
         }
         return data[key] ?? defaultVal
       })
@@ -197,7 +197,7 @@ describe('providerFactory', () => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
           aiModel: 'claude-sonnet-4-6',
-          anthropicApiKey: 'sk-ant-store-key',
+          anthropicApiKey: 'test-ant-store-key',
         }
         return data[key] ?? defaultVal
       })
@@ -229,7 +229,7 @@ describe('providerFactory', () => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
           aiModel: 'claude-sonnet-4-6',
-          anthropicApiKey: 'sk-ant-key',
+          anthropicApiKey: 'test-ant-key',
         }
         return data[key] ?? defaultVal
       })

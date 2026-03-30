@@ -1,5 +1,5 @@
 import { autoUpdater } from 'electron-updater'
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, app, BrowserWindow } from 'electron'
 import { createLogger } from './logger'
 
 const log = createLogger('AutoUpdate')
@@ -84,7 +84,23 @@ export function initAutoUpdater(): void {
 
   ipcMain.handle('update:install', () => {
     if (state.status === 'downloaded') {
-      autoUpdater.quitAndInstall()
+      // End any active recording session before quitting
+      try {
+        const { sessionManager } = require('./services/sessionManager')
+        if (sessionManager.getActiveSession()) {
+          log.info('Ending active session before update install')
+          sessionManager.endSession()
+        }
+      } catch (err) {
+        log.warn('Failed to end session before update:', err)
+      }
+
+      // Force-close all windows so macOS hide-on-close doesn't block the quit
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.removeAllListeners('close')
+        win.close()
+      })
+      autoUpdater.quitAndInstall(false, true)
     }
     return { success: state.status === 'downloaded' }
   })

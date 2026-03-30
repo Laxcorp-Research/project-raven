@@ -22,7 +22,7 @@ describe('AnthropicProvider', () => {
   let provider: AnthropicProvider
 
   beforeEach(() => {
-    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-6')
+    provider = new AnthropicProvider('test-ant-placeholder', 'claude-sonnet-4-6')
   })
 
   it('has name "anthropic"', () => {

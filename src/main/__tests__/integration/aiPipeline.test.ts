@@ -57,7 +57,7 @@ describe('AI Pipeline Integration', () => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
         aiModel: 'claude-sonnet-4-6',
-        anthropicApiKey: 'sk-ant-integration-test',
+        anthropicApiKey: 'test-ant-integration',
       }
       return data[key] ?? defaultVal
     })
@@ -105,7 +105,7 @@ describe('AI Pipeline Integration', () => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
         aiModel: 'claude-sonnet-4-6',
-        anthropicApiKey: 'sk-ant-key',
+        anthropicApiKey: 'test-ant-key',
       }
       return data[key] ?? defaultVal
     })
@@ -160,7 +160,7 @@ describe('AI Pipeline Integration', () => {
       const data: Record<string, unknown> = {
         aiProvider: 'anthropic',
         aiModel: 'claude-sonnet-4-6',
-        anthropicApiKey: 'sk-ant-key',
+        anthropicApiKey: 'test-ant-key',
       }
       return data[key] ?? defaultVal
     })

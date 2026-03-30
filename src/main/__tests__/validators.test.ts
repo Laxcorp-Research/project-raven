@@ -58,7 +58,7 @@ describe('validateAnthropicKey', () => {
   it('returns valid on success', async () => {
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Hi' }] })
 
-    const result = await validateAnthropicKey('sk-ant-test')
+    const result = await validateAnthropicKey('test-ant-placeholder')
 
     expect(result).toEqual({ valid: true })
   })
@@ -66,7 +66,7 @@ describe('validateAnthropicKey', () => {
   it('returns invalid for 401', async () => {
     mockCreate.mockRejectedValueOnce({ status: 401 })
 
-    const result = await validateAnthropicKey('sk-ant-bad')
+    const result = await validateAnthropicKey('test-ant-bad')
 
     expect(result).toEqual({ valid: false, error: 'Invalid Anthropic API key.' })
   })
@@ -87,7 +87,7 @@ describe('validateBothKeys', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Hi' }] })
 
-    const result = await validateBothKeys('dg-bad', 'sk-ant-good')
+    const result = await validateBothKeys('dg-bad', 'test-ant-good')
 
     expect(result).toEqual({ valid: false, error: 'Invalid Deepgram API key.' })
   })
@@ -157,7 +157,7 @@ describe('validateKeys', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }))
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Hi' }] })
 
-    const result = await validateKeys('dg-key', 'anthropic', 'sk-ant-key')
+    const result = await validateKeys('dg-key', 'anthropic', 'test-ant-key')
 
     expect(result).toEqual({ valid: true })
   })
