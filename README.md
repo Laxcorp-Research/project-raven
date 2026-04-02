@@ -6,7 +6,13 @@
   <strong>Open-source, AI-powered meeting copilot with real-time transcription and echo cancellation.</strong>
 </p>
 
-Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram, and gives you AI assistance (Claude or OpenAI) with context-aware responses — all running locally on your desktop.
+Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram, and gives you AI assistance (Claude or OpenAI) with context-aware responses - all running locally on your desktop.
+
+<p align="center">
+  <a href="https://useraven.ai"><strong>Download Raven</strong></a> &nbsp;|&nbsp;
+  <a href="https://docs.useraven.ai"><strong>Documentation</strong></a> &nbsp;|&nbsp;
+  <a href="https://github.com/Laxcorp-Research/project-raven/issues"><strong>Issues</strong></a>
+</p>
 
 ---
 
