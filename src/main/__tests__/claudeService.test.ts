@@ -50,6 +50,7 @@ describe('ClaudeService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ClaudeService._resetForTesting();
     service = new ClaudeService(null);
   });
 
@@ -332,6 +333,7 @@ describe('Provider routing based on mode', () => {
     vi.mocked(getProFastProvider).mockResolvedValue(mockProvider as any);
     vi.mocked(getProSystemProvider).mockResolvedValue(mockProvider as any);
     mockProvider.streamResponse.mockResolvedValue(undefined);
+    ClaudeService._resetForTesting();
     new ClaudeService(null);
   });
 
@@ -390,6 +392,7 @@ describe('LLM prompt quality', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ClaudeService._resetForTesting();
     service = new ClaudeService(null);
   });
 

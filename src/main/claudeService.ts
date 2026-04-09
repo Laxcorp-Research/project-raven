@@ -181,9 +181,16 @@ export class ClaudeService {
     lastProcessedTranscriptLength: 0,
   };
 
+  private static ipcRegistered = false;
+
+  static _resetForTesting(): void { ClaudeService.ipcRegistered = false; }
+
   constructor(overlayWindow: BrowserWindow | null) {
     this.overlayWindow = overlayWindow;
-    this.registerIpcHandlers();
+    if (!ClaudeService.ipcRegistered) {
+      this.registerIpcHandlers();
+      ClaudeService.ipcRegistered = true;
+    }
   }
 
   setWindow(overlay: BrowserWindow | null): void {
