@@ -41,6 +41,12 @@ export interface LocalSettings {
   openOnLogin: boolean;
   transcriptionLanguage: string;
   outputLanguage: string;
+  // User's custom vocabulary for transcription (comma-separated string
+  // stored locally, parsed into string[] when passed to the backend as
+  // keyterms). See F1 in docs/LAUNCH_V2_1_PLAN.md. The backend always
+  // prepends "Raven" + dedupes + caps at 100, so this value is the
+  // user's additions only (not the brand term itself).
+  vocabulary: string;
 
   // AI Provider
   aiProvider: 'anthropic' | 'openai';
@@ -74,6 +80,7 @@ const STORE_DEFAULTS: LocalSettings = {
   openOnLogin: false,
   transcriptionLanguage: 'en',
   outputLanguage: 'en',
+  vocabulary: '',
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
@@ -144,6 +151,7 @@ export function getAllSettings(): LocalSettings {
     openOnLogin: store.get('openOnLogin'),
     transcriptionLanguage: store.get('transcriptionLanguage'),
     outputLanguage: store.get('outputLanguage'),
+    vocabulary: store.get('vocabulary'),
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),
@@ -158,7 +166,7 @@ export function getAllSettings(): LocalSettings {
 }
 
 export function getSetting<K extends keyof LocalSettings>(key: K): LocalSettings[K] {
-  if ((API_KEY_FIELDS as readonly string[]).includes(key)) {
+  if ((API_KEY_FIELDS as readonly string[]).includes(key as string)) {
     return getApiKey(key as typeof API_KEY_FIELDS[number]) as LocalSettings[K];
   }
   return store.get(key);
@@ -170,7 +178,7 @@ export function saveSetting<K extends keyof LocalSettings>(
   key: K,
   value: LocalSettings[K]
 ): void {
-  if ((API_KEY_FIELDS as readonly string[]).includes(key) && typeof value === 'string') {
+  if ((API_KEY_FIELDS as readonly string[]).includes(key as string) && typeof value === 'string') {
     store.set(key, encryptValue(value));
     return;
   }
@@ -203,7 +211,7 @@ function decryptValue(stored: string): string {
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(Buffer.from(stored, 'base64'));
     }
-  } catch { /* fall through — may be an unencrypted legacy value */ }
+  } catch { /* fall through - may be an unencrypted legacy value */ }
   return stored;
 }
 

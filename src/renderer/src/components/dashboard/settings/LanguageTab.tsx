@@ -3,26 +3,48 @@ import { createLogger } from '../../../lib/logger'
 
 const log = createLogger('Settings:Language')
 
+// Defined here (not inside the component) so they don't re-create on
+// every render. Cap + per-term cap match the backend schema in
+// backend/src/routes/auth.ts - diverging would cause server-side
+// validation 400s that the user wouldn't otherwise see client-side.
+const VOCAB_MAX_TERMS = 100
+const VOCAB_MAX_PER_TERM = 80
+
+function splitVocab(raw: string): string[] {
+  return raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0)
+}
+
 export function LanguageTab() {
   const [transcriptionLang, setTranscriptionLang] = useState('en')
   const [outputLang, setOutputLang] = useState('en')
+  const [vocabulary, setVocabulary] = useState('')
+  const [vocabularySaveState, setVocabularySaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [transcriptionDropdownOpen, setTranscriptionDropdownOpen] = useState(false)
   const [outputDropdownOpen, setOutputDropdownOpen] = useState(false)
   const transcriptionDropdownRef = useRef<HTMLDivElement>(null)
   const outputDropdownRef = useRef<HTMLDivElement>(null)
+  const vocabSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     async function loadSettings() {
       try {
         const tLang = (await window.raven.storeGet('transcriptionLanguage')) as string
         const oLang = (await window.raven.storeGet('outputLanguage')) as string
+        const vocab = (await window.raven.storeGet('vocabulary')) as string
         if (tLang) setTranscriptionLang(tLang)
         if (oLang) setOutputLang(oLang)
+        if (vocab) setVocabulary(vocab)
       } catch (error) {
         log.error('Failed to load language settings:', error)
       }
     }
     loadSettings()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (vocabSaveTimerRef.current) clearTimeout(vocabSaveTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -51,6 +73,36 @@ export function LanguageTab() {
     await window.raven.storeSet('outputLanguage', value)
     try { await window.raven.authUpdateProfile({ preferences: { outputLanguage: value } }) } catch { /* free mode */ }
   }
+
+  // Debounced save - don't round-trip to the server on every keystroke.
+  // 1s after typing stops feels like "auto-saves as you go" without
+  // hammering the /api/auth/me endpoint. The local store is updated
+  // immediately so the value is available for the next recording even
+  // if the sync hasn't landed yet.
+  const handleVocabularyChange = (raw: string) => {
+    setVocabulary(raw)
+    setVocabularySaveState('saving')
+    if (vocabSaveTimerRef.current) clearTimeout(vocabSaveTimerRef.current)
+    vocabSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await window.raven.storeSet('vocabulary', raw)
+        try {
+          await window.raven.authUpdateProfile({
+            preferences: { vocabulary: splitVocab(raw) },
+          })
+        } catch { /* free mode or offline - local store is still authoritative */ }
+        setVocabularySaveState('saved')
+        setTimeout(() => setVocabularySaveState('idle'), 1500)
+      } catch (err) {
+        log.error('Failed to save vocabulary:', err)
+        setVocabularySaveState('idle')
+      }
+    }, 1000)
+  }
+
+  const vocabTerms = splitVocab(vocabulary)
+  const vocabOverLimit = vocabTerms.length > VOCAB_MAX_TERMS
+  const vocabOverPerTermLimit = vocabTerms.some((t) => t.length > VOCAB_MAX_PER_TERM)
 
   const transcriptionLanguages = [
     { value: 'en', label: 'English (recommended)' },
@@ -208,6 +260,51 @@ export function LanguageTab() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-gray-900">Custom vocabulary</div>
+                <div className="text-xs text-gray-500">Names, jargon, or acronyms the transcriber should recognize</div>
+              </div>
+              {vocabularySaveState === 'saving' && <span className="text-xs text-gray-400">Saving…</span>}
+              {vocabularySaveState === 'saved' && <span className="text-xs text-green-600">Saved</span>}
+            </div>
+          </div>
+        </div>
+
+        <textarea
+          value={vocabulary}
+          onChange={(e) => handleVocabularyChange(e.target.value)}
+          placeholder="e.g., Acme Corp, kubectl, GPT-5, Dr. Singh"
+          rows={3}
+          className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-y"
+        />
+
+        <div className="flex items-center justify-between text-xs">
+          <span className={vocabOverLimit ? 'text-red-600' : 'text-gray-400'}>
+            {vocabTerms.length} / {VOCAB_MAX_TERMS} terms{vocabOverLimit && ' - excess will be ignored'}
+          </span>
+          <span className="text-gray-400">Separate with commas</span>
+        </div>
+
+        {vocabOverPerTermLimit && (
+          <p className="text-xs text-red-600">
+            One or more terms are longer than {VOCAB_MAX_PER_TERM} characters and will be rejected on save.
+          </p>
+        )}
+
+        <p className="text-xs text-gray-500">
+          &quot;Raven&quot; is always included automatically - you don&apos;t need to add it.
+        </p>
       </div>
     </div>
   )

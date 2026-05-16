@@ -14,7 +14,6 @@ export function TranscriptTab() {
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [interims, setInterims] = useState<{ mic: string; system: string }>({ mic: '', system: '' });
   const [isRecording, setIsRecording] = useState(false);
-  const [displayName, setDisplayName] = useState('');
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null)
   const [connection, setConnection] = useState<{
     phase: 'idle' | 'connecting' | 'retrying' | 'connected' | 'failed'
@@ -35,14 +34,18 @@ export function TranscriptTab() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const user = await window.raven.authGetCurrentUser();
-        if (user?.name) { setDisplayName(user.name); return; }
-      } catch { /* not pro */ }
-      const name = (await window.raven.storeGet('displayName')) as string;
-      setDisplayName(name || '');
-    })().catch(() => {});
+    // Intentionally NOT reading displayName from the store here. The
+    // store value is auto-populated from the auth profile name at login
+    // (applyProfileToLocalStore in authService.ts) - so pulling it here
+    // would plaster the user's full real name on every Host bubble in
+    // the live overlay, which is noisy and not what anyone asks for.
+    // The live transcript always says "You" (set at render time below).
+    // SessionDetail + dashboard header still use displayName for their
+    // own purposes where having the name is useful (exports, reviews).
+    //
+    // If we later want this customizable, add a *separate* setting
+    // ("overlay speaker label" or similar) rather than reusing
+    // displayName, which has conflicting consumers.
 
     window.raven.getTranscriptEntries?.().then((e: TranscriptEntry[]) => {
       if (e) setEntries(e);
@@ -203,7 +206,7 @@ export function TranscriptTab() {
     );
   }
 
-  const userName = displayName || 'You';
+  const userName = 'You';
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">

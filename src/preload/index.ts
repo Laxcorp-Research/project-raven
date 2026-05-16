@@ -85,9 +85,24 @@ contextBridge.exposeInMainWorld('raven', {
     update: (id: string, updates: unknown) => ipcRenderer.invoke('modes:update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('modes:delete', id),
     duplicate: (id: string, newName: string) => ipcRenderer.invoke('modes:duplicate', id, newName),
-    resetBuiltin: (id: string) => ipcRenderer.invoke('modes:reset-builtin', id),
     getActive: () => ipcRenderer.invoke('modes:get-active'),
     setActive: (id: string) => ipcRenderer.invoke('modes:set-active', id),
+    // Fired after cloud sync pulls new modes or after the active account
+    // database switches (login). UI can subscribe to refetch the list
+    // so users see changes from other devices without reopening the
+    // editor. Matches the `sessions:list-updated` pattern above.
+    onListUpdated: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('modes:list-updated', handler)
+      return () => ipcRenderer.removeListener('modes:list-updated', handler)
+    },
+  },
+  // ---- Prompts ----
+  // Fetch a built-in mode's canonical systemPrompt from the backend.
+  // Used at mode-creation time (Templates picker) to seed the new mode
+  // with the latest server-managed prompt. Returns null in OSS / offline.
+  prompts: {
+    fetchModeTemplate: (key: string) => ipcRenderer.invoke('prompts:fetch-mode-template', key),
   },
   // ---- Context / RAG ----
   context: {
@@ -206,6 +221,15 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.on('update:state-changed', handler)
     return () => ipcRenderer.removeListener('update:state-changed', handler)
   },
+  // Recall - Pro-only; main registers noop stubs in free mode so these
+  // calls are always safe.
+  recallIsAvailable: () => ipcRenderer.invoke('recall:is-available'),
+  recallGetState: () => ipcRenderer.invoke('recall:get-state'),
+  recallGetDetectedMeetings: () => ipcRenderer.invoke('recall:get-detected-meetings'),
+  recallStartMeetingRecording: (windowId: number) =>
+    ipcRenderer.invoke('recall:start-meeting-recording', windowId),
+  recallStartAdhocRecording: () => ipcRenderer.invoke('recall:start-adhoc-recording'),
+  recallStopRecording: () => ipcRenderer.invoke('recall:stop-recording'),
   // Claude AI
   claudeGetResponse: (params: {
     transcript: string;
@@ -254,7 +278,7 @@ contextBridge.exposeInMainWorld('raven', {
   analyticsSetEnabled: (enabled: boolean) =>
     ipcRenderer.invoke('analytics:set-enabled', enabled),
   analyticsIsEnabled: () => ipcRenderer.invoke('analytics:is-enabled'),
-  // Auth (pro mode — handlers registered dynamically by proLoader)
+  // Auth (pro mode - handlers registered dynamically by proLoader)
   authIsBackendConfigured: () => ipcRenderer.invoke('auth:is-backend-configured'),
   authIsAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
   authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
@@ -267,6 +291,7 @@ contextBridge.exposeInMainWorld('raven', {
   authStartAppleLogin: () => ipcRenderer.invoke('auth:start-apple-login'),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authDeleteAccount: () => ipcRenderer.invoke('auth:delete-account'),
+  authExportData: () => ipcRenderer.invoke('auth:export-data'),
   onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => {
     const handler = (_event: unknown, data: { success: boolean; user?: unknown }) => callback(data)
     ipcRenderer.on('auth:login-completed', handler)
@@ -288,7 +313,7 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('auth:update-profile', updates),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
-  authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),
+  authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),
   authOpenBillingPortal: () => ipcRenderer.invoke('auth:open-billing-portal'),
   proxyGetUsage: () => ipcRenderer.invoke('proxy:get-usage'),
   proxyCheckSession: () => ipcRenderer.invoke('proxy:check-session'),
@@ -299,7 +324,7 @@ contextBridge.exposeInMainWorld('raven', {
   },
   proxyAnalyzeSession: (params: { transcript: string; features: string[]; sessionId?: string }) =>
     ipcRenderer.invoke('proxy:analyze-session', params),
-  // Sync (pro mode — handlers registered dynamically by proLoader)
+  // Sync (pro mode - handlers registered dynamically by proLoader)
   syncGetStatus: () => ipcRenderer.invoke('sync:get-status'),
   syncTrigger: () => ipcRenderer.invoke('sync:trigger'),
   syncGetLog: () => ipcRenderer.invoke('sync:get-log'),
@@ -317,6 +342,8 @@ contextBridge.exposeInMainWorld('raven', {
   permissionsOpenAccessibility: () => ipcRenderer.invoke('permissions:open-accessibility'),
   sendOnboardingCompleted: () => ipcRenderer.send('onboarding:completed'),
   sendHotkeyToggleRecording: () => ipcRenderer.send('hotkey:toggle-recording-from-dashboard'),
+  reportRendererError: (payload: { message: string; stack?: string; componentStack?: string }) =>
+    ipcRenderer.send('sentry:capture-renderer-error', payload),
   onStealthChanged: (callback: (enabled: boolean) => void) => {
     const handler = (_event: unknown, enabled: boolean) => callback(enabled)
     ipcRenderer.on('stealth-changed', handler)
@@ -358,6 +385,15 @@ contextBridge.exposeInMainWorld('raven', {
       'tray:open-settings',
       'recall:meeting-detected',
       'recall:meeting-closed',
+      'recall:participant-joined',
+      'recall:participant-left',
+      'recall:participant-speech-on',
+      'recall:participant-speech-off',
+      // Fired by src/pro/main/deepLink.ts when the user returns from the
+      // Dodo Payments checkout flow via the raven://billing-success deep
+      // link. BillingTab refreshes its subscription state on this event
+      // so the UI flips from FREE → PRO without a manual restart.
+      'billing:success',
     ]
     if (!ALLOWED_CHANNELS.includes(channel)) {
       return () => {}

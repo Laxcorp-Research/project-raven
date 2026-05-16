@@ -271,7 +271,10 @@ export function ControllerPill({
       </button>
       </div>
 
-      {/* Fast/Deep Toggle (Pro only) */}
+      {/* Fast/Deep Toggle. Parent gates this on the Pro binary, not the
+          subscription plan - free users in the Pro binary can switch
+          between Haiku (Fast) and Sonnet (Deep). Volume caps already
+          bound the cost at 5 AI responses/day for free accounts. */}
       {onToggleSmartMode && (
         <div
           onPointerEnter={() => setButtonHovered(true)}
@@ -316,7 +319,7 @@ export function ControllerPill({
       <button
         onClick={onToggleIncognito}
         onMouseEnter={(e) =>
-          showTooltip(incognitoMode ? 'Incognito ON — Session not saved' : 'Incognito OFF', e.currentTarget)
+          showTooltip(incognitoMode ? 'Incognito ON - Session not saved' : 'Incognito OFF', e.currentTarget)
         }
         onMouseLeave={clearTooltipHideTimer}
         className={`w-8 h-8 flex items-center justify-center rounded-full border transform-gpu transition-all duration-150 active:scale-[0.97] ${

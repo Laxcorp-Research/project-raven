@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-const { mockBrowserWindowInstance, mockWebRequestHandlers } = vi.hoisted(() => ({
+const { mockBrowserWindowInstance, mockWebRequestHandlers: _mockWebRequestHandlers } = vi.hoisted(() => ({
   mockBrowserWindowInstance: {
     webContents: {
       send: vi.fn(),

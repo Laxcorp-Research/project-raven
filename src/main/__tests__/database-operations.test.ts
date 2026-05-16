@@ -31,7 +31,7 @@ const {
   const _mockClose = vi.fn()
 
   const _mockTransactionFn = vi.fn((fn: () => void) => {
-    const wrapped = (...args: unknown[]) => fn.apply(null, args as [])
+    const wrapped = (..._args: unknown[]) => fn()
     return wrapped
   })
 
@@ -115,7 +115,7 @@ function resetMocks(): void {
   mockPragma.mockReset()
   mockClose.mockReset()
   mockTransactionFn.mockReset().mockImplementation((fn: () => void) => {
-    const wrapped = (...args: unknown[]) => fn.apply(null, args as [])
+    const wrapped = (..._args: unknown[]) => fn()
     return wrapped
   })
   MockDatabaseConstructor.mockReset().mockImplementation(function () { return mockDb })
@@ -185,8 +185,8 @@ describe('DatabaseService', () => {
 
       // The migrate() method calls exec() for the migrations table creation
       expect(mockExec).toHaveBeenCalled()
-      // transaction() should be called once per unapplied migration (9 total)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(9)
+      // transaction() should be called once per unapplied migration (14 total)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(14)
     })
 
     it('skips migrations already applied', () => {
@@ -200,6 +200,11 @@ describe('DatabaseService', () => {
         { name: '007_add_session_insights' },
         { name: '008_add_session_updated_at' },
         { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+        { name: '011_add_session_tombstones' },
+        { name: '012_add_context_file_tombstones' },
+        { name: '013_add_synced_at' },
+        { name: '014_backfill_synced_at' },
       ])
 
       databaseService.initialize()
@@ -215,11 +220,11 @@ describe('DatabaseService', () => {
 
       databaseService.initialize()
 
-      // 7 unapplied migrations remain (003 through 009)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(7)
+      // 12 unapplied migrations remain (003 through 014)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(12)
     })
 
-    it('is idempotent — second call is a no-op', () => {
+    it('is idempotent - second call is a no-op', () => {
       mockAll.mockReturnValue([])
 
       databaseService.initialize()
@@ -292,7 +297,7 @@ describe('DatabaseService', () => {
     })
 
     it('throws when database is not initialized', () => {
-      ;(databaseService as any).db = null
+      (databaseService as any).db = null
 
       expect(() =>
         databaseService.createSession({
@@ -461,6 +466,9 @@ describe('DatabaseService', () => {
         { name: '006_add_context_chunks' },
         { name: '007_add_session_insights' },
         { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+        { name: '011_add_session_tombstones' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -478,6 +486,188 @@ describe('DatabaseService', () => {
       mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
 
       expect(databaseService.deleteSession('nonexistent')).toBe(false)
+    })
+
+    it('writes a tombstone row before deleting (prevents zombie resurrection)', () => {
+      mockRun.mockReturnValue({ changes: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.deleteSession('sess-1')
+
+      const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+      const sawTombstoneInsert = sqlQueries.some(
+        (q: string) => q.includes('session_tombstones') && q.includes('INSERT')
+      )
+      expect(sawTombstoneInsert).toBe(true)
+    })
+  })
+
+  describe('markSessionsSynced', () => {
+    beforeEach(() => {
+      mockAll.mockReturnValue([
+        { name: '001_create_sessions' },
+        { name: '002_create_modes' },
+        { name: '003_add_notes_template' },
+        { name: '004_add_session_summary' },
+        { name: '005_add_session_messages' },
+        { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+        { name: '011_add_session_tombstones' },
+        { name: '012_add_context_file_tombstones' },
+        { name: '013_add_synced_at' },
+        { name: '014_backfill_synced_at' },
+      ])
+      databaseService.initialize()
+      resetMocks()
+    })
+
+    it('is a no-op when the id list is empty', () => {
+      databaseService.markSessionsSynced([])
+
+      expect(mockTransactionFn).not.toHaveBeenCalled()
+      expect(mockRun).not.toHaveBeenCalled()
+    })
+
+    it('stamps the synced_at timestamp with an IN(...) update', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.markSessionsSynced(['s1', 's2', 's3'], 987654321)
+
+      expect(mockTransactionFn).toHaveBeenCalledTimes(1)
+      const [sql] = mockPrepare.mock.calls[0]!
+      expect(sql).toContain('UPDATE sessions SET synced_at = ?')
+      expect(sql).toContain('WHERE id IN (?,?,?)')
+      expect(mockRun).toHaveBeenCalledWith(987654321, 's1', 's2', 's3')
+    })
+
+    it('chunks into 500-id batches to stay under SQLite parameter limits', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const ids = Array.from({ length: 1200 }, (_, i) => `s-${i}`)
+      databaseService.markSessionsSynced(ids)
+
+      // 1200 / 500 = 3 chunks (500, 500, 200)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(3)
+      expect(mockRun).toHaveBeenCalledTimes(3)
+      // Last batch has 200 ids + 1 timestamp = 201 run args
+      const lastCallArgs = mockRun.mock.calls[2]!
+      expect(lastCallArgs.length).toBe(201)
+    })
+  })
+
+  describe('markModesSynced', () => {
+    beforeEach(() => {
+      mockAll.mockReturnValue([
+        { name: '001_create_sessions' },
+        { name: '002_create_modes' },
+        { name: '003_add_notes_template' },
+        { name: '004_add_session_summary' },
+        { name: '005_add_session_messages' },
+        { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+        { name: '011_add_session_tombstones' },
+        { name: '012_add_context_file_tombstones' },
+        { name: '013_add_synced_at' },
+        { name: '014_backfill_synced_at' },
+      ])
+      databaseService.initialize()
+      resetMocks()
+    })
+
+    it('is a no-op when the id list is empty', () => {
+      databaseService.markModesSynced([])
+
+      expect(mockTransactionFn).not.toHaveBeenCalled()
+      expect(mockRun).not.toHaveBeenCalled()
+    })
+
+    it('stamps the synced_at timestamp with an IN(...) update', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.markModesSynced(['m1', 'm2'], 111222333)
+
+      expect(mockTransactionFn).toHaveBeenCalledTimes(1)
+      const [sql] = mockPrepare.mock.calls[0]!
+      expect(sql).toContain('UPDATE modes SET synced_at = ?')
+      expect(sql).toContain('WHERE id IN (?,?)')
+      expect(mockRun).toHaveBeenCalledWith(111222333, 'm1', 'm2')
+    })
+  })
+
+  describe('session tombstones', () => {
+    beforeEach(() => {
+      mockAll.mockReturnValue([
+        { name: '001_create_sessions' },
+        { name: '002_create_modes' },
+        { name: '003_add_notes_template' },
+        { name: '004_add_session_summary' },
+        { name: '005_add_session_messages' },
+        { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+        { name: '011_add_session_tombstones' },
+      ])
+      databaseService.initialize()
+      resetMocks()
+    })
+
+    it('hasSessionTombstone returns true when a row exists', () => {
+      mockGet.mockReturnValueOnce({ 1: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      expect(databaseService.hasSessionTombstone('sess-1')).toBe(true)
+    })
+
+    it('hasSessionTombstone returns false when no row exists', () => {
+      mockGet.mockReturnValueOnce(undefined)
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      expect(databaseService.hasSessionTombstone('sess-1')).toBe(false)
+    })
+
+    it('getUnconfirmedSessionTombstones returns unconfirmed ids, oldest first', () => {
+      mockAll.mockReturnValueOnce([
+        { id: 'zombie-a' },
+        { id: 'zombie-b' },
+      ])
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const pending = databaseService.getUnconfirmedSessionTombstones()
+
+      expect(pending).toEqual(['zombie-a', 'zombie-b'])
+      const sql = mockPrepare.mock.calls[0]![0]
+      expect(sql).toContain('server_confirmed_at IS NULL')
+    })
+
+    it('confirmSessionTombstone stamps the row with a timestamp', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.confirmSessionTombstone('sess-1')
+
+      expect(mockRun).toHaveBeenCalledTimes(1)
+      const [timestamp, id] = mockRun.mock.calls[0]!
+      expect(typeof timestamp).toBe('number')
+      expect(id).toBe('sess-1')
+    })
+
+    it('purgeOldSessionTombstones removes confirmed-old and unconfirmed-stale rows', () => {
+      mockRun.mockReturnValueOnce({ changes: 5 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const purged = databaseService.purgeOldSessionTombstones()
+
+      expect(purged).toBe(5)
+      const sql = mockPrepare.mock.calls[0]![0]
+      expect(sql).toContain('server_confirmed_at IS NOT NULL')
+      expect(sql).toContain('server_confirmed_at IS NULL')
     })
   })
 
@@ -816,6 +1006,8 @@ describe('DatabaseService', () => {
         { name: '006_add_context_chunks' },
         { name: '007_add_session_insights' },
         { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
       ])
       databaseService.initialize()
       resetMocks()
@@ -856,6 +1048,111 @@ describe('DatabaseService', () => {
       const result = databaseService.deleteMode('mode-1')
 
       expect(result).toEqual({ success: true })
+    })
+
+    it('writes a tombstone row before deleting (prevents zombie resurrection)', () => {
+      mockGet.mockReturnValue(makeModeRow({ is_default: 0, is_builtin: 0 }))
+      mockRun.mockReturnValue({ changes: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.deleteMode('mode-1')
+
+      // First prepare() call should be the tombstone INSERT; the second
+      // should be the modes DELETE. If the order ever gets reversed or
+      // the tombstone is skipped, the zombie bug reappears.
+      const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+      const sawTombstoneInsert = sqlQueries.some(
+        (q: string) => q.includes('mode_tombstones') && q.includes('INSERT')
+      )
+      expect(sawTombstoneInsert).toBe(true)
+    })
+
+    it('explicitly cascades to mode_context_files + mode_context_chunks (defence if PRAGMA foreign_keys is ever missed)', () => {
+      mockGet.mockReturnValue(makeModeRow({ is_default: 0, is_builtin: 0 }))
+      mockRun.mockReturnValue({ changes: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.deleteMode('mode-1')
+
+      const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+      const sawChunksDelete = sqlQueries.some(
+        (q: string) => q.includes('mode_context_chunks') && q.includes('DELETE')
+      )
+      const sawFilesDelete = sqlQueries.some(
+        (q: string) => q.includes('mode_context_files') && q.includes('DELETE')
+      )
+      expect(sawChunksDelete).toBe(true)
+      expect(sawFilesDelete).toBe(true)
+    })
+  })
+
+  describe('mode tombstones', () => {
+    beforeEach(() => {
+      mockAll.mockReturnValue([
+        { name: '001_create_sessions' },
+        { name: '002_create_modes' },
+        { name: '003_add_notes_template' },
+        { name: '004_add_session_summary' },
+        { name: '005_add_session_messages' },
+        { name: '006_add_context_chunks' },
+        { name: '007_add_session_insights' },
+        { name: '008_add_session_updated_at' },
+        { name: '009_add_session_messages_created_at_index' },
+        { name: '010_add_mode_tombstones' },
+      ])
+      databaseService.initialize()
+      resetMocks()
+    })
+
+    it('hasModeTombstone returns true when a row exists', () => {
+      mockGet.mockReturnValueOnce({ 1: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      expect(databaseService.hasModeTombstone('mode-1')).toBe(true)
+    })
+
+    it('hasModeTombstone returns false when no row exists', () => {
+      mockGet.mockReturnValueOnce(undefined)
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      expect(databaseService.hasModeTombstone('mode-1')).toBe(false)
+    })
+
+    it('getUnconfirmedModeTombstones returns only unconfirmed ids, oldest first', () => {
+      mockAll.mockReturnValueOnce([
+        { id: 'zombie-a' },
+        { id: 'zombie-b' },
+      ])
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const pending = databaseService.getUnconfirmedModeTombstones()
+
+      expect(pending).toEqual(['zombie-a', 'zombie-b'])
+      const sql = mockPrepare.mock.calls[0]![0]
+      expect(sql).toContain('server_confirmed_at IS NULL')
+    })
+
+    it('confirmModeTombstone stamps the row with a timestamp', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.confirmModeTombstone('mode-1')
+
+      expect(mockRun).toHaveBeenCalledTimes(1)
+      const [timestamp, id] = mockRun.mock.calls[0]!
+      expect(typeof timestamp).toBe('number')
+      expect(id).toBe('mode-1')
+    })
+
+    it('purgeOldModeTombstones removes confirmed-old and unconfirmed-stale rows', () => {
+      mockRun.mockReturnValueOnce({ changes: 3 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const purged = databaseService.purgeOldModeTombstones()
+
+      expect(purged).toBe(3)
+      const sql = mockPrepare.mock.calls[0]![0]
+      expect(sql).toContain('server_confirmed_at IS NOT NULL')
+      expect(sql).toContain('server_confirmed_at IS NULL')
     })
   })
 
@@ -1049,26 +1346,86 @@ describe('DatabaseService', () => {
     })
 
     describe('deleteContextFile', () => {
-      it('deletes chunks first, then the file; returns true on success', () => {
+      it('looks up mode_id, writes tombstone, deletes chunks + file; returns true', () => {
+        mockGet.mockReturnValue({ mode_id: 'mode-1' })
         mockRun.mockReturnValue({ changes: 1 })
         mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
 
         const result = databaseService.deleteContextFile('cf-1')
 
-        // Two prepare calls: one for chunks, one for file
-        expect(mockPrepare).toHaveBeenCalledTimes(2)
+        // 4 prepares: SELECT mode_id, INSERT tombstone, DELETE chunks, DELETE file
+        expect(mockPrepare).toHaveBeenCalledTimes(4)
+        const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+        expect(sqlQueries.some((q: string) => q.includes('context_file_tombstones') && q.includes('INSERT'))).toBe(true)
         expect(result).toBe(true)
       })
 
-      it('returns false when file does not exist', () => {
-        mockRun
-          .mockReturnValueOnce({ changes: 0 }) // chunks delete
-          .mockReturnValueOnce({ changes: 0 }) // file delete
+      it('skips the tombstone INSERT when the file row is missing (idempotent)', () => {
+        mockGet.mockReturnValue(undefined) // no mode_id row → file already gone
+        mockRun.mockReturnValue({ changes: 0 })
         mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
 
         const result = databaseService.deleteContextFile('missing')
 
+        // 3 prepares: SELECT, DELETE chunks, DELETE file (no tombstone INSERT)
+        expect(mockPrepare).toHaveBeenCalledTimes(3)
+        const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+        expect(sqlQueries.some((q: string) => q.includes('context_file_tombstones'))).toBe(false)
         expect(result).toBe(false)
+      })
+
+      it('deleteContextFileLocalOnly does NOT write a tombstone', () => {
+        mockRun.mockReturnValue({ changes: 1 })
+        mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+        databaseService.deleteContextFileLocalOnly('cf-1')
+
+        const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+        expect(sqlQueries.some((q: string) => q.includes('context_file_tombstones'))).toBe(false)
+      })
+    })
+
+    describe('context file tombstones', () => {
+      it('hasContextFileTombstone returns true when a row exists', () => {
+        mockGet.mockReturnValueOnce({ 1: 1 })
+        mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+        expect(databaseService.hasContextFileTombstone('cf-1')).toBe(true)
+      })
+
+      it('getUnconfirmedContextFileTombstones returns {fileId, modeId} pairs', () => {
+        mockAll.mockReturnValueOnce([
+          { id: 'zombie-a', mode_id: 'mode-1' },
+          { id: 'zombie-b', mode_id: 'mode-2' },
+        ])
+        mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+        const pending = databaseService.getUnconfirmedContextFileTombstones()
+
+        expect(pending).toEqual([
+          { fileId: 'zombie-a', modeId: 'mode-1' },
+          { fileId: 'zombie-b', modeId: 'mode-2' },
+        ])
+      })
+
+      it('confirmContextFileTombstone stamps the row with a timestamp', () => {
+        mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+        databaseService.confirmContextFileTombstone('cf-1')
+
+        expect(mockRun).toHaveBeenCalledTimes(1)
+        const [timestamp, id] = mockRun.mock.calls[0]!
+        expect(typeof timestamp).toBe('number')
+        expect(id).toBe('cf-1')
+      })
+
+      it('purgeOldContextFileTombstones hits both confirmed-old and stale-unconfirmed', () => {
+        mockRun.mockReturnValueOnce({ changes: 2 })
+        mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+        const purged = databaseService.purgeOldContextFileTombstones()
+
+        expect(purged).toBe(2)
       })
     })
   })
@@ -1164,7 +1521,7 @@ describe('DatabaseService', () => {
 
   describe('uninitialized database guard', () => {
     beforeEach(() => {
-      ;(databaseService as any).db = null
+      (databaseService as any).db = null
     })
 
     it('getSession throws', () => {

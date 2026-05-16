@@ -1,4 +1,5 @@
 import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks } from './types';
+import type OpenAI from 'openai';
 
 export class OpenAIProvider implements AIProvider {
   readonly name = 'openai' as const;
@@ -17,16 +18,35 @@ export class OpenAIProvider implements AIProvider {
     const OpenAI = (await import('openai')).default;
     const client = new OpenAI({ apiKey: this.apiKey });
 
-    const openaiMessages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
-    }> = [
-      { role: 'system', content: params.system },
-      ...params.messages.map((msg) => ({
-        role: msg.role as 'user' | 'assistant',
-        content: this.convertContent(msg.content),
-      })),
-    ];
+    // Build as the SDK's discriminated ChatCompletionMessageParam union
+    // rather than a widened { role: 'system' | 'user' | 'assistant' }
+    // shape: the SDK narrows each variant's role to a single literal, and
+    // ChatCompletionAssistantMessageParam's content cannot contain
+    // image_url parts (assistants don't emit images). Assistant messages
+    // from our AIMessage contract have always been strings at runtime
+    // (model responses), so flatten any accidental image content to its
+    // text parts for the assistant branch rather than blindly passing
+    // what convertContent returns.
+    const systemMessage: OpenAIChatMessage = { role: 'system', content: params.system };
+    const userMessages: OpenAIChatMessage[] = params.messages.map((msg) => {
+      if (msg.role === 'user') {
+        return { role: 'user', content: this.convertContent(msg.content) };
+      }
+      const assistantText = typeof msg.content === 'string'
+        ? msg.content
+        : msg.content
+            .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+            .map((p) => p.text)
+            // Use a newline, not an empty string. Multipart assistant
+            // content only occurs in OSS builds where users bring their
+            // own OpenAI key; joining with '' would silently mash
+            // sentences together ("Hello.How are you?") and degrade
+            // follow-up LLM context. Newline matches how the Anthropic
+            // provider flattens the same case.
+            .join('\n');
+      return { role: 'assistant', content: assistantText };
+    });
+    const openaiMessages: OpenAIChatMessage[] = [systemMessage, ...userMessages];
 
     let fullText = '';
 
@@ -101,3 +121,5 @@ export class OpenAIProvider implements AIProvider {
     });
   }
 }
+
+type OpenAIChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;

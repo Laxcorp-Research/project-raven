@@ -81,8 +81,6 @@ const getActionLabel = (action?: string): string => {
       return 'Follow-up questions'
     case 'recap':
       return 'Recap'
-    case 'fact-check':
-      return 'Fact Check'
     case 'tell-me-more':
       return 'Tell me more'
     case 'custom':
@@ -115,9 +113,10 @@ export function OverlayWindow() {
   const leftRailRef = useRef<HTMLDivElement | null>(null)
   const rightRailRef = useRef<HTMLDivElement | null>(null)
   const bottomRailRef = useRef<HTMLDivElement | null>(null)
+  const notificationRef = useRef<HTMLDivElement | null>(null)
 
   const { setOverlayMouseIgnore } = useMousePassthrough({
-    pillWrapperRef, panelWrapperRef, leftRailRef, rightRailRef, bottomRailRef,
+    pillWrapperRef, panelWrapperRef, leftRailRef, rightRailRef, bottomRailRef, notificationRef,
   })
 
   // State
@@ -202,14 +201,7 @@ export function OverlayWindow() {
     const unsubNotification = window.raven.on('overlay:notification', (data: unknown) => {
       const n = data as NotificationData
       if (n?.id) {
-        setNotifications(prev => [...prev, n])
-        if (n.autoDismissMs) {
-          const timerId = setTimeout(() => {
-            setNotifications(prev => prev.filter(x => x.id !== n.id))
-            notificationTimersRef.current.delete(n.id)
-          }, n.autoDismissMs)
-          notificationTimersRef.current.set(n.id, timerId)
-        }
+        pushNotification(n)
       }
     })
 
@@ -323,16 +315,28 @@ export function OverlayWindow() {
       setIsLoadingResponse(false)
       setActiveResponseId(null)
       activeResponseIdRef.current = null
-      setResponses((prev) => [
-        ...prev,
-        {
-          id: `auth-expired-${Date.now()}`,
-          content: 'Your session has expired. Please sign in again from the dashboard to continue using AI features.',
-          action: 'Session Expired',
-          badgeVariant: 'system' as const,
-          hasScreenshot: false,
-        },
-      ])
+      // Stable ID so multiple near-simultaneous expiry events (e.g.
+      // claudeService + authService.clearAuth firing in the same cycle,
+      // or two parallel sync calls both hitting 401 within the same
+      // millisecond where Date.now() collides) de-dupe into a single
+      // "Session expired" card instead of stacking. The main process
+      // now hides the overlay on expiry anyway, but keep this defensive
+      // in case the overlay is surfaced again before login.
+      const EXPIRED_ID = 'auth-expired'
+      setResponses((prev) => {
+        const existing = prev.find((r) => r.id === EXPIRED_ID)
+        if (existing) return prev
+        return [
+          ...prev,
+          {
+            id: EXPIRED_ID,
+            content: 'Your session has expired. Please sign in again from the dashboard to continue using AI features.',
+            action: 'Session Expired',
+            badgeVariant: 'system' as const,
+            hasScreenshot: false,
+          },
+        ]
+      })
     }) ?? (() => {})
 
     return () => {
@@ -351,7 +355,12 @@ export function OverlayWindow() {
         clearTimeout(copiedResetTimerRef.current)
         copiedResetTimerRef.current = null
       }
+      // notificationTimersRef holds a useRef(new Map()) whose reference
+      // never changes for the component's lifetime (the Map identity is
+      // stable; only its contents mutate). The linter still warns because
+      // in the general case a ref can be reassigned - here it cannot.
       notificationTimersRef.current.forEach(t => clearTimeout(t))
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       notificationTimersRef.current.clear()
       if (scrollHideTimerRef.current) {
         clearTimeout(scrollHideTimerRef.current)
@@ -360,6 +369,10 @@ export function OverlayWindow() {
       cleanupDrag()
       setOverlayMouseIgnore(false)
     }
+    // cleanupDrag, cleanupResize and isRecording are intentionally omitted:
+    // this effect runs once per overlay mount to wire up global listeners.
+    // Re-running on those would double-register listeners / leak cleanups.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setOverlayMouseIgnore])
 
   useEffect(() => {
@@ -384,6 +397,10 @@ export function OverlayWindow() {
       }
     })
     return () => unsub()
+    // setPanelBottom / setPanelRight / OVERLAY_DEFAULT_COMPACT_HEIGHT are
+    // stable (state setters + a module constant); re-subscribing to
+    // onHotkeyMove on every render would rebuild the IPC listener chain.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelWidth, panelHeight])
 
   useEffect(() => {
@@ -427,6 +444,22 @@ export function OverlayWindow() {
         if (result && !result.success) {
           if (result.code === 'SESSION_LIMIT') {
             setLimitInfo({ type: 'session', used: 1, limit: 1, resetAt: '' })
+          } else {
+            // Any other failure (mic/screen permission denied, capture
+            // backend failed to start, Recall fallback couldn't attach
+            // to an audio device, etc.) used to silently leave the user
+            // staring at an overlay that briefly showed "starting" and
+            // then went back to idle with no explanation. Surface the
+            // main-process error string as an overlay notification so
+            // the user knows what went wrong + can remediate.
+            const errorMessage = result.error?.trim() || 'Unable to start recording. Please try again.'
+            pushNotification({
+              id: `start-fail-${Date.now()}`,
+              title: 'Recording failed to start',
+              body: errorMessage,
+              type: 'error',
+              autoDismissMs: 8000,
+            })
           }
           setIsStarting(false)
           return
@@ -435,6 +468,13 @@ export function OverlayWindow() {
         setIsStarting(false)
       } catch (err) {
         log.error('Failed to start recording:', err)
+        pushNotification({
+          id: `start-fail-${Date.now()}`,
+          title: 'Recording failed to start',
+          body: err instanceof Error ? err.message : 'The recording IPC call failed unexpectedly.',
+          type: 'error',
+          autoDismissMs: 8000,
+        })
         await window.raven.audioStopRecording()
         setIsStarting(false)
       }
@@ -448,6 +488,47 @@ export function OverlayWindow() {
     return () => unsub()
   }, [handleToggleRecording])
 
+  // Hotkey: clear conversation (Cmd/Ctrl+Shift+R).
+  // The hotkey was previously registered in main + broadcast as
+  // 'hotkey:clear-conversation', but no overlay subscriber existed, so
+  // pressing it silently did nothing. Clear responses locally and ask
+  // ClaudeService to drop its conversation history so the NEXT AI
+  // request starts fresh.
+  useEffect(() => {
+    const unsub = window.raven.onHotkeyClearConversation(() => {
+      setResponses([])
+      setActiveResponseId(null)
+      activeResponseIdRef.current = null
+      setIsLoadingResponse(false)
+      requestInFlightRef.current = false
+      setLimitInfo(null)
+      window.raven.claudeClearHistory?.().catch(() => { /* best-effort */ })
+    })
+    return () => unsub()
+  }, [])
+
+  // Hotkeys: scroll the response area (Cmd/Ctrl+Shift+Up/Down).
+  // Same bug class - registered in main but no overlay listener, so
+  // the hotkeys were quietly dead. Scroll by half the visible height
+  // per press; users who want finer control can use trackpad scroll.
+  useEffect(() => {
+    const scrollByFraction = (direction: 'up' | 'down') => {
+      const el = responseAreaRef.current
+      if (!el) return
+      const step = Math.max(80, Math.round(el.clientHeight / 2))
+      el.scrollBy({
+        top: direction === 'up' ? -step : step,
+        behavior: 'smooth',
+      })
+    }
+    const unsubUp = window.raven.onHotkeyScrollUp(() => scrollByFraction('up'))
+    const unsubDown = window.raven.onHotkeyScrollDown(() => scrollByFraction('down'))
+    return () => {
+      unsubUp()
+      unsubDown()
+    }
+  }, [])
+
   const handleHide = () => {
     setOverlayMouseIgnore(true)
     window.raven.windowHide()
@@ -458,13 +539,38 @@ export function OverlayWindow() {
     setStealthEnabled(next)
     try {
       await window.raven.windowSetStealth(next)
+      // Sync the privacy preference across devices. Local store is
+      // written by the main-process setStealthMode() handler above,
+      // so we only need to push to the server here.
+      try { await window.raven.authUpdateProfile({ preferences: { stealthEnabled: next } }) } catch { /* free mode */ }
     } catch {
       setStealthEnabled(!next)
     }
   }, [stealthEnabled])
 
   const dismissNotification = useCallback((id: string) => {
+    const timer = notificationTimersRef.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      notificationTimersRef.current.delete(id)
+    }
     setNotifications(prev => prev.filter(n => n.id !== id))
+  }, [])
+
+  // Helper so every notification callsite - IPC-broadcast and in-component
+  // direct pushes - gets the auto-dismiss timer registered uniformly. The
+  // previous code only registered the timer inside the IPC handler, so any
+  // direct setNotifications(prev => [...prev, n]) in this file produced a
+  // notification that never disappeared. Route everything through this.
+  const pushNotification = useCallback((n: NotificationData) => {
+    setNotifications(prev => [...prev, n])
+    if (n.autoDismissMs) {
+      const timerId = setTimeout(() => {
+        setNotifications(prev => prev.filter(x => x.id !== n.id))
+        notificationTimersRef.current.delete(n.id)
+      }, n.autoDismissMs)
+      notificationTimersRef.current.set(n.id, timerId)
+    }
   }, [])
 
   const handleToggleSmartMode = useCallback(async () => {
@@ -478,6 +584,7 @@ export function OverlayWindow() {
     const next = !incognitoMode
     setIncognitoMode(next)
     await window.raven.storeSet('incognitoMode', next)
+    try { await window.raven.authUpdateProfile({ preferences: { incognitoMode: next } }) } catch { /* free mode */ }
   }, [incognitoMode])
 
   const handleAssist = async () => {
@@ -537,7 +644,13 @@ export function OverlayWindow() {
       customPrompt: trimmed,
       modePrompt: activeMode?.systemPrompt,
       modeId: activeMode?.id,
-      includeScreenshot: false
+      // Send a screenshot with every typed question. Users legitimately
+      // ask "what's on my screen?" / "explain this chart" / "summarise
+      // this code" and expect the model to see what they're looking at
+      // rather than having to paste context. Cost is roughly an extra
+      // image input per question (modest at current Anthropic prices).
+      // Matches Cluely's behaviour.
+      includeScreenshot: true
     }).catch(() => {
       requestInFlightRef.current = false
     })
@@ -583,6 +696,10 @@ export function OverlayWindow() {
     if (hasResponse && activeTab !== 'responses') {
       setActiveTab('responses')
     }
+    // activeTab intentionally omitted: we want to JUMP to 'responses' when
+    // a new response arrives, not lock the user out of switching tabs
+    // while one exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasResponse])
 
   useEffect(() => {
@@ -599,6 +716,10 @@ export function OverlayWindow() {
     if (isRecording && !hasResponse) {
       setActiveTab('transcript')
     }
+    // hasResponse intentionally omitted: we want to auto-switch to the
+    // transcript tab only when recording STARTS (not every time a response
+    // toggles on/off while recording is ongoing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording])
 
   useEffect(() => {
@@ -613,6 +734,11 @@ export function OverlayWindow() {
     } else if (!isPanelExpanded) {
       setPanelHeight(undefined)
     }
+    // panelHeight, setPanelHeight, OVERLAY_DEFAULT_EXPANDED_HEIGHT:
+    // panelHeight omitted because we want this to only run on expand/
+    // collapse; setPanelHeight is stable; the constant is a module-level
+    // literal and cannot change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPanelExpanded])
 
   return (
@@ -669,8 +795,11 @@ export function OverlayWindow() {
       )}
     </AnimatePresence>
 
-    {/* Notification area — top right */}
-    <div className="absolute top-4 right-4 flex flex-col gap-2 z-[80] pointer-events-none">
+    {/* Notification area - top right */}
+    <div
+      ref={notificationRef}
+      className="absolute top-4 right-4 flex flex-col gap-2 z-[80] pointer-events-none"
+    >
       <AnimatePresence>
         {notifications.map(n => (
           <OverlayNotification key={n.id} notification={n} onDismiss={dismissNotification} />
@@ -678,7 +807,7 @@ export function OverlayWindow() {
       </AnimatePresence>
     </div>
 
-    {/* Main panel — bottom right, draggable */}
+    {/* Main panel - bottom right, draggable */}
     <div
       className="absolute flex flex-col p-4 pb-6 bg-transparent pointer-events-none"
       style={{
@@ -836,7 +965,7 @@ export function OverlayWindow() {
           }}
         >
 
-          {/* Tab Bar — visible when panel is expanded (recording or has responses) */}
+          {/* Tab Bar - visible when panel is expanded (recording or has responses) */}
           {isPanelExpanded && (
             <div className="flex px-4 border-b border-white/10 shrink-0">
               {(hasResponse || !isRecording) && (
@@ -891,13 +1020,13 @@ export function OverlayWindow() {
                     transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                   >
                     <div
-                      className={`flex justify-end ${entry.hasScreenshot ? 'mb-1' : 'mb-3'}`}
+                      className={`flex ${entry.badgeVariant === 'system' ? 'justify-start' : 'justify-end'} ${entry.hasScreenshot ? 'mb-1' : 'mb-3'}`}
                       onMouseEnter={() => setHoveredMessageId(entry.id)}
                       onMouseLeave={() => {
                         setHoveredMessageId((current) => (current === entry.id ? null : current))
                       }}
                     >
-                      <div className="flex items-center gap-1">
+                      <div className={`flex items-center gap-1 ${entry.badgeVariant === 'system' ? 'flex-row-reverse' : ''}`}>
                         <button
                           type="button"
                           onClick={() => {
@@ -929,10 +1058,12 @@ export function OverlayWindow() {
                           )}
                         </button>
                         <span
-                          className={`px-2.5 py-1.5 text-xs font-medium text-white rounded-xl rounded-br-sm ${
-                            entry.badgeVariant === 'custom'
-                              ? 'bg-gradient-to-b from-blue-500 to-blue-700'
-                              : 'bg-gradient-to-r from-purple-500 to-blue-500'
+                          className={`px-2.5 py-1.5 text-xs font-medium text-white rounded-xl ${
+                            entry.badgeVariant === 'system'
+                              ? 'rounded-bl-sm bg-gradient-to-r from-red-500 to-rose-600'
+                              : entry.badgeVariant === 'custom'
+                                ? 'rounded-br-sm bg-gradient-to-b from-blue-500 to-blue-700'
+                                : 'rounded-br-sm bg-gradient-to-r from-purple-500 to-blue-500'
                           }`}
                         >
                           {entry.action}
@@ -982,7 +1113,15 @@ export function OverlayWindow() {
                         <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
                       </div>
                     ) : (
-                      <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] pr-[18px] overflow-hidden break-words">
+                      // Overlay is ~400px wide, so prose-sm's default heading
+                      // sizes (h1 ~32px, h2 ~24px) wrap to 3-4 lines. We
+                      // override per-element so all heading levels render at
+                      // near-body-text size. System prompt asks the model not
+                      // to emit markdown headers, but Claude sometimes ignores
+                      // that for long-form answers and users paste
+                      // heading-rich content too - so this override is
+                      // defensive, not a stylistic preference.
+                      <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] pr-[18px] overflow-hidden break-words [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:leading-snug [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:leading-snug [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:leading-snug [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h4]:text-[13px] [&_h4]:font-semibold [&_h4]:leading-snug [&_h4]:mt-2 [&_h4]:mb-0.5 [&_h5]:text-[13px] [&_h5]:font-semibold [&_h5]:leading-snug [&_h5]:mt-2 [&_h5]:mb-0.5 [&_h6]:text-[13px] [&_h6]:font-semibold [&_h6]:leading-snug [&_h6]:mt-2 [&_h6]:mb-0.5">
                         <Markdown
                           remarkPlugins={[remarkMath]}
                           rehypePlugins={[rehypeKatex, rehypeHighlight]}
@@ -994,7 +1133,16 @@ export function OverlayWindow() {
                         >{entry.content}</Markdown>
                       </div>
                     )}
-                    {entry.content && !isStreaming && (
+                    {/*
+                      Action buttons (Copy + Tell me more) only for real
+                      AI responses. System entries (errors, usage limits,
+                      session-expired notices) get neither - copying a
+                      "Session expired" string is useless, and "Tell me
+                      more" on a system message would trigger another
+                      failing AI request and generate a duplicate system
+                      entry. Gate on badgeVariant !== 'system'.
+                    */}
+                    {entry.content && !isStreaming && entry.badgeVariant !== 'system' && (
                       <div className="mt-1 flex items-center gap-1">
                         <button
                           type="button"

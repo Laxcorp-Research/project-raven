@@ -24,7 +24,7 @@ type IpcHandler = (...args: any[]) => any
 export function inflightHandle(channel: string, handler: IpcHandler): void {
   ipcMain.handle(channel, async (_event, ...args) => {
     if (inflightChannels.has(channel)) {
-      log.debug(`[${channel}] throttled — already in flight`)
+      log.debug(`[${channel}] throttled - already in flight`)
       return { throttled: true }
     }
     inflightChannels.add(channel)
@@ -50,7 +50,7 @@ export function cooldownHandle(channel: string, cooldownMs: number, handler: Ipc
     const elapsed = now - lastCall
     if (elapsed < cooldownMs) {
       const retryAfterMs = cooldownMs - elapsed
-      log.debug(`[${channel}] throttled — cooldown ${retryAfterMs}ms remaining`)
+      log.debug(`[${channel}] throttled - cooldown ${retryAfterMs}ms remaining`)
       return { throttled: true, retryAfterMs }
     }
     cooldownTimestamps.set(channel, now)

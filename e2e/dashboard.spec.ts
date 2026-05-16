@@ -21,10 +21,6 @@ test.describe('Dashboard', () => {
     // The dashboard should have a visible body
     await expect(page.locator('body')).toBeVisible()
 
-    // Check for the "Raven" title bar text
-    const ravenTitle = page.locator('text=Raven')
-    const hasTitle = await ravenTitle.first().isVisible({ timeout: 5_000 }).catch(() => false)
-
     // Either on dashboard or onboarding - both should have a rendered UI
     const hasContent = await page.locator('div').first().isVisible()
     expect(hasContent).toBe(true)

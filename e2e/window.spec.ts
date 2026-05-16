@@ -62,7 +62,7 @@ test.describe('Window Management', () => {
   test('stealth mode can be toggled via IPC', async ({ electronApp }) => {
     try {
       // Test stealth mode via evaluate
-      const result = await electronApp.evaluate(async ({ ipcMain }) => {
+      const result = await electronApp.evaluate(async () => {
         // Stealth mode is handled by windowManager
         return true
       })

@@ -73,6 +73,12 @@ export function useOverlayDrag(options: UseOverlayDragOptions) {
     logoDragCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp, { once: true })
+    // `options` itself is intentionally omitted: we list each concrete
+    // field used by the callback (panelRight/Bottom/Width/Height plus the
+    // setters) so a new `options` object literal on every render doesn't
+    // re-create the callback unnecessarily. Warning would recommend
+    // depending on `options` wholesale, which defeats the purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.panelRight, options.panelBottom, options.panelWidth, options.panelHeight, options.setOverlayMouseIgnore, options.defaultCompactHeight, options.setPanelRight, options.setPanelBottom])
 
   const cleanupDrag = useCallback(() => {

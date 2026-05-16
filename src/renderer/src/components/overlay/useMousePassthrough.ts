@@ -6,6 +6,11 @@ interface HitTestRefs {
   leftRailRef: RefObject<HTMLDivElement | null>
   rightRailRef: RefObject<HTMLDivElement | null>
   bottomRailRef: RefObject<HTMLDivElement | null>
+  // Notifications render outside the main panel (top-right). Without this
+  // entry, the overlay's window-level setIgnoreMouseEvents(true) stays on
+  // while the cursor is over a notification, so clicks (including the X
+  // dismiss button) pass through to whatever app is behind the overlay.
+  notificationRef: RefObject<HTMLDivElement | null>
 }
 
 export function useMousePassthrough(refs: HitTestRefs) {
@@ -31,9 +36,10 @@ export function useMousePassthrough(refs: HitTestRefs) {
       check(refs.panelWrapperRef) ||
       check(refs.leftRailRef) ||
       check(refs.rightRailRef) ||
-      check(refs.bottomRailRef)
+      check(refs.bottomRailRef) ||
+      check(refs.notificationRef)
     )
-  }, [isInside, refs.pillWrapperRef, refs.panelWrapperRef, refs.leftRailRef, refs.rightRailRef, refs.bottomRailRef])
+  }, [isInside, refs.pillWrapperRef, refs.panelWrapperRef, refs.leftRailRef, refs.rightRailRef, refs.bottomRailRef, refs.notificationRef])
 
   useEffect(() => {
     setOverlayMouseIgnore(true)

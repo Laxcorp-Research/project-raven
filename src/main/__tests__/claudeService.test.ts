@@ -79,7 +79,8 @@ describe('ClaudeService', () => {
       action: 'assist',
     });
 
-    expect(msg).toContain('LIVE TRANSCRIPT:');
+    expect(msg).toContain('<transcript>');
+    expect(msg).toContain('</transcript>');
     expect(msg).toContain('Alice: Hi\nThem: Hello');
   });
 
@@ -96,7 +97,8 @@ describe('ClaudeService', () => {
     });
 
     expect(msg).toContain('NEW SINCE LAST');
-    expect(msg).toContain('FULL TRANSCRIPT:');
+    expect(msg).toContain('[FULL TRANSCRIPT]');
+    expect(msg).toContain('<transcript>');
   });
 
   it('buildUserMessage omits transcript section when empty', async () => {
@@ -106,7 +108,9 @@ describe('ClaudeService', () => {
     });
 
     expect(msg).not.toContain('TRANSCRIPT');
-    expect(msg).toContain('Execute the priority system');
+    // v2.1 assist prompt references <priority_system> and <transcript>
+    // XML tags directly - matches the new system prompt's section names.
+    expect(msg).toContain('<priority_system>');
   });
 
   it('buildUserMessage appends action prompt for standard actions', async () => {
@@ -115,19 +119,29 @@ describe('ClaudeService', () => {
       action: 'recap',
     });
 
-    expect(msg).toContain('Concise recap');
-    expect(msg).toContain('action items');
+    // Substance check: the recap prompt demands named sections
+    // (Action items, Open questions). Assertions target those stable
+    // markers rather than the prose wording, so future tweaks to the
+    // prompt don't break tests unless the behaviour genuinely shifts.
+    expect(msg).toContain('**Action items:**');
+    expect(msg).toContain('concise recap');
   });
 
-  it('buildUserMessage appends custom prompt for custom action', async () => {
+  it('buildUserMessage wraps custom prompt in <user_input> for custom action', async () => {
     const msg: string = await (service as any).buildUserMessage({
       transcript: 'some text',
       action: 'custom',
       customPrompt: 'What is the budget?',
     });
 
+    // USER QUESTION prefix stays so the system-prompt priority rule
+    // still matches; the <user_input> tag adds the security boundary
+    // so the content is treated as DATA not INSTRUCTIONS.
+    expect(msg).toContain('<user_input>');
     expect(msg).toContain('USER QUESTION: What is the budget?');
-    expect(msg).not.toContain('Execute the priority system');
+    expect(msg).toContain('</user_input>');
+    // For custom prompts the assist action prompt must NOT be appended.
+    expect(msg).not.toContain('<priority_system>');
   });
 
   it('buildUserMessage appends screenshot note when includeScreenshot is true', async () => {
@@ -137,10 +151,13 @@ describe('ClaudeService', () => {
       includeScreenshot: true,
     });
 
-    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
+    // Screenshot text annotation is an XML self-closing tag now so the
+    // system prompt's <security> rules about tagged sections apply.
+    expect(msg).toContain('<screen');
+    expect(msg).toContain('attached as an image part');
   });
 
-  it('buildUserMessage shows TRANSCRIPT (unchanged) when no new content', async () => {
+  it('buildUserMessage marks transcript as unchanged-since-last when no new content', async () => {
     (service as any).conversation.messages.push({
       id: '1', role: 'user', content: 'test', timestamp: 1,
     });
@@ -151,7 +168,8 @@ describe('ClaudeService', () => {
       action: 'assist',
     });
 
-    expect(msg).toContain('TRANSCRIPT (unchanged)');
+    expect(msg).toContain('note="unchanged_since_last"');
+    expect(msg).toContain('<transcript');
   });
 
   it('windowTranscript truncates long transcripts', () => {
@@ -263,9 +281,16 @@ describe('ClaudeService', () => {
     expect(id1).not.toBe(id2);
   });
 
-  it('getActionLabel handles fact-check and tell-me-more', () => {
-    expect((service as any).getActionLabel('fact-check')).toBe('Fact Check');
+  it('getActionLabel handles tell-me-more', () => {
     expect((service as any).getActionLabel('tell-me-more')).toBe('Tell me more');
+  });
+
+  it('getActionLabel falls back to Assist for the retired fact-check key', () => {
+    // fact-check was seeded in v2.0 but never surfaced in the UI. Since
+    // v2.1 the key is retired; if any stale client state somehow fires
+    // an action='fact-check' request, we want the label to render
+    // something sensible rather than throwing or returning the raw key.
+    expect((service as any).getActionLabel('fact-check')).toBe('Assist');
   });
 
   it('registers IPC handlers', () => {
@@ -405,7 +430,10 @@ describe('LLM prompt quality', () => {
     });
 
     expect(msg).toContain('USER QUESTION: What is the GDP of France?');
-    expect(msg).not.toContain('Execute the priority system');
+    // When a user question is present the assist action prompt MUST
+    // NOT be appended - the OVERRIDE RULE in the system prompt wants
+    // the model to answer the typed question directly.
+    expect(msg).not.toContain('<priority_system>');
   });
 
   // C-13: Screenshot interpretation
@@ -416,7 +444,8 @@ describe('LLM prompt quality', () => {
       includeScreenshot: true,
     });
 
-    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
+    expect(msg).toContain('<screen');
+    expect(msg).toContain('attached as an image part');
   });
 
   it('C-13: assist with empty transcript still works (screenshot-only)', async () => {
@@ -426,9 +455,13 @@ describe('LLM prompt quality', () => {
       includeScreenshot: true,
     });
 
-    expect(msg).toContain('Execute the priority system');
-    expect(msg).toContain('[Screenshot of the user\'s screen is attached]');
-    expect(msg).not.toContain('TRANSCRIPT');
+    expect(msg).toContain('<priority_system>');
+    expect(msg).toContain('<screen');
+    // No transcript block wrapping user-supplied transcript content
+    // when transcript is empty. (The assist action prompt itself
+    // mentions <transcript> by name, so we check for the closing tag
+    // as the definitive marker that a transcript block was emitted.)
+    expect(msg).not.toContain('</transcript>');
   });
 
   // C-15: "What should I say?" action
@@ -438,7 +471,9 @@ describe('LLM prompt quality', () => {
       action: 'what-should-i-say',
     });
 
-    expect(msg).toContain('suggest what I should say next');
-    expect(msg).toContain('TRANSCRIPT');
+    // Substance check on the coaching prompt: demands verbatim quote
+    // in spoken register, references <transcript>.
+    expect(msg).toContain('verbatim quote');
+    expect(msg).toContain('<transcript>');
   });
 });

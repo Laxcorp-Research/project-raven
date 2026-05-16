@@ -1,0 +1,36 @@
+{
+  // Type-checks main + preload + pro code that tsconfig.json does not cover.
+  //
+  // The root tsconfig.json scopes type-checking to src/renderer/src + electron
+  // only; tsconfig.node.json covers just vite.config.ts. As a result, main and
+  // pro code was never type-checked by `npm run test`, which is how the
+  // runtime `getCurrentUser is not defined` ReferenceError in syncService.ts
+  // survived in production for an unknown duration.
+  //
+  // This config is NOT yet chained into `npm run test` because the existing
+  // src/main + src/pro code has a tail of pre-existing type errors that are
+  // out of scope for the fix that introduces this config. Run manually:
+  //
+  //   npm run typecheck:main
+  //
+  // Follow-up work: resolve those pre-existing errors, then chain this into
+  // the default `test` script so future regressions like the getCurrentUser
+  // bug fail CI instead of silently shipping.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node"]
+  },
+  "include": ["src/main/**/*.ts", "src/pro/**/*.ts", "src/preload/**/*.ts"],
+  "exclude": ["**/__tests__/**", "**/node_modules/**"]
+}

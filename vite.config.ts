@@ -1,8 +1,6 @@
 import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
-import { dirname } from 'path'
-import { fileURLToPath } from 'url'
 
 export default defineConfig({
   build: {

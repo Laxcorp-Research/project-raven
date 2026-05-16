@@ -19,6 +19,21 @@ class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack)
+    // Forward to the main-process Sentry SDK. Renderer-side has no
+    // Sentry initialisation, so without this a React component crash
+    // would only show the fallback UI - the error itself would never
+    // reach our error aggregation. Best-effort; we never want the
+    // error reporter to throw its own errors.
+    try {
+      const api = (window as unknown as {
+        raven?: { reportRendererError?: (p: { message: string; stack?: string; componentStack?: string }) => void }
+      }).raven
+      api?.reportRendererError?.({
+        message: error.message,
+        stack: error.stack,
+        componentStack: info.componentStack ?? undefined,
+      })
+    } catch { /* swallow - don't replace one error with another */ }
   }
 
   handleReload = () => {

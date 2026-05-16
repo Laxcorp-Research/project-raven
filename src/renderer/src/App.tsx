@@ -3,10 +3,33 @@ import { createLogger } from './lib/logger'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard } from './components/dashboard/Dashboard'
 import { OverlayWindow } from './components/overlay/OverlayWindow'
+import { PermissionsGate } from './components/PermissionsGate'
 
 const log = createLogger('App')
 
-type AppView = 'loading' | 'overlay' | 'onboarding-free' | 'onboarding-pro' | 'dashboard'
+type AppView = 'loading' | 'overlay' | 'onboarding-free' | 'onboarding-pro' | 'permissions-gate' | 'dashboard'
+
+/**
+ * Runtime permission check: all three macOS permissions must be granted
+ * before the user can reach the main app. Onboarding already handles
+ * the first-install flow; this catches the revoked-in-system-settings
+ * case for returning users. Non-darwin platforms always pass.
+ */
+async function permissionsAllGranted(): Promise<boolean> {
+  try {
+    const status = await window.raven.permissionsGetStatus()
+    return (
+      status.microphone === 'granted' &&
+      status.screen === 'granted' &&
+      status.accessibility === 'granted'
+    )
+  } catch {
+    // If the IPC fails we can't know, but it's safer to NOT gate - the
+    // IPC not being registered would trap an OSS user with no escape.
+    // The audio pipeline will surface its own errors if perms are bad.
+    return true
+  }
+}
 
 type ProOnboardingProps = { alreadyAuthenticated: boolean; onComplete: () => void }
 
@@ -96,7 +119,13 @@ function App(): JSX.Element {
             const cachedSub = settings.cachedSubscription as CachedSubscription | undefined
             if (cachedProfile) setUserProfile(cachedProfile)
             if (cachedSub) setCachedSubscription(cachedSub)
-            setView('dashboard')
+
+            // Runtime permission check - bar the dashboard if any of the
+            // three required macOS permissions has been revoked since
+            // onboarding completed. The gate polls and auto-transitions
+            // to the dashboard once everything is granted again.
+            const allGranted = await permissionsAllGranted()
+            setView(allGranted ? 'dashboard' : 'permissions-gate')
 
             Promise.all([
               window.raven.authGetCurrentUser().catch(() => null),
@@ -118,7 +147,9 @@ function App(): JSX.Element {
           if (!onboarded || !hasKeys) {
             setView('onboarding-free')
           } else {
-            setView('dashboard')
+            // Same runtime gate for OSS / free-tier users.
+            const allGranted = await permissionsAllGranted()
+            setView(allGranted ? 'dashboard' : 'permissions-gate')
           }
         }
       } catch (err) {
@@ -133,7 +164,7 @@ function App(): JSX.Element {
     try {
       cleanups.push(window.raven.onAuthLoginCompleted((data) => {
         if (data.success) {
-          log.info('Auth login completed via deep link — updating state')
+          log.info('Auth login completed via deep link - updating state')
           setProAuthenticated(true)
           setView('onboarding-pro')
         }
@@ -163,10 +194,10 @@ function App(): JSX.Element {
 
     try {
       cleanups.push(window.raven.onAuthSessionExpired?.(() => {
-        // Only redirect to login from the dashboard — the overlay handles
+        // Only redirect to login from the dashboard - the overlay handles
         // auth expiry by showing a card, not by replacing its UI.
         if (windowType !== 'overlay') {
-          log.warn('Auth session expired — redirecting to login')
+          log.warn('Auth session expired - redirecting to login')
           setProAuthenticated(false)
           setView('onboarding-pro')
         }
@@ -178,6 +209,52 @@ function App(): JSX.Element {
     return () => cleanups.forEach((fn) => fn())
   }, [windowType])
 
+  // Re-check permissions when the dashboard regains focus. If the user
+  // revoked a permission in System Settings and then came back to
+  // Raven, we want to push them into the gate immediately instead of
+  // letting them interact with a dashboard that can't record. Only
+  // fires for the dashboard window - overlay is not a permissions
+  // surface, onboarding has its own polling.
+  //
+  // Also re-fetch subscription on focus when the cached copy is non-
+  // ACTIVE. Recovery flow: user clicks "Resume Pro" -> Dodo customer
+  // portal opens in browser -> user updates payment method -> Dodo
+  // auto-charges + flips the subscription to ACTIVE -> user alt-tabs
+  // back to Raven. The customer portal doesn't redirect through our
+  // raven://billing-success deep link, and our polling after
+  // authOpenBillingPortal is capped at 60s, so without this focus-
+  // refresh the top-level "Resume Pro" banner can stay visible until
+  // the user restarts the app. Skipping the fetch when subscription
+  // is already ACTIVE to avoid a network call on every window focus.
+  useEffect(() => {
+    if (windowType !== 'dashboard') return
+    if (view !== 'dashboard') return
+
+    const onFocus = async () => {
+      const ok = await permissionsAllGranted()
+      if (!ok) {
+        log.warn('Permission revoked while app running - routing to gate')
+        setView('permissions-gate')
+        return
+      }
+
+      if (cachedSubscription && cachedSubscription.status !== 'ACTIVE') {
+        try {
+          const sub = await window.raven.authGetSubscription?.()
+          if (sub && (sub.status !== cachedSubscription.status
+              || sub.plan !== cachedSubscription.plan
+              || sub.currentPeriodEnd !== cachedSubscription.currentPeriodEnd)) {
+            log.info('Subscription changed on focus refresh')
+            setCachedSubscription(sub)
+            window.raven.storeSet('cachedSubscription', sub)
+          }
+        } catch { /* backend unreachable - keep the cached value */ }
+      }
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [windowType, view, cachedSubscription])
+
   if (view === 'loading') {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
@@ -188,6 +265,10 @@ function App(): JSX.Element {
 
   if (view === 'overlay') {
     return <OverlayWindow />
+  }
+
+  if (view === 'permissions-gate') {
+    return <PermissionsGate onAllGranted={() => setView('dashboard')} />
   }
 
   if (view === 'onboarding-pro') {

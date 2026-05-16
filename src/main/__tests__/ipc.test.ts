@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — store functions
+// Hoisted mocks - store functions
 // ---------------------------------------------------------------------------
 
 const {
@@ -29,7 +29,7 @@ const {
 }))
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — windowManager functions
+// Hoisted mocks - windowManager functions
 // ---------------------------------------------------------------------------
 
 const {
@@ -51,7 +51,7 @@ const {
 }))
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — validators
+// Hoisted mocks - validators
 // ---------------------------------------------------------------------------
 
 const { mockValidateBothKeys, mockValidateKeys } = vi.hoisted(() => ({
@@ -60,7 +60,7 @@ const { mockValidateBothKeys, mockValidateKeys } = vi.hoisted(() => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks — electron
+// Hoisted mocks - electron
 // ---------------------------------------------------------------------------
 
 const {
@@ -374,6 +374,7 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
     })
 
     it('rejects javascript: protocol', () => {
+      // eslint-disable-next-line no-script-url
       const result = handlers['open-external'](fakeEvent(), 'javascript:alert(1)')
 
       expect(mockOpenExternal).not.toHaveBeenCalled()

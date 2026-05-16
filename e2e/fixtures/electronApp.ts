@@ -25,7 +25,11 @@ export const test = base.extend<{
   electronApp: ElectronApplication
   dashboardPage: Page
 }>({
+  // eslint-disable-next-line no-empty-pattern
   electronApp: async ({}, use) => {
+    // Playwright's fixture signature requires `{}` as the first arg even
+    // when we don't read any dependencies — disabling no-empty-pattern
+    // locally so the signature is preserved verbatim.
     // Ensure the built app exists
     if (!fs.existsSync(mainEntry)) {
       throw new Error(

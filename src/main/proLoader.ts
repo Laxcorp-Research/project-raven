@@ -11,13 +11,13 @@ import { isProMode } from './store'
 import { createLogger } from './logger'
 import { sessionManager } from './services/sessionManager'
 import { databaseService } from './services/database'
-import { createDefaultMode, ensureActiveMode } from './services/builtinModes'
+import { createDefaultMode, ensureActiveMode, migrateGeneralAssistantPromptV21 } from './services/builtinModes'
 
 const log = createLogger('ProLoader')
 
 export async function initializeProFeatures(): Promise<void> {
   if (!isProMode()) {
-    log.info('Free mode — skipping pro features')
+    log.info('Free mode - skipping pro features')
     return
   }
 
@@ -33,8 +33,8 @@ export async function initializeProFeatures(): Promise<void> {
     await registerAuthHandlers()
 
     // Seed built-in modes when a fresh account DB is created
-    databaseService.onNewAccountDatabase(() => {
-      createDefaultMode()
+    databaseService.onNewAccountDatabase(async () => {
+      await createDefaultMode()
       ensureActiveMode()
     })
 
@@ -49,16 +49,39 @@ export async function initializeProFeatures(): Promise<void> {
       log.info('Restored account database for:', user.email)
     }
 
-    const { queueSessionForSync, processSyncQueue, pullAndMergeRemoteSessions, pullRemoteSessions } = await import(
+    // Rerun the v2.1 General Assistant content migration AFTER the
+    // account DB switch above - the boot-time call in src/main/index.ts
+    // only hits the default DB, and for a logged-in user the General
+    // Assistant row we actually care about lives in the account-specific
+    // file (raven-<hash>.db), not the default one. Running this before
+    // the switch (as we did prior to this fix) silently migrated the
+    // wrong database. The migration is idempotent so running it again
+    // later (e.g. on auth:login from authIpc.ts) is harmless.
+    migrateGeneralAssistantPromptV21()
+
+    const { queueSessionForSync, processSyncQueue, pullAndMergeRemoteSessions, startPeriodicSync } = await import(
       /* @vite-ignore */ '../pro/main/syncService'
     )
 
     sessionManager.setSyncFunction(queueSessionForSync)
 
-    retroactivePush(queueSessionForSync, pullRemoteSessions, processSyncQueue)
-      .catch((err) => log.warn('Retroactive push failed (non-fatal):', err))
+    // Only start sync AFTER the account database is settled for a
+    // logged-in user. For unauthenticated boots we leave sync
+    // dormant - triggerPostLoginSync (called by auth:login/signup/
+    // oauth handlers) starts it once the user is authenticated and
+    // switchToUserDatabase has committed to the right DB file.
+    // This pairing is the other half of the syncReady gate added in
+    // syncService.ts; together they close the boot race where a
+    // focus event or the old startPeriodicSync-at-handler-registration
+    // call could land a sync cycle against the default DB.
+    if (user?.id && backendUrl) {
+      startPeriodicSync()
 
-    pullAndMergeRemoteSessions().catch((err) => log.debug('Initial session pull failed:', err))
+      retroactivePush(queueSessionForSync, processSyncQueue)
+        .catch((err) => log.warn('Retroactive push failed (non-fatal):', err))
+
+      pullAndMergeRemoteSessions().catch((err) => log.debug('Initial session pull failed:', err))
+    }
 
     // Initialize Recall AI Desktop SDK for premium audio capture
     try {
@@ -69,9 +92,9 @@ export async function initializeProFeatures(): Promise<void> {
       if (sdkReady) {
         const recallService = getRecallService()
         await recallService.setupEventListeners()
-        log.info('Recall SDK ready — meeting detection active')
+        log.info('Recall SDK ready - meeting detection active')
       } else {
-        log.info('Recall SDK not available — will use native audio capture')
+        log.info('Recall SDK not available - will use native audio capture')
       }
 
       const { registerRecallHandlers } = await import(
@@ -84,31 +107,38 @@ export async function initializeProFeatures(): Promise<void> {
 
     log.info('Pro features initialized')
   } catch (err) {
-    log.warn('Pro mode requested but src/pro/ not found — running without premium features', err)
+    log.warn('Pro mode requested but src/pro/ not found - running without premium features', err)
   }
 }
 
 /**
- * One-time push of all local sessions the backend doesn't have.
- * With per-account databases, the DB only contains this account's data,
- * so no filtering by backend URL or user ID is needed.
+ * One-time push of sessions that need to be uploaded to the backend.
+ *
+ * Previously this pulled the server's session list (filtered by
+ * `since=lastSync`) and queued any local session whose id was absent.
+ * The `since` filter meant rows older than last sync were always
+ * "missing" from the remote list, so they got re-queued on every boot
+ * and the backend rejected each one as stale - 82 KB of wasted
+ * bandwidth per launch, plus noisy cross-device-conflict toasts for
+ * what were in fact already-reconciled rows.
+ *
+ * The `synced_at` column added in migration 013 lets us make that
+ * decision locally: queue only rows the client knows haven't been
+ * reconciled with the server. No pull needed. Background flow, so we
+ * pass `notifyOnConflict: false` - genuine conflicts from the user's
+ * own edits still show their toast via the normal sync path.
  */
 async function retroactivePush(
   queueFn: (s: { id: string; title?: string; summary?: string; insightsJson?: string; transcriptJson?: string; aiResponsesJson?: string; modeId?: string; durationSeconds?: number; startedAt: string; endedAt?: string; clientUpdatedAt?: string }) => void,
-  pullFn: () => Promise<{ id: string; clientUpdatedAt?: string }[]>,
-  processQueueFn: () => Promise<void>,
+  processQueueFn: (options?: { notifyOnConflict?: boolean }) => Promise<void>,
 ): Promise<void> {
   const localSessions = databaseService.getAllSessions()
   if (localSessions.length === 0) return
 
-  const remoteSessions = await pullFn()
-  const remoteMap = new Map(remoteSessions.map((s) => [s.id, s.clientUpdatedAt]))
-
   const needsUpload = localSessions.filter((s) => {
     if (s.endedAt === null) return false
-    const remoteUpdatedAt = remoteMap.get(s.id)
-    if (!remoteUpdatedAt) return true
-    return s.updatedAt > new Date(remoteUpdatedAt).getTime()
+    if (s.syncedAt === null) return true
+    return s.updatedAt > s.syncedAt
   })
 
   if (needsUpload.length === 0) {
@@ -133,6 +163,6 @@ async function retroactivePush(
     })
   }
 
-  await processQueueFn()
+  await processQueueFn({ notifyOnConflict: false })
   log.info('Retroactive push complete')
 }

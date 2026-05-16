@@ -95,6 +95,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanne
       selection?.removeAllRanges()
       selection?.addRange(range)
     }
+    // editedTitle intentionally omitted: we want to focus the title when
+    // entering edit mode, not re-focus every keystroke as the user types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditingTitle])
 
   useEffect(() => {
@@ -106,12 +109,20 @@ export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanne
     setLoadingMessages(false)
     setActiveTab('summary')
     setCurrentInsightsJson(session.insightsJson ?? null)
+    // session.insightsJson intentionally omitted: this effect resets UI
+    // state on SESSION switch only. Re-running every time insightsJson
+    // changes would clobber in-flight user edits of the insights panel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id])
 
   useEffect(() => {
     if (activeTab === 'usage' && messages.length === 0) {
       loadMessages()
     }
+    // loadMessages + messages.length intentionally omitted: we want to
+    // fetch on tab switch to 'usage' once; re-running on messages changes
+    // would re-fetch every time a new message arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   useEffect(() => {
@@ -252,7 +263,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanne
           const shifts = s.key_sentiment_shifts as Array<Record<string, string>> | undefined
           if (shifts?.length) {
             lines.push('\nSentiment Shifts:')
-            shifts.forEach(sh => lines.push(`- ${sh.moment}: ${formatSentiment(sh.sentiment)} — ${sh.description}`))
+            shifts.forEach(sh => lines.push(`- ${sh.moment}: ${formatSentiment(sh.sentiment)} - ${sh.description}`))
           }
           lines.push('')
         }

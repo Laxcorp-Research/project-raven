@@ -174,6 +174,21 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
     }).catch(() => {})
   }, [isPro, subscription])
 
+  // Without this, the top-level ON_HOLD banner would stay visible until
+  // the user restarts the app, even after they fix their payment method
+  // through the portal. BillingTab already listens for this event to
+  // refresh itself; the banner lives a layer up so it needs its own
+  // subscription refresh.
+  useEffect(() => {
+    if (!isPro) return
+    const unsub = window.raven.on('billing:success', () => {
+      window.raven.authGetSubscription?.().then((sub) => {
+        if (sub) setSubscription(sub)
+      }).catch(() => {})
+    })
+    return unsub
+  }, [isPro])
+
   useEffect(() => {
     if (!isPro) return
     try {
@@ -236,6 +251,27 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   const handleOpenBilling = () => {
     setSettingsInitialTab('billing')
     setSettingsOpen(true)
+  }
+
+  // Lapsed subscribers (ON_HOLD / CANCELED / INACTIVE with a paid plan
+  // on file) skip the Settings modal and go straight to the Dodo
+  // customer portal. Routing them through Settings first only showed
+  // a plan-picker card with a default interval that didn't match what
+  // they actually had (e.g. their real sub is Monthly, our card
+  // defaulted to Yearly), which was confusing. The portal shows the
+  // authoritative plan + payment method directly. Falls back to the
+  // Settings view if the portal IPC fails so the user isn't stuck.
+  const handleResumeSubscription = async () => {
+    try {
+      const result = await window.raven.authOpenBillingPortal()
+      if (!result.success) {
+        log.error('Failed to open billing portal:', result.error)
+        handleOpenBilling()
+      }
+    } catch (error) {
+      log.error('Failed to open billing portal:', error)
+      handleOpenBilling()
+    }
   }
 
   const handleSessionSelect = async (session: { id: string }) => {
@@ -321,7 +357,18 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
         </div>
       )}
 
-      {isPro && !isRecording && subscription?.plan === 'FREE' && (
+      {/* Show the same Upgrade banner whenever the user is effectively
+          on the free tier - either they've always been FREE, or their
+          paid subscription is in a non-ACTIVE state (ON_HOLD, CANCELED,
+          INACTIVE). The backend already treats non-ACTIVE as FREE for
+          session length and daily caps, so lapsed users already have
+          the free-tier experience; one banner reflects that uniformly.
+          Copy stays generic so it reads naturally for first-time
+          upgraders and lapsed users alike. */}
+      {isPro
+        && !isRecording
+        && subscription
+        && (subscription.plan === 'FREE' || subscription.status !== 'ACTIVE') && (
         <div className="shrink-0 flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white">
           <div className="flex items-center gap-2 min-w-0">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
@@ -330,10 +377,10 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
             <span className="text-sm font-medium truncate">Unlock unlimited sessions, AI responses, and meeting insights.</span>
           </div>
           <button
-            onClick={handleOpenBilling}
+            onClick={subscription.plan !== 'FREE' ? handleResumeSubscription : handleOpenBilling}
             className="px-3 py-1 bg-white text-purple-700 text-xs font-semibold rounded-md hover:bg-white/90 transition-colors shrink-0 ml-3"
           >
-            Upgrade to Pro
+            {subscription.plan !== 'FREE' ? 'Resume Pro' : 'Upgrade to Pro'}
           </button>
         </div>
       )}
@@ -376,7 +423,13 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => { setSettingsOpen(false); setSettingsInitialTab(undefined) }}
-        initialSubscription={initialSubscription}
+        // Pass the CURRENT subscription state, not the initial prop. The
+        // state stays in sync via billing:success refresh, focus-based
+        // refresh, and the auth:subscription-may-change poller. Passing
+        // the raw prop (which never updates post-mount) would show stale
+        // data for up to the first render of BillingTab before its own
+        // refetch lands.
+        initialSubscription={subscription}
         initialTab={settingsInitialTab}
       />
 

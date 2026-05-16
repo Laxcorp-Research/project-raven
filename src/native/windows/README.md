@@ -4,7 +4,7 @@ Native Windows audio capture module built with Rust and [NAPI-RS](https://napi.r
 
 ## How It Works
 
-- **System audio**: WASAPI loopback capture on the default render device — captures everything playing through speakers/headphones
+- **System audio**: WASAPI loopback capture on the default render device - captures everything playing through speakers/headphones
 - **Microphone**: Standard WASAPI capture on the default recording device
 - Both streams are resampled to 16 kHz mono Int16 PCM (matching Deepgram's expected format) using the `rubato` crate
 - Audio chunks are delivered to Node.js via NAPI threadsafe callbacks
@@ -12,7 +12,7 @@ Native Windows audio capture module built with Rust and [NAPI-RS](https://napi.r
 ## Prerequisites
 
 - **Windows 10/11** (WASAPI is built into Windows)
-- **Rust toolchain** — install via [rustup](https://rustup.rs/)
+- **Rust toolchain** - install via [rustup](https://rustup.rs/)
   ```bash
   # Ensure the MSVC target is installed (default on Windows)
   rustup default stable-msvc
@@ -66,9 +66,9 @@ The TypeScript layer (`src/main/systemAudioNative.ts`) looks for it at this path
 
 ## Dependencies
 
-- **napi** / **napi-derive** — Node.js native addon bindings
-- **windows** (0.52) — Safe Rust bindings for Windows APIs (WASAPI, COM)
-- **rubato** (0.14) — High-quality audio resampling
+- **napi** / **napi-derive** - Node.js native addon bindings
+- **windows** (0.52) - Safe Rust bindings for Windows APIs (WASAPI, COM)
+- **rubato** (0.14) - High-quality audio resampling
 
 ## Troubleshooting
 

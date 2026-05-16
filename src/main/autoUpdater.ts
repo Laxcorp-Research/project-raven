@@ -1,20 +1,36 @@
 import { autoUpdater } from 'electron-updater'
 import { ipcMain, app, BrowserWindow } from 'electron'
+import { createRequire } from 'module'
 import { createLogger } from './logger'
 
 const log = createLogger('AutoUpdate')
 
+// Main process is built as ES modules, so the `require` global isn't
+// defined. Build a CJS-compatible require via createRequire so the lazy
+// sessionManager import below (kept lazy to avoid an import-time cycle
+// between autoUpdater and sessionManager) actually works.
+const nodeRequire = createRequire(import.meta.url)
+
 const CHECK_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 interface UpdateState {
-  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
   version?: string
   error?: string
   progress?: number
 }
 
+/**
+ * How long the transient `up-to-date` status stays before decaying to `idle`.
+ * Renderers show an "You're on the latest version" acknowledgement while
+ * this status is active so a manual "Check for updates" click doesn't
+ * appear silent.
+ */
+const UP_TO_DATE_DECAY_MS = 3500
+
 let state: UpdateState = { status: 'idle' }
 let checkInterval: NodeJS.Timeout | null = null
+let upToDateTimer: NodeJS.Timeout | null = null
 
 function broadcastState(): void {
   BrowserWindow.getAllWindows().forEach(win => {
@@ -24,10 +40,26 @@ function broadcastState(): void {
   })
 }
 
+function clearUpToDateTimer(): void {
+  if (upToDateTimer) {
+    clearTimeout(upToDateTimer)
+    upToDateTimer = null
+  }
+}
+
 export function initAutoUpdater(): void {
   autoUpdater.logger = null
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+
+  // electron-updater's AppUpdater.isUpdaterActive() returns false when
+  // !app.isPackaged, causing checkForUpdates() to resolve with null
+  // without firing any events. If the renderer's optimistic 'checking'
+  // state is not reset, the Settings > General "Check for updates"
+  // button stays stuck showing "Checking..." for the rest of the dev
+  // session. Short-circuit all update paths in unpackaged builds and
+  // keep the broadcast state pinned to idle.
+  const enabled = app.isPackaged
 
   autoUpdater.on('checking-for-update', () => {
     log.info('Checking for updates...')
@@ -43,8 +75,18 @@ export function initAutoUpdater(): void {
 
   autoUpdater.on('update-not-available', () => {
     log.debug('No update available')
-    state = { status: 'idle' }
+    clearUpToDateTimer()
+    state = { status: 'up-to-date' }
     broadcastState()
+    upToDateTimer = setTimeout(() => {
+      upToDateTimer = null
+      // Only decay if we're still in the transient state; a newer event
+      // (available/checking/error) may have already moved us on.
+      if (state.status === 'up-to-date') {
+        state = { status: 'idle' }
+        broadcastState()
+      }
+    }, UP_TO_DATE_DECAY_MS)
   })
 
   autoUpdater.on('download-progress', (info) => {
@@ -65,6 +107,14 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:check', async () => {
+    if (!enabled) {
+      // Clear any lingering up-to-date decay before pinning to idle so
+      // the timer can't later overwrite this idle state.
+      clearUpToDateTimer()
+      state = { status: 'idle' }
+      broadcastState()
+      return { success: true, skipped: 'dev' }
+    }
     try {
       await autoUpdater.checkForUpdates()
       return { success: true }
@@ -74,6 +124,9 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:download', async () => {
+    if (!enabled) {
+      return { success: false, error: 'Updates disabled in development' }
+    }
     try {
       await autoUpdater.downloadUpdate()
       return { success: true }
@@ -84,9 +137,11 @@ export function initAutoUpdater(): void {
 
   ipcMain.handle('update:install', () => {
     if (state.status === 'downloaded') {
-      // End any active recording session before quitting
+      // End any active recording session before quitting.
+      // Lazy nodeRequire avoids an import-time cycle with sessionManager
+      // (see the createRequire block at the top of this file).
       try {
-        const { sessionManager } = require('./services/sessionManager')
+        const { sessionManager } = nodeRequire('./services/sessionManager')
         if (sessionManager.getActiveSession()) {
           log.info('Ending active session before update install')
           sessionManager.endSession()
@@ -106,6 +161,11 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:get-state', () => state)
+
+  if (!enabled) {
+    log.debug('Updates disabled (unpackaged build) - skipping scheduled checks')
+    return
+  }
 
   // Initial check after 10 seconds (give app time to boot)
   setTimeout(() => {
@@ -127,4 +187,5 @@ export function stopAutoUpdater(): void {
     clearInterval(checkInterval)
     checkInterval = null
   }
+  clearUpToDateTimer()
 }

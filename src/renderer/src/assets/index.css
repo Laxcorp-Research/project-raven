@@ -237,7 +237,7 @@ html, body, #root {
   text-underline-offset: 2px;
 }
 
-/* Scrollbar — visible and grabbable, subtle when idle, darker on hover */
+/* Scrollbar - visible and grabbable, subtle when idle, darker on hover */
 .scrollbar-thin::-webkit-scrollbar {
   width: 10px;
 }

@@ -41,7 +41,7 @@ test.describe('Recording Flow', () => {
 
     // Try to evaluate recording state via IPC
     try {
-      const isRecording = await electronApp.evaluate(async ({ ipcMain }) => {
+      const isRecording = await electronApp.evaluate(async () => {
         // Check if audio state handler is registered
         return false // Default state should be not recording
       })

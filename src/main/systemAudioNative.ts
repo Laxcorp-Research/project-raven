@@ -3,12 +3,13 @@
  * Spawns a child process and streams PCM audio via stdout.
  *
  * Integrates GStreamer-based AEC pipeline (webrtcechoprobe/webrtcdsp)
- * for echo cancellation — the same pipeline Cluely uses via Recall.ai.
+ * for echo cancellation - the same pipeline Cluely uses via Recall.ai.
  * GStreamer handles synchronization, resampling, gain control, and buffering.
  */
 
 import { ipcMain, systemPreferences } from 'electron'
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process'
+import { spawn, type ChildProcessByStdio } from 'child_process'
+import type { Readable } from 'stream'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
@@ -19,12 +20,58 @@ const log = createLogger('SystemAudio')
 type AudioSource = 'mic' | 'system'
 type ProcessedAudioCallback = (buffer: Buffer, source: AudioSource) => void
 
+// Matches the return type of spawn(binary, [], { stdio: ['ignore', 'pipe', 'pipe'] })
+// in startMacCapture - stdin is `null` (ignored), stdout + stderr are piped readable
+// streams. Using ChildProcessWithoutNullStreams here was a type bug because that
+// form requires all three stdio slots to be piped.
+type CaptureProcess = ChildProcessByStdio<null, Readable, Readable>
+
 let systemChunkCount = 0
 let micChunkCount = 0
-let captureProcess: ChildProcessWithoutNullStreams | null = null
+let captureProcess: CaptureProcess | null = null
 let windowsModule: WindowsAudioModule | null = null
 let parseBuffer = Buffer.alloc(0)
 let processedAudioCallback: ProcessedAudioCallback | null = null
+
+/**
+ * Set when stopCapture() is called so the child's 'exit' handler knows
+ * the teardown was intentional and doesn't fire the "capture died
+ * unexpectedly" callback. Reset each time a new capture process is
+ * spawned.
+ */
+let expectingCaptureExit = false
+
+/**
+ * Rolling buffer of the child's most-recent stderr (capped). Surfaced to
+ * the exit callback so the parent can surface a hint ("permission
+ * denied", "SCStream failed", etc.) instead of a blank "capture died".
+ */
+let captureStderrTail = ''
+const CAPTURE_STDERR_TAIL_MAX = 2048
+
+interface CaptureExitReason {
+  code: number | null
+  signal: NodeJS.Signals | null
+  /** Last ~2KB of the native helper's stderr, trimmed. Empty if none. */
+  stderrTail: string
+}
+
+type CaptureExitCallback = (reason: CaptureExitReason) => void
+let captureExitCallback: CaptureExitCallback | null = null
+
+/**
+ * Register a handler that fires when the native capture child process
+ * exits UNEXPECTEDLY - i.e. not as a result of a user-initiated
+ * stopCapture(). Use this to stop the AudioManager recording state and
+ * notify the user, since a dead capture child produces no audio and
+ * leaves the app "recording" without any stream underneath.
+ *
+ * Exits triggered by stopCapture() are treated as expected and do NOT
+ * invoke this callback.
+ */
+export function setCaptureExitCallback(callback: CaptureExitCallback): void {
+  captureExitCallback = callback
+}
 
 const isMac = process.platform === 'darwin'
 const isWindows = process.platform === 'win32'
@@ -219,7 +266,7 @@ function destroyAec(): void {
 }
 
 /**
- * Periodic health check — detects drift, overflow, and stalls.
+ * Periodic health check - detects drift, overflow, and stalls.
  * Bypasses AEC when the pipeline is struggling and re-enables
  * when conditions improve (same pattern as Recall.ai).
  */
@@ -419,27 +466,9 @@ function loadWindowsModule(): WindowsAudioModule | null {
   }
 }
 
-function runHelperSync(args: string[]): boolean {
-  const binaryPath = getBinaryPath()
-  if (!binaryPath) {
-    log.error('audiocapture binary not found')
-    return false
-  }
-
-  const result = spawnSync(binaryPath, args, {
-    stdio: ['ignore', 'ignore', 'pipe']
-  })
-
-  if (result.stderr && result.stderr.length > 0) {
-    log.error(`audiocapture stderr: ${result.stderr.toString()}`)
-  }
-
-  return result.status === 0
-}
-
 /**
  * Start native audio capture + AEC pipeline.
- * Called directly by AudioManager — no renderer round-trip needed.
+ * Called directly by AudioManager - no renderer round-trip needed.
  */
 export function startCapture(): boolean {
   systemChunkCount = 0
@@ -524,19 +553,27 @@ function startMacCapture(): boolean {
     return false
   }
 
-  captureProcess = spawn(binaryPath, [], {
+  // Bind to a local const so TypeScript preserves the non-null narrowing
+  // when attaching listeners - `captureProcess` is a module-level `let`
+  // and cannot be narrowed across subsequent assignments (the 'exit'/
+  // 'error' handlers clear it). Without `proc`, every `.stdout/.stderr/
+  // .on()` access below would trip strictNullChecks.
+  const proc: CaptureProcess = spawn(binaryPath, [], {
     stdio: ['ignore', 'pipe', 'pipe']
   })
+  captureProcess = proc
+  expectingCaptureExit = false
+  captureStderrTail = ''
 
   parseBuffer = Buffer.alloc(0)
 
   const MAX_PARSE_BUFFER = 10 * 1024 * 1024
 
-  captureProcess.stdout.on('data', (data: Buffer) => {
+  proc.stdout.on('data', (data: Buffer) => {
     parseBuffer = Buffer.concat([parseBuffer, data])
 
     if (parseBuffer.length > MAX_PARSE_BUFFER) {
-      log.error(`Audio parse buffer exceeded ${MAX_PARSE_BUFFER} bytes — resetting (possible frame corruption)`)
+      log.error(`Audio parse buffer exceeded ${MAX_PARSE_BUFFER} bytes - resetting (possible frame corruption)`)
       parseBuffer = Buffer.alloc(0)
       return
     }
@@ -560,23 +597,54 @@ function startMacCapture(): boolean {
     }
   })
 
-  captureProcess.stderr.on('data', (data: Buffer) => {
+  proc.stderr.on('data', (data: Buffer) => {
     const message = data.toString().trim()
     if (message.length > 0) {
       log.error(`audiocapture: ${message}`)
+      // Accumulate a tail of recent stderr so the exit callback can
+      // forward a real hint to the user. Cap the total size so a
+      // chatty process doesn't leak unbounded memory.
+      const combined = captureStderrTail ? `${captureStderrTail}\n${message}` : message
+      captureStderrTail = combined.length > CAPTURE_STDERR_TAIL_MAX
+        ? combined.slice(-CAPTURE_STDERR_TAIL_MAX)
+        : combined
     }
   })
 
-  captureProcess.on('exit', (code, signal) => {
+  proc.on('exit', (code, signal) => {
+    const wasExpected = expectingCaptureExit
     log.warn(
-      `audiocapture exited (code=${code}, signal=${signal})`
+      `audiocapture exited (code=${code}, signal=${signal}, expected=${wasExpected})`
     )
     captureProcess = null
+    expectingCaptureExit = false
+    if (!wasExpected && captureExitCallback) {
+      const reason: CaptureExitReason = { code, signal, stderrTail: captureStderrTail }
+      try {
+        captureExitCallback(reason)
+      } catch (err) {
+        log.error('captureExitCallback threw:', err)
+      }
+    }
   })
 
-  captureProcess.on('error', (err) => {
-    log.error('audiocapture error:', err)
+  proc.on('error', (err) => {
+    const wasExpected = expectingCaptureExit
+    log.error('audiocapture spawn error:', err)
     captureProcess = null
+    expectingCaptureExit = false
+    if (!wasExpected && captureExitCallback) {
+      const reason: CaptureExitReason = {
+        code: null,
+        signal: null,
+        stderrTail: `spawn error: ${err.message}${captureStderrTail ? `\n${captureStderrTail}` : ''}`,
+      }
+      try {
+        captureExitCallback(reason)
+      } catch (cbErr) {
+        log.error('captureExitCallback threw:', cbErr)
+      }
+    }
   })
 
   return true
@@ -584,6 +652,9 @@ function startMacCapture(): boolean {
 
 function stopMacCapture(): boolean {
   if (!captureProcess) return false
+  // Mark the upcoming 'exit' as intentional so the watchdog callback
+  // doesn't fire a "capture died unexpectedly" notification.
+  expectingCaptureExit = true
   captureProcess.kill('SIGTERM')
   captureProcess = null
   log.info(
@@ -604,7 +675,7 @@ function startWindowsCapture(): boolean {
     handleMicChunk(chunk.data)
   })
 
-  log.info(`Windows capture started — system: ${systemStarted}, mic: ${micStarted}`)
+  log.info(`Windows capture started - system: ${systemStarted}, mic: ${micStarted}`)
   return systemStarted
 }
 
@@ -614,7 +685,7 @@ function stopWindowsCapture(): boolean {
   const systemStopped = mod.stopSystemAudioCapture()
   const micStopped = mod.stopMicCapture()
   log.info(
-    `Windows capture stopped — system: ${systemStopped} (${systemChunkCount} chunks), mic: ${micStopped} (${micChunkCount} chunks)`
+    `Windows capture stopped - system: ${systemStopped} (${systemChunkCount} chunks), mic: ${micStopped} (${micChunkCount} chunks)`
   )
   return systemStopped
 }

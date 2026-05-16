@@ -22,13 +22,18 @@ docs/CI_CD.md
 docs/ENV_VARS.md
 docs/FREE_VS_PRO.md
 docs/LAUNCH_CHECKLIST.md
+docs/LAUNCH_V2_1_PLAN.md
 docs/MODES.md
 docs/OVERLAY_STEALTH.md
 docs/RAG.md
+docs/RELEASE_RUNBOOK.md
 docs/REPO_STRUCTURE.md
+docs/SECRETS_RUNBOOK.md
 docs/SESSION_MANAGEMENT.md
 docs/TESTING_GUIDE.md
+docs/UNUSED_API_AUDIT.md
 docs/USAGE_GATING.md
+docs/V2_2_STABILITY_PLAN.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml
@@ -47,3 +52,26 @@ package-lock.json
 vitest.config.ts
 src/main/analytics.ts
 src/main/sentry.ts
+# builtinModes.ts is in Section 2 because production's version has
+# a dynamic `import('../../pro/main/promptService')` that fetches
+# server-seeded mode prompts when in Pro mode. On OSS main the pro/
+# directory doesn't exist, and vi.mock works for static imports of
+# non-existent paths (virtual modules) but NOT for dynamic imports -
+# the runtime resolver doesn't find the file, the import throws,
+# and the surrounding try/catch swallows it silently. Pinning the
+# OSS-compatible older version of builtinModes.ts (which has no
+# pro/promptService import) keeps the test suite green on main.
+# Long-term fix would be to inject the prompt service rather than
+# dynamic-import it, making the Pro path mockable on OSS too.
+src/main/services/builtinModes.ts
+# Section 2 pinning rule: when a source file is in Section 2, its
+# paired test MUST also be in Section 2 (and vice versa). Splitting
+# the pair creates broken tests on OSS - either the test mocks don't
+# match the new source's API (when only the test is pinned), or the
+# new source's dynamic imports of pro-only paths fail at runtime
+# (when only the source is pinned).
+#
+# Tests below are paired with the source files above:
+src/main/__tests__/analytics.test.ts
+src/main/__tests__/sentry.test.ts
+src/main/__tests__/builtinModes.test.ts

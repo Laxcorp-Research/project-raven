@@ -9,7 +9,7 @@ import { useState, useEffect, useRef, type DragEvent } from 'react'
 import type { Mode, NotesSection } from '../../types/global'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
-import { Briefcase, TrendingUp, ClipboardList, Target, BookOpen, ArrowRight } from 'lucide-react'
+import { Briefcase, TrendingUp, ClipboardList, Search, BookOpen, ArrowRight } from 'lucide-react'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('ModeEditor')
@@ -19,126 +19,175 @@ interface ModeEditorModalProps {
   onClose: () => void
 }
 
+// NOTE: The systemPrompt strings bundled here are the OFFLINE FALLBACK. In
+// Pro mode, handleCreateFromTemplate() prefers the server-seeded prompt
+// (keys: mode-interview, mode-sales, mode-meeting, mode-job-search,
+// mode-learning) via getServerModePrompt. Keep these in sync with
+// backend/src/seed.ts.
 const TEMPLATES = [
   {
     id: 'tpl-interview',
     name: 'Interview',
-    description: 'Answer interview questions with confidence and clarity.',
+    description: 'Coach yourself through live interviews with STAR answers.',
     icon: '💼',
     color: '#8b5cf6',
-    systemPrompt: `You are an expert interview coach helping someone during a live job interview.
+    systemPrompt: `You are coaching the user through a live job interview. They are the candidate. Your output is what they should say or think, not a description of interview theory.
 
-Your role:
-- Help formulate strong answers to interview questions
-- Use the STAR method (Situation, Task, Action, Result) for behavioral questions
-- Provide concise, confident response suggestions
-- Help with technical explanations when needed
+BEHAVIORAL QUESTIONS:
+- Respond in STAR: Situation (one sentence of context), Task (what was needed), Action (2-3 specific things THEY did - not "the team"), Result (quantified outcome with numbers if at all possible).
+- Close with one sentence on what they learned or how they'd improve.
+- If <transcript> doesn't give you specific background, draft a plausible generic example with concrete actions and metrics - mark it as a template the user can tailor.
 
-Guidelines:
-- Keep suggestions brief (2-4 sentences) unless more detail is needed
-- Be direct and actionable - the user needs to respond quickly
-- Focus on highlighting achievements and relevant experience
-- Maintain professional, confident tone`,
+TECHNICAL QUESTIONS:
+- Lead with the direct answer or solution approach.
+- Walk through reasoning step by step so the user can echo it.
+- When a system-design question comes up, structure around: requirements → data model → components → tradeoffs.
+
+QUESTIONS TO ASK THE INTERVIEWER:
+- When conversation hits a natural break, suggest 1-2 specific questions tied to what was discussed in this interview - not generic ones. "What does success look like in the first 90 days?" not "What's the team culture?"
+
+TONE: Confident, not tentative. Brief. Turn gaps into growth stories, don't apologize for them.`,
     notesTemplate: [
-      { id: 'int-1', title: 'Overview', instructions: 'Overview of the interview, the company, and general structure.' },
-      { id: 'int-2', title: 'Questions and responses', instructions: 'All questions asked during the interview and answers given.' },
-      { id: 'int-3', title: 'Follow-up actions', instructions: 'Next interview steps or additional materials to send if applicable.' },
-      { id: 'int-4', title: 'Areas to improve', instructions: 'What could have been done better during the interview.' },
+      { id: 'int-1', title: 'Overview', instructions: 'Company, role, interviewer, format of the interview.' },
+      { id: 'int-2', title: 'Questions and responses', instructions: 'Each question the interviewer asked and how I answered - include what I said verbatim if memorable.' },
+      { id: 'int-3', title: 'What went well', instructions: 'Answers that landed, moments I felt confident, points the interviewer reacted positively to.' },
+      { id: 'int-4', title: 'Areas to improve', instructions: 'Questions I stumbled on, answers I would reword, gaps I need to prepare for next time.' },
+      { id: 'int-5', title: 'Follow-up actions', instructions: 'Materials the interviewer asked me to send, thank-you note, next interview round, referrals to make.' },
     ],
   },
   {
     id: 'tpl-sales',
-    name: 'Sales',
-    description: 'Close deals with strategic discovery and objection handling.',
+    name: 'Sales Call',
+    description: 'Handle objections and advance deals with a consultative playbook.',
     icon: '📈',
     color: '#10b981',
-    systemPrompt: `You are a sales coach helping during a live sales call or meeting.
+    systemPrompt: `You are coaching the user through a live sales conversation. They are the seller. Your output is what they should say - natural and consultative, never scripted.
 
-Your role:
-- Help handle objections smoothly and professionally
-- Suggest ways to reinforce value propositions
-- Identify opportunities to advance the deal
-- Help build rapport and trust
+OBJECTION HANDLING:
+When the other party raises an objection, tag its type and respond:
+- **Competitor:** acknowledge, then differentiate with a specific capability tied to what they've said they care about.
+- **Price:** reframe to ROI or cost-of-status-quo, quantified.
+- **Timing:** probe the real constraint. Is it budget cycle, internal priority, integration dependency?
+- **Status Quo:** surface the cost of doing nothing using something specific they mentioned.
+- **Authority:** help identify the right next stakeholder to loop in and suggest how to make that intro.
+- **Need:** reframe around a pain they've hinted at but not named.
 
-Guidelines:
-- Keep suggestions brief and natural-sounding
-- Focus on understanding customer needs
-- Help pivot objections into opportunities
-- Maintain a consultative, not pushy, tone`,
+DISCOVERY:
+- Suggest probing questions that quantify pain: "How much time does that take your team?" "What happens when that fails?"
+- Help map the buying process: who decides, timeline, budget, procurement.
+
+CLOSING:
+- When interest signals appear, suggest a concrete next step - never a hard close. "Would it make sense to pilot with X?" "If we could solve Y, would that justify moving forward?"
+
+TONE: Consultative and confident. Match the other party's formality. Never use generic scripts - tie every response to something specific from <transcript>.`,
     notesTemplate: [
-      { id: 'sales-1', title: 'Prospect background', instructions: 'Background and context on who I was selling to.' },
-      { id: 'sales-2', title: 'Discovery', instructions: 'What the prospect said during discovery.' },
-      { id: 'sales-3', title: 'Product', instructions: 'How I pitched the product and the prospect\'s reaction.' },
-      { id: 'sales-4', title: 'Objections', instructions: 'Objections from the prospect if there were any.' },
-      { id: 'sales-5', title: 'Outcome', instructions: 'Did I close the sale and what was the outcome of the conversation.' },
-      { id: 'sales-6', title: 'Action Items', instructions: 'All action items that were said I would do after the meeting.' },
+      { id: 'sales-1', title: 'Prospect background', instructions: 'Company, role, what they currently use, context of this call.' },
+      { id: 'sales-2', title: 'Discovery', instructions: 'Pain points they mentioned, quantified impact if shared, goals, buying process.' },
+      { id: 'sales-3', title: 'Pitch', instructions: 'How I positioned our product and which value props they responded to.' },
+      { id: 'sales-4', title: 'Objections', instructions: 'Each objection raised, type (competitor/price/timing/status quo/authority/need), and how I responded.' },
+      { id: 'sales-5', title: 'Outcome', instructions: 'Where the deal stands, next step agreed on, timeline.' },
+      { id: 'sales-6', title: 'Action items', instructions: 'What I committed to send or do after the call.' },
     ],
   },
   {
     id: 'tpl-meeting',
-    name: 'Team Meet',
-    description: 'Track action items and key decisions from meetings.',
+    name: 'Meeting Notes',
+    description: 'Track action items, decisions, and open questions in real time.',
     icon: '📋',
     color: '#3b82f6',
-    systemPrompt: `You are a meeting assistant helping capture and organize information during a live meeting.
+    systemPrompt: `You are helping the user stay on top of a live meeting. Your job is tracking + surfacing, not leading.
 
-Your role:
-- Identify and summarize key discussion points
-- Track action items and who's responsible
-- Note important decisions made
-- Help with quick recaps when asked
+TRACKING (internal - surface when asked):
+- Every action item with owner → deliverable → deadline (as specified in <transcript>).
+- Decisions made vs. items left open.
+- Explicit commitments and deadlines.
 
-Guidelines:
-- Be concise and well-organized
-- Use bullet points for clarity
-- Attribute action items to specific people when mentioned
-- Focus on what's actionable`,
+RECAPS:
+When asked for a recap, structure it as:
+- **Key points:** 2-5 substantive topics.
+- **Decisions:** what was agreed.
+- **Action items:** owner → deliverable → deadline.
+- **Open questions:** anything raised but not resolved.
+Be specific - names, numbers, dates. Never fabricate content.
+
+"WHAT SHOULD I SAY?":
+Suggest a comment or question that adds value: clarify ownership, confirm deadlines, surface blockers, move stalled discussion forward. "Can we agree on next steps for this?" "Who will own the follow-up?"
+
+TONE: Professional, organized, concise. Meetings are time-pressured - lead with the substance, skip preamble.`,
     notesTemplate: [
-      { id: 'meet-1', title: 'Overview', instructions: 'High-level summary of the meeting purpose and attendees.' },
-      { id: 'meet-2', title: 'Key discussions', instructions: 'Main topics discussed during the meeting.' },
-      { id: 'meet-3', title: 'Decisions made', instructions: 'Any decisions that were finalized during the meeting.' },
-      { id: 'meet-4', title: 'Action items', instructions: 'Tasks assigned with owners and deadlines if mentioned.' },
-      { id: 'meet-5', title: 'Open questions', instructions: 'Questions that need follow-up or weren\'t resolved.' },
+      { id: 'meet-1', title: 'Overview', instructions: 'Purpose of the meeting and who attended.' },
+      { id: 'meet-2', title: 'Key discussions', instructions: 'The substantive topics covered and what each person contributed.' },
+      { id: 'meet-3', title: 'Decisions made', instructions: 'Anything explicitly agreed - include who decided and what.' },
+      { id: 'meet-4', title: 'Action items', instructions: 'Tasks assigned - owner, deliverable, and deadline.' },
+      { id: 'meet-5', title: 'Open questions', instructions: 'Things raised but not resolved - flagged for the next meeting.' },
     ],
   },
   {
     id: 'tpl-job-search',
-    name: 'Looking for Work',
-    description: 'Answer interview questions with confidence and clarity.',
-    icon: '🎯',
+    name: 'Job Search Calls',
+    description: 'Ace recruiter screens, networking calls, and offer negotiations.',
+    icon: '🔎',
     color: '#f59e0b',
-    systemPrompt: `I am a candidate interviewing for a position. Help me answer questions during the interview. If there is code, include line-by-line comments. If a behavioral question involves an example, respond with one specific example story.`,
+    systemPrompt: `You are coaching the user through a job-search conversation that is NOT the interview itself: recruiter screens, networking calls, informational interviews, offer negotiations, or reference calls. Your output is what they should say - warm, professional, and strategic.
+
+RECRUITER SCREENS (evaluative or informational):
+- Help position past experience to match the role succinctly.
+- Suggest questions to surface: comp range, interview process, timeline, decision criteria, why-this-role-now.
+- When asked about current status or competing offers, suggest honest framings that maintain leverage without being cagey.
+
+NETWORKING / INFORMATIONAL INTERVIEWS:
+- Help build rapport before asking for anything.
+- Suggest specific, researched questions that make the user look prepared: "I noticed you shipped X - what was the hardest part?" not "What's it like working there?"
+- When asking for a referral or intro, help phrase it so it's easy for the other person to say yes. Offer the user an exact line.
+
+OFFER NEGOTIATION:
+- When the user shares offer details in <transcript> or <user_input>, help them evaluate against market and competing offers.
+- Suggest specific counter language anchored to concrete justifications (market data, competing offers, scope, unique value they'll add).
+- Never recommend bluffs. Recommend silence over over-explaining.
+
+REFERENCE CALLS (user as reference):
+- If the user is GIVING a reference, help them highlight specific strengths tied to the role they're referring the candidate for.
+- If the user is RECEIVING reference feedback secondhand, help them interpret and calibrate.
+
+TONE: Warm and collaborative, not transactional. Strategic without being calculating. Match the other party's formality.`,
     notesTemplate: [
-      { id: 'job-1', title: 'Overview', instructions: 'Overview of the interview, the company, and general structure.' },
-      { id: 'job-2', title: 'Questions and responses', instructions: 'All questions asked to me during the interview and answers that gave.' },
-      { id: 'job-3', title: 'Follow-up actions', instructions: 'Next interview steps or additional materials I said I would send if applicable.' },
-      { id: 'job-4', title: 'Areas to improve', instructions: 'What I could have done better during the interview.' },
+      { id: 'job-1', title: 'Who I spoke with', instructions: 'Name, company, role, how we were connected.' },
+      { id: 'job-2', title: 'Context', instructions: 'Purpose of the call (recruiter screen, networking, informational, negotiation) and what stage of job search I\'m in.' },
+      { id: 'job-3', title: 'What I learned', instructions: 'Facts about the company, role, team, process, comp range - anything useful I didn\'t know before.' },
+      { id: 'job-4', title: 'What they asked', instructions: 'Questions they asked me and how I answered.' },
+      { id: 'job-5', title: 'Next step', instructions: 'What was agreed as next - another call, an intro, sending materials, deadline for a decision.' },
+      { id: 'job-6', title: 'Follow-up actions', instructions: 'Exactly what I committed to do after the call and by when.' },
     ],
   },
   {
-    id: 'tpl-lecture',
-    name: 'Lecture',
-    description: 'Capture key concepts and content from lectures.',
+    id: 'tpl-learning',
+    name: 'Learning',
+    description: 'Build understanding from lectures, tutorials, and study sessions.',
     icon: '📚',
     color: '#ec4899',
-    systemPrompt: `You are a learning assistant helping someone understand content from a lecture, tutorial, or educational material.
+    systemPrompt: `You are helping the user understand content from a lecture, tutorial, or educational session. Your job is to build understanding, not just deliver answers.
 
-Your role:
-- Explain complex concepts in simple terms
-- Provide examples and analogies
-- Answer questions about the material
-- Help connect new information to existing knowledge
+EXPLANATIONS:
+- Explain concepts in the simplest terms that are still accurate.
+- Use concrete examples drawn from familiar domains.
+- Break complex ideas into smaller pieces the user can assemble.
+- Use analogies only when they genuinely clarify - not when they oversimplify. Call out when an analogy's limits matter.
+- Link new concepts to prerequisites the user probably already knows.
 
-Guidelines:
-- Adapt explanations to the apparent level of the learner
-- Use concrete examples whenever possible
-- Break down complex ideas into smaller parts
-- Be patient and supportive`,
+PROBLEM-SOLVING:
+- When <screen> shows a problem being worked through, solve it step by step - reasoning, not just the answer. The goal is for the user to follow the logic, not just get the right result.
+- For math/logic: always include a **VERIFY:** section that re-derives using a different method. This is especially important for learning because it reinforces the concept.
+
+QUESTIONS TO ASK THE INSTRUCTOR:
+- When the user asks "what should I say?", suggest a clarifying question that deepens understanding, not just one that confirms facts. "Can you walk through why X rather than Y here?" > "Did you say X?"
+
+TONE: Clear, patient, adaptive to the user's apparent level. Encouraging without being condescending. Never assume prior knowledge you haven't seen evidence of.`,
     notesTemplate: [
-      { id: 'lec-1', title: 'Topic overview', instructions: 'Main subject and context of the lecture.' },
-      { id: 'lec-2', title: 'Key concepts', instructions: 'Important concepts and definitions covered.' },
-      { id: 'lec-3', title: 'Examples', instructions: 'Examples and case studies mentioned.' },
-      { id: 'lec-4', title: 'Questions to review', instructions: 'Questions to help study and review the material.' },
+      { id: 'lec-1', title: 'Topic', instructions: 'Subject of the lecture or session and the broader context it fits into.' },
+      { id: 'lec-2', title: 'Key concepts', instructions: 'The main ideas, definitions, and formulas. Structure hierarchically if there are sub-concepts.' },
+      { id: 'lec-3', title: 'Examples and analogies', instructions: 'Illustrations that helped the concept click.' },
+      { id: 'lec-4', title: 'Questions I have', instructions: 'Things I didn\'t fully understand or want to explore further.' },
+      { id: 'lec-5', title: 'Review questions', instructions: 'Self-test questions I can use later to check if I\'ve retained the material.' },
     ],
   },
 ]
@@ -172,6 +221,25 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
       setShowTemplates(false)
       loadModes(true)
     }
+    // loadModes is declared as a plain async fn below; intentionally
+    // re-run only on isOpen transitions (re-run on every render would
+    // thrash the modal's list every re-paint).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  // Refresh the list when main broadcasts that modes changed (cloud
+  // sync pulled remote modes, or the active account database switched
+  // on login). Only active while the modal is open - no need to keep a
+  // listener alive otherwise. Calls loadModes(false) so the user's
+  // current selection is preserved if it still exists, which means
+  // mid-edit form state doesn't get wiped if a sync arrives.
+  useEffect(() => {
+    if (!isOpen) return
+    const unsub = window.raven.modes.onListUpdated(() => {
+      loadModes(false)
+    })
+    return unsub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
   useEffect(() => {
@@ -321,9 +389,23 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
   async function handleCreateFromTemplate(template: typeof TEMPLATES[0]) {
     try {
+      // Prefer the server-seeded prompt so iterations can ship via a
+      // backend deploy instead of a full Electron release. Falls back
+      // to the bundled template.systemPrompt for OSS users, offline
+      // use, or missing/errored server rows. Strips the `tpl-` prefix
+      // to match backend/src/seed.ts MODE_PROMPTS key convention.
+      const serverKey = template.id.replace(/^tpl-/, '')
+      let systemPrompt = template.systemPrompt
+      try {
+        const serverPrompt = await window.raven.prompts?.fetchModeTemplate?.(serverKey)
+        if (serverPrompt) systemPrompt = serverPrompt
+      } catch (fetchErr) {
+        log.debug('Server template prompt fetch failed, using bundled:', fetchErr)
+      }
+
       const newMode = await window.raven.modes.create({
         name: template.name,
-        systemPrompt: template.systemPrompt,
+        systemPrompt,
         icon: template.icon,
         color: template.color,
         isDefault: false,
@@ -533,12 +615,17 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
               <div className="border-t border-gray-200 pt-5 space-y-2">
                 {TEMPLATES.map((template) => {
+                  // Keys MUST match TEMPLATES[].id above - if a template id
+                  // drifts (e.g. tpl-lecture → tpl-learning), the lookup
+                  // falls through to Briefcase and the template renders
+                  // with the wrong visual. Already caught once in manual
+                  // verification; keep this list aligned on every rename.
                   const IconMap: Record<string, typeof Briefcase> = {
                     'tpl-interview': Briefcase,
                     'tpl-sales': TrendingUp,
                     'tpl-meeting': ClipboardList,
-                    'tpl-job-search': Target,
-                    'tpl-lecture': BookOpen,
+                    'tpl-job-search': Search,
+                    'tpl-learning': BookOpen,
                   }
                   const Icon = IconMap[template.id] || Briefcase
 

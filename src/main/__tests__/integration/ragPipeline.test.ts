@@ -4,10 +4,7 @@
  * Tests: upload file -> chunk -> embed (mocked model) -> store -> retrieve by similarity.
  * Uses real database (in-memory SQLite) with only the embedding model mocked.
  */
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
-
-let testDb: Database.Database
+import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 const { mockPipelineFn } = vi.hoisted(() => ({
   mockPipelineFn: vi.fn(),

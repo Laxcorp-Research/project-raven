@@ -282,4 +282,127 @@ describe('permissions', () => {
       expect(result).toBe(true)
     })
   })
+
+  // -----------------------------------------------------------------
+  // W10 — Windows microphone permission flow.
+  //
+  // Pre-2026-05-06 the entire non-darwin branch hardcoded
+  // microphone='granted', requestMicrophoneAccess()=true, and
+  // openMicrophonePreferences() silently no-op'd. So a Windows user
+  // who had toggled OFF "Microphone access" in Settings ->
+  // Privacy -> Microphone got:
+  //   (a) checkPermissionsForRecording() reporting ok=true, so
+  //   audioManager proceeded to open a stream that WASAPI
+  //   immediately rejected, with no actionable error to the user.
+  //   (b) clicking "Open Microphone Settings" in the Settings panel
+  //   (renderer permissionsOpenMicrophone IPC -> main
+  //   openMicrophonePreferences()) did literally nothing.
+  //
+  // The fix in src/main/permissions.ts gives Windows real behaviour:
+  // getPermissionStatus reads the actual mic status, requestMicrophoneAccess
+  // returns false when the OS reports 'denied' (so the audioManager
+  // fail-fast surfaces the right error), and openMicrophonePreferences
+  // launches ms-settings:privacy-microphone. These tests lock that in.
+  // -----------------------------------------------------------------
+  describe('W10 — Windows microphone permission flow', () => {
+    beforeEach(() => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    })
+
+    it('getPermissionStatus reports the OS-reported microphone status (not hardcoded granted) on Windows', () => {
+      mockGetMediaAccessStatus.mockImplementation((type: string) => {
+        if (type === 'microphone') return 'denied'
+        return 'granted'
+      })
+
+      const status = getPermissionStatus()
+
+      // Pre-fix this returned 'granted' regardless. The test would
+      // have asserted the wrong value.
+      expect(status.microphone).toBe('denied')
+      // Screen + accessibility are NOT gated on Windows the same way,
+      // so they stay 'granted'.
+      expect(status.screen).toBe('granted')
+      expect(status.accessibility).toBe('granted')
+    })
+
+    it('getPermissionStatus reports granted when Windows mic permission is granted', () => {
+      mockGetMediaAccessStatus.mockReturnValue('granted')
+
+      const status = getPermissionStatus()
+
+      expect(status.microphone).toBe('granted')
+      expect(status.screen).toBe('granted')
+      expect(status.accessibility).toBe('granted')
+    })
+
+    it('requestMicrophoneAccess returns false when Windows reports denied (callers should surface the Settings deep-link)', async () => {
+      mockGetMediaAccessStatus.mockReturnValue('denied')
+
+      const result = await requestMicrophoneAccess()
+
+      expect(result).toBe(false)
+      // Critically: must NOT call askForMediaAccess on Windows,
+      // since that API is macOS-only and would throw on Win32.
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled()
+    })
+
+    it('requestMicrophoneAccess returns true on Windows for not-determined (lets the OS prompt fire at first stream open via WASAPI)', async () => {
+      mockGetMediaAccessStatus.mockReturnValue('not-determined')
+
+      const result = await requestMicrophoneAccess()
+
+      // Windows has no in-app prompt API; the OS pops its own
+      // dialog when the audio stream is actually opened. Returning
+      // true here lets audioManager proceed to that point.
+      expect(result).toBe(true)
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled()
+    })
+
+    it('requestMicrophoneAccess returns true on Windows when already granted', async () => {
+      mockGetMediaAccessStatus.mockReturnValue('granted')
+
+      const result = await requestMicrophoneAccess()
+
+      expect(result).toBe(true)
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled()
+    })
+
+    it('checkPermissionsForRecording on Windows reports missing mic when denied (so audioManager can short-circuit)', () => {
+      mockGetMediaAccessStatus.mockImplementation((type: string) => {
+        if (type === 'microphone') return 'denied'
+        return 'granted'
+      })
+
+      const result = checkPermissionsForRecording()
+
+      // Pre-fix this returned ok=true on Windows, audioManager
+      // proceeded, WASAPI failed, user saw a vague error.
+      expect(result.ok).toBe(false)
+      expect(result.missing).toContain('microphone')
+      // Screen is hardcoded granted on Windows so it should NOT be missing.
+      expect(result.missing).not.toContain('screen')
+    })
+
+    it('openMicrophonePreferences launches ms-settings:privacy-microphone on Windows (no longer a silent no-op)', () => {
+      openMicrophonePreferences()
+
+      expect(mockOpenExternal).toHaveBeenCalledWith('ms-settings:privacy-microphone')
+    })
+
+    it('openScreenRecordingPreferences is a no-op on Windows (no equivalent OS gating)', () => {
+      openScreenRecordingPreferences()
+
+      // Confirms the macOS-only branch stays macOS-only - we do NOT
+      // want to launch some unrelated ms-settings: page when Windows
+      // doesn't gate screen capture this way.
+      expect(mockOpenExternal).not.toHaveBeenCalled()
+    })
+
+    it('openAccessibilityPreferences is a no-op on Windows (no equivalent OS gating)', () => {
+      openAccessibilityPreferences()
+
+      expect(mockOpenExternal).not.toHaveBeenCalled()
+    })
+  })
 })

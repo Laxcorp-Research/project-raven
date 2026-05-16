@@ -75,7 +75,7 @@ export function createTray(): void {
     const icon = nativeImage.createFromPath(iconPath)
 
     if (icon.isEmpty()) {
-      log.warn('Tray icon not found at', iconPath, '— creating from default')
+      log.warn('Tray icon not found at', iconPath, '- creating from default')
       tray = new Tray(nativeImage.createEmpty())
     } else {
       tray = new Tray(icon)

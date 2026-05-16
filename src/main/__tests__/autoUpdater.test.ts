@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-const { mockIpcHandlers, updaterListeners, mockAutoUpdater } = vi.hoisted(() => {
+const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp } = vi.hoisted(() => {
   const mockIpcHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const updaterListeners: Record<string, (...args: unknown[]) => void> = {}
   const mockAutoUpdater = {
@@ -14,7 +14,8 @@ const { mockIpcHandlers, updaterListeners, mockAutoUpdater } = vi.hoisted(() => 
     downloadUpdate: vi.fn().mockResolvedValue(undefined),
     quitAndInstall: vi.fn(),
   }
-  return { mockIpcHandlers, updaterListeners, mockAutoUpdater }
+  const mockApp = { isPackaged: true }
+  return { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp }
 })
 
 vi.mock('electron-updater', () => ({
@@ -22,6 +23,7 @@ vi.mock('electron-updater', () => ({
 }))
 
 vi.mock('electron', () => ({
+  app: mockApp,
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       mockIpcHandlers[channel] = handler
@@ -51,6 +53,7 @@ describe('autoUpdater', () => {
     Object.keys(mockIpcHandlers).forEach((k) => delete mockIpcHandlers[k])
     Object.keys(updaterListeners).forEach((k) => delete updaterListeners[k])
     mockAutoUpdater.checkForUpdates.mockResolvedValue(undefined)
+    mockApp.isPackaged = true
   })
 
   afterEach(() => {
@@ -126,14 +129,50 @@ describe('autoUpdater', () => {
       expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', { status: 'available', version: '2.0.0' })
     })
 
-    it('update-not-available resets to idle', () => {
+    it('update-not-available broadcasts transient up-to-date then decays to idle', () => {
       const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
       vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
 
       initAutoUpdater()
       updaterListeners['update-not-available']()
 
-      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', { status: 'idle' })
+      // Immediate: transient 'up-to-date' so UI can acknowledge the check ran.
+      expect(mockWin.webContents.send).toHaveBeenCalledWith(
+        'update:state-changed',
+        { status: 'up-to-date' },
+      )
+
+      // After the decay window, state drops back to idle.
+      vi.advanceTimersByTime(3500)
+      expect(mockWin.webContents.send).toHaveBeenCalledWith(
+        'update:state-changed',
+        { status: 'idle' },
+      )
+    })
+
+    it('update-not-available decay is cancelled by a newer event', () => {
+      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
+
+      initAutoUpdater()
+      updaterListeners['update-not-available']()
+
+      // Before decay fires, a new event supersedes the transient state.
+      updaterListeners['update-available']({ version: '9.9.9' })
+      vi.advanceTimersByTime(3500)
+
+      const sends = mockWin.webContents.send.mock.calls
+        .filter((c: unknown[]) => c[0] === 'update:state-changed')
+        .map((c: unknown[]) => c[1])
+
+      // Should have gone up-to-date → available, and NOT idle afterwards.
+      expect(sends).toEqual(
+        expect.arrayContaining([
+          { status: 'up-to-date' },
+          { status: 'available', version: '9.9.9' },
+        ]),
+      )
+      expect(sends).not.toContainEqual({ status: 'idle' })
     })
 
     it('download-progress broadcasts downloading', () => {
@@ -249,6 +288,57 @@ describe('autoUpdater', () => {
 
       vi.advanceTimersByTime(2 * 60 * 60 * 1000)
       expect(mockAutoUpdater.checkForUpdates.mock.calls.length).toBe(afterInitialCheck)
+    })
+  })
+
+  describe('unpackaged (dev) build', () => {
+    beforeEach(() => {
+      mockApp.isPackaged = false
+    })
+
+    it('does not schedule initial or periodic checks', () => {
+      initAutoUpdater()
+
+      vi.advanceTimersByTime(10_000)
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(60 * 60 * 1000)
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    })
+
+    it('update:check returns idle + broadcasts without invoking electron-updater', async () => {
+      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
+
+      initAutoUpdater()
+      const result = await mockIpcHandlers['update:check']()
+
+      expect(result).toEqual({ success: true, skipped: 'dev' })
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      expect(mockWin.webContents.send).toHaveBeenCalledWith(
+        'update:state-changed',
+        { status: 'idle' },
+      )
+    })
+
+    it('update:download returns a disabled error without invoking electron-updater', async () => {
+      initAutoUpdater()
+      const result = await mockIpcHandlers['update:download']()
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Updates disabled in development',
+      })
+      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    })
+
+    it('still registers all IPC handlers', () => {
+      initAutoUpdater()
+
+      expect(mockIpcHandlers['update:check']).toBeDefined()
+      expect(mockIpcHandlers['update:download']).toBeDefined()
+      expect(mockIpcHandlers['update:install']).toBeDefined()
+      expect(mockIpcHandlers['update:get-state']).toBeDefined()
     })
   })
 })

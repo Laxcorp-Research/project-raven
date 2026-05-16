@@ -141,13 +141,13 @@ describe('TranscriptionService', () => {
     })
 
     it('sets isActive to false', async () => {
-      ;(service as any).isActive = true
+      (service as any).isActive = true
       await service.stop()
       expect((service as any).isActive).toBe(false)
     })
 
     it('resets reconnect attempts', async () => {
-      ;(service as any).micConnection.reconnectAttempts = 3
+      (service as any).micConnection.reconnectAttempts = 3
       ;(service as any).systemConnection.reconnectAttempts = 2
       await service.stop()
       expect((service as any).micConnection.reconnectAttempts).toBe(0)
@@ -161,7 +161,7 @@ describe('TranscriptionService', () => {
     })
 
     it('formats entries with displayName for "you" speaker', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello there', speaker: 'you', timestamp: 1000, isFinal: true },
       ]
 
@@ -169,7 +169,7 @@ describe('TranscriptionService', () => {
     })
 
     it('uses "Them" for non-you speakers', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'system', text: 'Hi, nice to meet you', speaker: 'them', timestamp: 1000, isFinal: true },
       ]
 
@@ -189,7 +189,7 @@ describe('TranscriptionService', () => {
 
   describe('getFullTranscriptWithInterims', () => {
     it('includes current interim text', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello', speaker: 'you', timestamp: 1000, isFinal: true },
       ]
       ;(service as any).systemConnection.currentInterim = 'I think...'
@@ -203,7 +203,7 @@ describe('TranscriptionService', () => {
     })
 
     it('returns only finalized text when no interims', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello', speaker: 'you', timestamp: 1000, isFinal: true },
       ]
 
@@ -225,7 +225,7 @@ describe('TranscriptionService', () => {
 
   describe('getTranscriptBySource', () => {
     it('filters by mic source', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello', speaker: 'you', timestamp: 1000, isFinal: true },
         { id: '2', source: 'system', text: 'Hi', speaker: 'them', timestamp: 1001, isFinal: true },
       ]
@@ -235,7 +235,7 @@ describe('TranscriptionService', () => {
     })
 
     it('filters by system source', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello', speaker: 'you', timestamp: 1000, isFinal: true },
         { id: '2', source: 'system', text: 'Hi there', speaker: 'them', timestamp: 1001, isFinal: true },
       ]
@@ -245,7 +245,7 @@ describe('TranscriptionService', () => {
     })
 
     it('returns all sources when filter is "all"', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'Hello', speaker: 'you', timestamp: 1000, isFinal: true },
         { id: '2', source: 'system', text: 'Hi', speaker: 'them', timestamp: 1001, isFinal: true },
       ]
@@ -321,7 +321,7 @@ describe('TranscriptionService', () => {
     })
 
     it('clears currentInterim on final result', () => {
-      ;(service as any).micConnection.currentInterim = 'partial'
+      (service as any).micConnection.currentInterim = 'partial'
 
       const data = {
         channel: { alternatives: [{ transcript: 'Complete sentence' }] },
@@ -406,7 +406,7 @@ describe('TranscriptionService', () => {
 
     it('caps transcript entries at maximum', () => {
       for (let i = 0; i < 5001; i++) {
-        ;(service as any).transcriptEntries.push({
+        (service as any).transcriptEntries.push({
           id: `entry-${i}`,
           source: 'mic',
           text: `Text ${i}`,
@@ -428,7 +428,7 @@ describe('TranscriptionService', () => {
 
   describe('clearTranscript', () => {
     it('resets all state', () => {
-      ;(service as any).transcriptEntries = [
+      (service as any).transcriptEntries = [
         { id: '1', source: 'mic', text: 'text', speaker: 'you', timestamp: 1000, isFinal: true },
       ]
       ;(service as any).micConnection.currentInterim = 'interim mic'

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Download, RefreshCw, Sparkles, X } from 'lucide-react'
 
 interface UpdateState {
-  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
   version?: string
   error?: string
   progress?: number
@@ -41,7 +41,14 @@ export function UpdateBanner() {
 
   const canDismiss = updateState.status === 'available' || updateState.status === 'error'
   if (dismissed && canDismiss) return null
-  if (updateState.status === 'idle' || updateState.status === 'checking') return null
+  // Hide on idle/checking; the transient 'up-to-date' status is surfaced in
+  // GeneralTab (a user-initiated check), not as an app-wide banner - we
+  // don't want to pop a ribbon every time the hourly background check runs.
+  if (
+    updateState.status === 'idle'
+    || updateState.status === 'checking'
+    || updateState.status === 'up-to-date'
+  ) return null
 
   if (updateState.status === 'available') {
     return (
@@ -70,12 +77,13 @@ export function UpdateBanner() {
 
   if (updateState.status === 'downloading') {
     const progress = updateState.progress ?? 0
+    const versionLabel = updateState.version ? ` ${updateState.version}` : ' update'
     return (
       <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-blue-50 border-b border-blue-100">
         <Download size={16} className="text-blue-500 shrink-0 animate-pulse" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between text-xs text-blue-700 mb-1">
-            <span className="font-medium">Downloading Raven {updateState.version}...</span>
+            <span className="font-medium">Downloading Raven{versionLabel}...</span>
             <span className="text-blue-500">{progress}%</span>
           </div>
           <div className="w-full h-1 bg-blue-100 rounded-full overflow-hidden">
@@ -90,11 +98,14 @@ export function UpdateBanner() {
   }
 
   if (updateState.status === 'downloaded') {
+    const versionLabel = updateState.version ? ` ${updateState.version}` : ''
     return (
       <div className="shrink-0 flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white">
         <div className="flex items-center gap-2.5 min-w-0">
           <Download size={16} className="shrink-0" />
-          <span className="text-sm font-medium">Raven {updateState.version} is ready to install</span>
+          <span className="text-sm font-medium">
+            {versionLabel ? `Raven${versionLabel} is ready to install` : 'Update is ready to install'}
+          </span>
         </div>
         <button
           onClick={handleInstall}

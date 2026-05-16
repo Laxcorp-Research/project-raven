@@ -1,8 +1,8 @@
-import { app, BrowserWindow, screen, nativeTheme, session } from 'electron'
+import { app, BrowserWindow, screen, nativeTheme } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
-import { DASHBOARD_DEFAULT_WIDTH, DASHBOARD_DEFAULT_HEIGHT, DASHBOARD_MIN_WIDTH, DASHBOARD_MIN_HEIGHT, OVERLAY_DEFAULT_WIDTH, OVERLAY_DEFAULT_HEIGHT, OVERLAY_MIN_WIDTH, OVERLAY_MIN_HEIGHT, OVERLAY_SCREEN_EDGE_OFFSET } from './constants'
+import { DASHBOARD_DEFAULT_WIDTH, DASHBOARD_DEFAULT_HEIGHT, DASHBOARD_MIN_WIDTH, DASHBOARD_MIN_HEIGHT } from './constants'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -61,10 +61,6 @@ interface WindowBounds {
   y: number
   width: number
   height: number
-}
-
-function areBoundsEqual(a: WindowBounds, b: WindowBounds): boolean {
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
 export function clampOverlayBoundsToDisplay(bounds: WindowBounds): WindowBounds {

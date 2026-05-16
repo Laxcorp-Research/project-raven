@@ -5,7 +5,7 @@ export interface NotificationData {
   id: string
   title: string
   body: string
-  type: 'info' | 'meeting' | 'warning'
+  type: 'info' | 'meeting' | 'warning' | 'error'
   action?: { label: string; onClick: () => void }
   autoDismissMs?: number
 }
@@ -29,6 +29,7 @@ export function OverlayNotification({ notification, onDismiss }: OverlayNotifica
     info: 'border-blue-400/30',
     meeting: 'border-green-400/30',
     warning: 'border-yellow-400/30',
+    error: 'border-red-400/40',
   }
 
   const typeIcons = {
@@ -46,6 +47,12 @@ export function OverlayNotification({ notification, onDismiss }: OverlayNotifica
     warning: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" />
+      </svg>
+    ),
+    error: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M15 9l-6 6M9 9l6 6" />
       </svg>
     ),
   }

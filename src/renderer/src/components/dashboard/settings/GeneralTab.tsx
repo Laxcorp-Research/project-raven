@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAppMode } from '../../../hooks/useAppMode'
 
 interface UpdateState {
-  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
   version?: string
   error?: string
   progress?: number
@@ -14,6 +14,7 @@ export function GeneralTab() {
   const [openOnLogin, setOpenOnLogin] = useState(false)
   const [appVersion, setAppVersion] = useState('...')
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' })
+  const checkInFlightRef = useRef(false)
 
   useEffect(() => {
     async function load() {
@@ -38,6 +39,7 @@ export function GeneralTab() {
   const handleStealth = async (enabled: boolean) => {
     setStealth(enabled)
     await window.raven.windowSetStealth(enabled)
+    try { await window.raven.authUpdateProfile({ preferences: { stealthEnabled: enabled } }) } catch { /* free mode */ }
   }
 
   const handleOpenOnLogin = async (enabled: boolean) => {
@@ -46,10 +48,34 @@ export function GeneralTab() {
   }
 
   const handleCheckUpdate = useCallback(async () => {
+    // Guard against repeat clicks while a check is in flight. The disabled
+    // attribute handles the visual case for 'checking' / 'downloading' but
+    // it doesn't cover the micro-window between click → state flip, nor
+    // the case where the UI briefly re-enables while state is ambiguous.
+    // A ref-based latch is simpler than wiring a `pending` state into
+    // every dependent render.
+    if (checkInFlightRef.current) return
+    checkInFlightRef.current = true
+
+    // Main broadcasts every terminal state (up-to-date / available / error
+    // / etc.) via 'update:state-changed' already, so don't ALSO write a
+    // local error from the IPC return - doing both can produce two
+    // different error strings racing for the same state slot depending on
+    // the order of the broadcast and the IPC promise settlement.
+    //
+    // We still flip to 'checking' optimistically so the button disables
+    // immediately; the real status will arrive from the broadcast.
     setUpdateState({ status: 'checking' })
-    const result = await window.raven.updateCheck()
-    if (!result.success) {
-      setUpdateState({ status: 'error', error: result.error })
+    try {
+      await window.raven.updateCheck()
+    } catch {
+      // If the IPC layer itself fails (not the updater - the updater
+      // broadcasts 'error' via onUpdateStateChanged before the invoke
+      // rejects), fall back to idle so the button doesn't stay stuck
+      // on "Checking...". Swallowing is fine: the user can retry.
+      setUpdateState({ status: 'idle' })
+    } finally {
+      checkInFlightRef.current = false
     }
   }, [])
 
@@ -135,7 +161,7 @@ export function GeneralTab() {
           </button>
         </div>
 
-        {/* Version — only shown in pro mode (open-source users run from source) */}
+        {/* Version - only shown in pro mode (open-source users run from source) */}
         {isPro && <div className="flex items-center justify-between py-4">
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
@@ -150,7 +176,9 @@ export function GeneralTab() {
                   ? `Version ${updateState.version} is available`
                   : updateState.status === 'downloaded'
                     ? `Version ${updateState.version} is ready to install`
-                    : `You are currently using Raven version ${appVersion}`}
+                    : updateState.status === 'up-to-date'
+                      ? `You're on the latest version (${appVersion})`
+                      : `You are currently using Raven version ${appVersion}`}
               </p>
             </div>
           </div>
@@ -171,16 +199,22 @@ export function GeneralTab() {
           ) : (
             <button
               onClick={handleCheckUpdate}
-              disabled={updateState.status === 'checking' || updateState.status === 'downloading'}
+              disabled={
+                updateState.status === 'checking'
+                || updateState.status === 'downloading'
+                || updateState.status === 'up-to-date'
+              }
               className="px-3.5 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shrink-0 ml-4"
             >
               {updateState.status === 'checking'
                 ? 'Checking...'
                 : updateState.status === 'downloading'
                   ? `Downloading... ${updateState.progress ?? 0}%`
-                  : updateState.status === 'error'
-                    ? 'Check failed — retry'
-                    : 'Check for updates'}
+                  : updateState.status === 'up-to-date'
+                    ? "You're up to date"
+                    : updateState.status === 'error'
+                      ? 'Check failed - retry'
+                      : 'Check for updates'}
             </button>
           )}
         </div>}

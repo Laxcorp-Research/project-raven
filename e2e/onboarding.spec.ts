@@ -43,9 +43,8 @@ test.describe('Onboarding Flow', () => {
       .catch(() => false)
 
     if (isOnboarding) {
-      // Step indicators should be present (1, 2, 3)
-      const stepIndicators = page.locator('[class*="step"], [class*="indicator"], [class*="pagination"]')
-      // At minimum, the current step should be visible
+      // Step indicators should be present (1, 2, 3) — at minimum, the
+      // current step body should be visible.
       await expect(page.locator('body')).toBeVisible()
     }
   })

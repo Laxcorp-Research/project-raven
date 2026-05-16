@@ -584,18 +584,35 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </div>
                 </div>
 
-                <p className="text-xs text-gray-400 text-center">
-                  You can grant permissions later in System Preferences if needed.
-                </p>
+                {(() => {
+                  const allGranted = micPermission === 'granted' && screenPermission === 'granted' && accessibilityPermission === 'granted'
+                  return (
+                    <>
+                      <p className="text-xs text-gray-400 text-center">
+                        {allGranted
+                          ? 'All permissions granted. You can continue.'
+                          : 'All three permissions are required. Continue is enabled once everything above shows "Granted".'}
+                      </p>
 
-                <div className="flex gap-3 pt-1">
-                  <button onClick={handleBack} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
-                    <ArrowLeft size={14} /> Back
-                  </button>
-                  <button onClick={handleNext} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white rounded-xl text-sm font-medium shadow-sm transition-all">
-                    Next <ArrowRight size={14} />
-                  </button>
-                </div>
+                      <div className="flex gap-3 pt-1">
+                        <button onClick={handleBack} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">
+                          <ArrowLeft size={14} /> Back
+                        </button>
+                        <button
+                          onClick={handleNext}
+                          disabled={!allGranted}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-all ${
+                            allGranted
+                              ? 'bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          Next <ArrowRight size={14} />
+                        </button>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
 

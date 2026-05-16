@@ -18,11 +18,15 @@ export function ProfileTab() {
   const [resetLinkSent, setResetLinkSent] = useState(false)
   const [userPlan, setUserPlan] = useState<string>('FREE')
   const [subStatus, setSubStatus] = useState<string>('ACTIVE')
+  const [exporting, setExporting] = useState(false)
+  const [exportStatus, setExportStatus] = useState<{ kind: 'saved'; path: string } | { kind: 'error'; message: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [waitingForCancel, setWaitingForCancel] = useState(false)
 
   useEffect(() => {
     loadProfile()
+    // loadProfile is a plain async fn; only re-run when isPro flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPro])
 
   useEffect(() => {
@@ -73,7 +77,7 @@ export function ProfileTab() {
       if (result.success && result.user) {
         applyUser(result.user as { name: string | null; email: string; avatarUrl?: string | null })
       }
-    } catch { /* network error — cached data is fine */ }
+    } catch { /* network error - cached data is fine */ }
 
     if (!displayName && !userEmail) {
       const name = (await window.raven.storeGet('displayName')) as string
@@ -244,6 +248,48 @@ export function ProfileTab() {
               Update
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Export Data (GDPR / CCPA "right to portability") */}
+      {isAuthenticated && (
+        <div>
+          <h4 className="text-sm font-semibold text-gray-900 mb-1">Export your data</h4>
+          <p className="text-sm text-gray-500 mb-3">
+            Download a JSON copy of everything we store about you - profile,
+            sessions, custom modes, context files, and usage history. Sensitive
+            fields like password hashes and refresh tokens are excluded.
+          </p>
+          <button
+            onClick={async () => {
+              setExporting(true)
+              setExportStatus(null)
+              try {
+                const result = await window.raven.authExportData()
+                if (result.success && result.path) {
+                  setExportStatus({ kind: 'saved', path: result.path })
+                } else if (!result.cancelled) {
+                  setExportStatus({ kind: 'error', message: result.error || 'Export failed' })
+                }
+              } finally {
+                setExporting(false)
+              }
+            }}
+            disabled={exporting}
+            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            {exporting ? 'Exporting…' : 'Download my data'}
+          </button>
+          {exportStatus?.kind === 'saved' && (
+            <p className="mt-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1.5 inline-block">
+              Saved to {exportStatus.path}
+            </p>
+          )}
+          {exportStatus?.kind === 'error' && (
+            <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 inline-block">
+              {exportStatus.message}
+            </p>
+          )}
         </div>
       )}
 

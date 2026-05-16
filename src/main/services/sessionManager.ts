@@ -39,7 +39,7 @@ class SessionManager {
   private _queueForSync: QueueFn | null = null;
 
   /**
-   * Called by proLoader once syncService is loaded — eliminates
+   * Called by proLoader once syncService is loaded - eliminates
    * the fragile dynamic import that was silently failing.
    */
   setSyncFunction(fn: QueueFn): void {
@@ -67,17 +67,21 @@ class SessionManager {
     this.isIncognito = getSetting('incognitoMode') === true;
 
     const resolvedModeId = modeId ?? databaseService.getActiveMode()?.id ?? null;
+    const now = Date.now();
     const session: Session = {
       id: uuidv4(),
       title: this.isIncognito ? 'Incognito Session' : 'Untitled Session',
       transcript: [],
       aiResponses: [],
       summary: null,
+      insightsJson: null,
       modeId: resolvedModeId,
       durationSeconds: 0,
-      startedAt: Date.now(),
+      startedAt: now,
       endedAt: null,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      syncedAt: null,
     };
 
     if (this.isIncognito) {
@@ -338,7 +342,7 @@ class SessionManager {
 
   /**
    * Queue a session for cloud sync. Called after endSession, after
-   * insight generation, after summary edits — any local mutation.
+   * insight generation, after summary edits - any local mutation.
    */
   syncSessionToCloud(sessionId: string): void {
     if (!this._queueForSync) return
@@ -363,22 +367,64 @@ class SessionManager {
   }
 
   /**
-   * Recover in-progress session on app restart (crash recovery)
+   * Recover in-progress session(s) on app restart (crash recovery).
+   *
+   * Handles three edge cases that the single-session implementation missed:
+   *
+   * 1. Multiple orphaned sessions: in theory only one session can be
+   *    "in progress" at a time, but a DB race (two app instances, a
+   *    sync bug, manual SQL) could leave more than one with
+   *    ended_at=NULL. We close ALL of them, not just the most recent.
+   *
+   * 2. Duration from clock skew: if the host clock went backwards
+   *    since startedAt (NTP correction, VM resume), raw duration is
+   *    negative. Clamped to 0.
+   *
+   * 3. Forgotten sessions: if a user started recording then force-
+   *    quit the app without stopping and didn't reopen for days,
+   *    raw duration is measured in DAYS. Cap at 8 hours - anything
+   *    longer is obviously not a real meeting and poisons stats.
    */
   recoverSession(): Session | null {
-    const inProgress = databaseService.getInProgressSession();
-    if (inProgress) {
-      log.info('Found in-progress session:', inProgress.id);
-      const durationSeconds = Math.floor((Date.now() - inProgress.startedAt) / 1000);
+    const MAX_RECOVERED_DURATION_SECONDS = 8 * 60 * 60;
+    let firstRecovered: Session | null = null;
+    let count = 0;
+
+    // Loop via the single-fetch helper so we don't need a second
+    // "get all" DB method for a path that's only meant to drain a
+    // handful of rows on boot. Each iteration closes one session,
+    // so the next getInProgressSession call returns the next oldest
+    // or null.
+    while (true) {
+      const inProgress = databaseService.getInProgressSession();
+      if (!inProgress) break;
+
+      count += 1;
+      if (!firstRecovered) firstRecovered = inProgress;
+
+      const rawSeconds = Math.floor((Date.now() - inProgress.startedAt) / 1000);
+      const durationSeconds = Math.min(MAX_RECOVERED_DURATION_SECONDS, Math.max(0, rawSeconds));
+      if (durationSeconds !== rawSeconds) {
+        log.warn(
+          `Recovered session ${inProgress.id} raw duration ${rawSeconds}s clamped to ${durationSeconds}s`,
+        );
+      }
+
       databaseService.updateSession(inProgress.id, {
         endedAt: Date.now(),
         durationSeconds,
         title: inProgress.title === 'Untitled Session' ? 'Recovered Session' : inProgress.title,
       });
-      log.info('Recovered and closed crashed session');
-      return inProgress;
+      log.info(`Recovered and closed session ${inProgress.id}`);
     }
-    return null;
+
+    if (count > 1) {
+      log.warn(
+        `Recovered ${count} orphaned in-progress sessions on this boot - usually means only one, check for a race or sync bug if this persists`,
+      );
+    }
+
+    return firstRecovered;
   }
 }
 

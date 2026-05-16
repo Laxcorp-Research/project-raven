@@ -44,6 +44,23 @@ const FAST_MODELS: Record<AIProviderName, string> = {
   openai: 'gpt-5-mini',
 };
 
+// Deep-mode models used by the Pro path when the user toggles "Smart
+// Mode" in the overlay. Previously getProProvider() read the `aiModel`
+// setting from the local store, but the Pro UI has no way to change
+// that setting (ApiKeysTab is hidden for Pro users). The setting
+// silently stayed at its default - claude-haiku-4-5 - so the Smart
+// Mode toggle was a no-op: both Fast and Deep ended up using Haiku.
+//
+// Pinning Deep to Sonnet 4.6 here makes the toggle actually differentiate
+// quality: Haiku (~sub-1s, 'near-frontier') for live responsiveness,
+// Sonnet (better reasoning, extended thinking) when the user explicitly
+// opts into the slower/smarter path. OSS users keep picking their own
+// model via ApiKeysTab + getProviderFromStore().
+const DEEP_MODELS: Record<AIProviderName, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-5',
+};
+
 /** Open-source mode: reads user's own API keys from local store. */
 export async function getProviderFromStore(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
@@ -83,56 +100,59 @@ export async function getFastProvider(): Promise<AIProvider> {
 let cachedProProvider: AIProvider | null = null;
 let cachedProKey = '';
 
-/** Pro mode: routes through backend proxy. User's selected model at full quality. */
-export async function getProProvider(): Promise<AIProvider> {
-  const { getStore } = await import('../../store');
-  const store = getStore();
+// Pro mode is Claude-only by design. The Pro UI hides the AI-provider
+// picker (API Keys tab is filtered out in SettingsModal for isPro users),
+// so `aiProvider` in the store has no legitimate way to become 'openai'
+// for a Pro user. Pinning the three Pro helpers to 'anthropic' here is
+// defense-in-depth against: (1) store corruption or rollback from an
+// OSS install that set aiProvider='openai', (2) tampering, (3) a
+// future code path that exposes the picker and forgets to gate it by
+// plan. OSS users are unaffected - getProviderFromStore/getFastProvider
+// still read `aiProvider` honestly for self-hosted keys.
+const PRO_PROVIDER: AIProviderName = 'anthropic';
 
-  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
-  const model = store.get('aiModel', 'claude-haiku-4-5') as string;
-  const key = `pro:${provider}:${model}`;
+/** Pro mode: routes through backend proxy. Deep/Smart mode - pins to the
+ *  Deep model (Sonnet 4.6). Intentionally ignores the `aiModel` store
+ *  setting because the Pro UI has no picker for it; reading that setting
+ *  meant Deep mode silently used Haiku (same as Fast mode), making the
+ *  Smart toggle a no-op. See DEEP_MODELS + PRO_PROVIDER comments. */
+export async function getProProvider(): Promise<AIProvider> {
+  const model = DEEP_MODELS[PRO_PROVIDER];
+  const key = `pro:${PRO_PROVIDER}:${model}`;
 
   if (cachedProProvider && cachedProKey === key) return cachedProProvider;
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  cachedProProvider = new BackendProxyProvider(provider, model);
+  cachedProProvider = new BackendProxyProvider(PRO_PROVIDER, model);
   cachedProKey = key;
-  log.info(`Created proxy provider: ${provider}/${model}`);
+  log.info(`Created proxy provider (deep): ${PRO_PROVIDER}/${model}`);
   return cachedProProvider;
 }
 
 /** Pro mode: routes through backend proxy with a fast model. */
 export async function getProFastProvider(): Promise<AIProvider> {
-  const { getStore } = await import('../../store');
-  const store = getStore();
-
-  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
-  const model = FAST_MODELS[provider];
-  const key = `pro-fast:${provider}:${model}`;
+  const model = FAST_MODELS[PRO_PROVIDER];
+  const key = `pro-fast:${PRO_PROVIDER}:${model}`;
 
   if (cachedProProvider && cachedProKey === key) return cachedProProvider;
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  cachedProProvider = new BackendProxyProvider(provider, model);
+  cachedProProvider = new BackendProxyProvider(PRO_PROVIDER, model);
   cachedProKey = key;
-  log.info(`Created proxy provider (fast): ${provider}/${model}`);
+  log.info(`Created proxy provider (fast): ${PRO_PROVIDER}/${model}`);
   return cachedProProvider;
 }
 
-/** Pro mode: system endpoint for summary/title generation — bypasses AI usage limit. */
+/** Pro mode: system endpoint for summary/title generation - bypasses AI usage limit. */
 export async function getProSystemProvider(): Promise<AIProvider> {
-  const { getStore } = await import('../../store');
-  const store = getStore();
-
-  const provider = (store.get('aiProvider', 'anthropic') as AIProviderName);
-  const model = FAST_MODELS[provider];
+  const model = FAST_MODELS[PRO_PROVIDER];
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  return new BackendProxyProvider(provider, model, { systemEndpoint: true });
+  return new BackendProxyProvider(PRO_PROVIDER, model, { systemEndpoint: true });
 }

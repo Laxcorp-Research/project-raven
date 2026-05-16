@@ -88,6 +88,11 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   useEffect(() => {
     loadProfile()
     loadSyncStatus()
+    // loadProfile is a plain async function declared below, not wrapped in
+    // useCallback - intentionally re-created every render, and only
+    // invoked on mount + isPro change. Adding it to deps would either
+    // require wrapping (unrelated refactor) or cause spurious reloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPro, loadSyncStatus])
 
   async function loadProfile() {
@@ -130,6 +135,9 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       clearInterval(interval)
       window.removeEventListener('profile-updated', onProfileUpdated)
     }
+    // Same reasoning as the effect above: loadProfile isn't memoized, and
+    // the polling interval should only reset when isPro changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPro])
 
   const hasAvatar = avatarUrl || profilePicData
@@ -242,10 +250,10 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                   } catch (err) {
                     const msg = err instanceof Error ? err.message : 'Unknown error'
                     const feedback = msg.includes('401') || msg.includes('auth')
-                      ? 'Sync failed — please sign in again'
+                      ? 'Sync failed - please sign in again'
                       : msg.includes('fetch') || msg.includes('network') || !navigator.onLine
-                      ? 'Sync failed — no internet connection'
-                      : `Sync failed — ${msg.slice(0, 40)}`
+                      ? 'Sync failed - no internet connection'
+                      : `Sync failed - ${msg.slice(0, 40)}`
                     setSyncFeedback(feedback)
                     setTimeout(() => setSyncFeedback(null), 5000)
                   }
@@ -271,7 +279,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                 )}
               </button>
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {syncing ? 'Syncing...' : syncFeedback || (syncStatus && syncStatus.consecutiveFailures >= 3 ? `Sync failing (${syncStatus.consecutiveFailures} attempts) — click to retry` : 'Sync to cloud')}
+                {syncing ? 'Syncing...' : syncFeedback || (syncStatus && syncStatus.consecutiveFailures >= 3 ? `Sync failing (${syncStatus.consecutiveFailures} attempts) - click to retry` : 'Sync to cloud')}
               </div>
             </div>
           )}

@@ -78,7 +78,10 @@ export class AnthropicProvider implements AIProvider {
 
   private convertContent(
     content: string | AIContentPart[]
-  ): string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }> {
+  ): string | Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; source: { type: 'base64'; media_type: AnthropicImageMediaType; data: string } }
+  > {
     if (typeof content === 'string') return content;
 
     return content.map((part) => {
@@ -89,10 +92,19 @@ export class AnthropicProvider implements AIProvider {
         type: 'image' as const,
         source: {
           type: 'base64' as const,
-          media_type: part.mediaType,
+          // Anthropic's SDK narrows media_type to the four image/* literals
+          // they accept. Our upstream AIContentPart.mediaType is a bare
+          // string because screenshots are generated with the MIME type
+          // from the renderer; they are always one of these four. If a
+          // caller ever passes something else Anthropic will reject at
+          // the API boundary anyway - the cast is the minimum needed to
+          // stop the type from widening back to string here.
+          media_type: part.mediaType as AnthropicImageMediaType,
           data: part.base64,
         },
       };
     });
   }
 }
+
+type AnthropicImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';

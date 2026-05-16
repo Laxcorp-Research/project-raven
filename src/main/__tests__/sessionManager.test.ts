@@ -406,7 +406,12 @@ describe('SessionManager', () => {
         transcript: [],
         startedAt: Date.now() - 60000,
       };
-      mockDatabaseService.getInProgressSession.mockReturnValue(crashedSession);
+      // First call returns the session (mimicking DB state before
+      // the close). Subsequent calls return null (mimicking the DB
+      // after updateSession sets ended_at).
+      mockDatabaseService.getInProgressSession
+        .mockReturnValueOnce(crashedSession)
+        .mockReturnValue(null);
 
       const result = sessionManager.recoverSession();
 
@@ -428,7 +433,9 @@ describe('SessionManager', () => {
         transcript: [],
         startedAt: Date.now() - 60000,
       };
-      mockDatabaseService.getInProgressSession.mockReturnValue(crashedSession);
+      mockDatabaseService.getInProgressSession
+        .mockReturnValueOnce(crashedSession)
+        .mockReturnValue(null);
 
       sessionManager.recoverSession();
 
@@ -439,11 +446,76 @@ describe('SessionManager', () => {
         }),
       );
     });
+
+    it('clamps negative duration (clock skew) to zero', () => {
+      // startedAt in the future - Date.now() - startedAt would be negative.
+      // Happens on NTP correction or VM resume.
+      const crashedSession = {
+        id: 'clock-skew',
+        title: 'Untitled Session',
+        transcript: [],
+        startedAt: Date.now() + 60_000,
+      };
+      mockDatabaseService.getInProgressSession
+        .mockReturnValueOnce(crashedSession)
+        .mockReturnValue(null);
+
+      sessionManager.recoverSession();
+
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'clock-skew',
+        expect.objectContaining({ durationSeconds: 0 }),
+      );
+    });
+
+    it('caps forgotten sessions at 8 hours', () => {
+      // User force-quit 2 days ago without stopping the recording.
+      const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+      const crashedSession = {
+        id: 'forgotten',
+        title: 'Untitled Session',
+        transcript: [],
+        startedAt: twoDaysAgo,
+      };
+      mockDatabaseService.getInProgressSession
+        .mockReturnValueOnce(crashedSession)
+        .mockReturnValue(null);
+
+      sessionManager.recoverSession();
+
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'forgotten',
+        expect.objectContaining({ durationSeconds: 8 * 60 * 60 }),
+      );
+    });
+
+    it('closes multiple orphaned sessions in one pass', () => {
+      const a = {
+        id: 'orphan-a', title: 'Untitled Session', transcript: [], startedAt: Date.now() - 10_000,
+      };
+      const b = {
+        id: 'orphan-b', title: 'Untitled Session', transcript: [], startedAt: Date.now() - 20_000,
+      };
+      mockDatabaseService.getInProgressSession
+        .mockReturnValueOnce(a)
+        .mockReturnValueOnce(b)
+        .mockReturnValue(null);
+
+      sessionManager.recoverSession();
+
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledTimes(2);
+      expect(mockDatabaseService.updateSession).toHaveBeenNthCalledWith(
+        1, 'orphan-a', expect.any(Object),
+      );
+      expect(mockDatabaseService.updateSession).toHaveBeenNthCalledWith(
+        2, 'orphan-b', expect.any(Object),
+      );
+    });
   });
 
   describe('endSession (with transcript)', () => {
     it('returns ended session with duration', () => {
-      const session = sessionManager.startSession();
+      sessionManager.startSession();
 
       sessionManager.addTranscriptEntry({
         id: 'entry-1',

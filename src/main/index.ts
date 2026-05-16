@@ -22,7 +22,6 @@ import {
   createDashboardWindow,
   createOverlayWindow,
   getDashboardWindow,
-  getOverlayWindow,
   setStealthMode,
   setOverlayEnabled,
   registerStealthTrayCallbacks
@@ -34,15 +33,15 @@ import { ClaudeService } from './claudeService'
 import { registerSystemAudioHandlers } from './systemAudioNative'
 import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
-import { ensureActiveMode, createDefaultMode, resetBuiltinMode } from './services/builtinModes'
+import { ensureActiveMode, createDefaultMode, migrateGeneralAssistantPromptV21 } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
 import { inflightHandle, cooldownHandle } from './ipcThrottle'
-import { initSentry } from './sentry'
-import { registerPermissionHandlers } from './permissions'
+import { initSentry, captureException } from './sentry'
+import { registerPermissionHandlers, getPermissionStatus } from './permissions'
 import { createLogger } from './logger'
 import { isProMode } from './store'
 
@@ -84,6 +83,31 @@ app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac')
 // Sentry must init before app 'ready' event
 initSentry()
 
+// Forward renderer-side errors (React error boundary, uncaught
+// promise rejections, etc.) to the main-process Sentry SDK.
+// Without this, a component that throws during render would show
+// the ErrorBoundary fallback but the error itself would never reach
+// Sentry - we'd only know through user reports. Main-process
+// captureException already no-ops if Sentry isn't initialized
+// (e.g., in dev), so this is safe to always register.
+ipcMain.on('sentry:capture-renderer-error', (_event, payload: {
+  message: string
+  stack?: string
+  componentStack?: string
+}) => {
+  try {
+    const err = new Error(payload.message || 'Renderer error')
+    if (payload.stack) err.stack = payload.stack
+    if (payload.componentStack) {
+      // Attach React component stack as a non-standard property -
+      // Sentry's beforeSend won't strip it and it's invaluable for
+      // tracing which component threw.
+      ;(err as Error & { componentStack?: string }).componentStack = payload.componentStack
+    }
+    captureException(err)
+  } catch { /* best effort - we don't want error reporting to throw */ }
+})
+
 // Buffer any deep link URL that arrives before the async handler is registered
 let earlyOpenUrl: string | null = null
 app.on('open-url', (event, url) => {
@@ -105,12 +129,12 @@ async function initDeepLinksEarly(): Promise<void> {
       earlyOpenUrl = null
     }
   } catch {
-    // src/pro/ not present (open-source build) — skip silently
+    // src/pro/ not present (open-source build) - skip silently
   }
 }
 void initDeepLinksEarly()
 
-// Single-instance lock + second-instance handler — must run AFTER app is ready
+// Single-instance lock + second-instance handler - must run AFTER app is ready
 async function initDeepLinksReady(): Promise<void> {
   try {
     const { setupDeepLinkHandlers } = await import(
@@ -118,7 +142,7 @@ async function initDeepLinksReady(): Promise<void> {
     )
     setupDeepLinkHandlers()
   } catch {
-    // src/pro/ not present — skip
+    // src/pro/ not present - skip
   }
 }
 
@@ -173,11 +197,15 @@ function registerGlobalHotkeys(
     }
   })
 
-  // Toggle Recording: Cmd/Ctrl + R
+  // Toggle Recording: Cmd/Ctrl + R.
+  // Only the overlay subscribes to 'hotkey:toggle-recording'
+  // (OverlayWindow / OverlayToolbar). The dashboard uses its own
+  // dashboard-scoped keyboard shortcut which it relays to main via
+  // `sendHotkeyToggleRecording` → 'hotkey:toggle-recording-from-dashboard'
+  // handled in ipc.ts. The previous extra `dashboardWindow.send(...)` here
+  // was misleading - it had no subscriber and implied the dashboard
+  // received global-hotkey toggles when it didn't.
   const recordingRegistered = globalShortcut.register(`${modifier}+R`, () => {
-    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-      dashboardWindow.webContents.send('hotkey:toggle-recording')
-    }
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.webContents.send('hotkey:toggle-recording')
     }
@@ -234,7 +262,109 @@ function registerGlobalHotkeys(
     scrollDown: scrollDownRegistered
   })
 
-  // Window move (Cmd+Arrow) registered above — requires Accessibility permission on macOS
+  // Window move (Cmd+Arrow) registered above - requires Accessibility permission on macOS.
+
+  // If the PRIMARY hotkeys failed to register, the likely cause is:
+  //   - macOS Accessibility permission not granted (common on first run)
+  //   - Another app already owns the accelerator (e.g. Cmd+R in a
+  //     running browser foregrounded over Raven)
+  // Either way, silent failure is the worst outcome - the user hits
+  // Cmd+R, nothing happens, they assume the app is broken. Surface a
+  // one-time notification that tells them what to check.
+  const failedPrimary =
+    !recordingRegistered || !visibilityRegistered || !aiRegistered
+  if (failedPrimary) {
+    const failed: string[] = []
+    if (!recordingRegistered) failed.push(`${modifier}+R (toggle recording)`)
+    if (!visibilityRegistered) failed.push(`${modifier}+\\ (toggle visibility)`)
+    if (!aiRegistered) failed.push(`${modifier}+Return (ask Raven)`)
+    const payload = {
+      id: `hotkey-fail-${Date.now()}`,
+      title: 'Some shortcuts are disabled',
+      body: process.platform === 'darwin'
+        ? `Couldn't register ${failed.join(', ')}. Grant Raven Accessibility permission in System Settings → Privacy & Security → Accessibility, or quit the other app that owns these shortcuts.`
+        : `Couldn't register ${failed.join(', ')}. Another app may already own the shortcut.`,
+      type: 'warning' as const,
+      autoDismissMs: 12_000,
+    }
+    try {
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send('overlay:notification', payload)
+      }
+      if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+        dashboardWindow.webContents.send('overlay:notification', payload)
+      }
+    } catch (err) {
+      log.warn('Failed to broadcast hotkey-failure notification:', err)
+    }
+  }
+}
+
+// Recall SDK's meeting auto-detection (Zoom/Meet/Teams) reads window
+// titles via Accessibility APIs. `requestPermission('accessibility')` at
+// SDK init is fire-and-forget - it doesn't tell us the result and doesn't
+// re-prompt on subsequent launches. So if a user revoked Accessibility
+// after onboarding (or denied it the first time and ignored the system
+// prompt), Raven will keep logging "meeting detection active" while the
+// feature silently does nothing. Check the live TCC state once per
+// session and surface a warning so the user knows why detection isn't
+// working + how to fix it.
+//
+// Only fires in Pro mode on darwin - free users don't have meeting
+// detection, and Windows/Linux don't gate window-title access this way.
+function warnIfProAccessibilityLimited(
+  overlayWindow: BrowserWindow | null,
+  dashboardWindow: BrowserWindow | null
+): void {
+  if (process.platform !== 'darwin') return
+  if (!isProMode()) return
+
+  const status = getPermissionStatus()
+  if (status.accessibility === 'granted') return
+
+  log.warn('Accessibility denied - Recall meeting auto-detection will not work')
+  // No autoDismissMs here. Unlike transient error/crash toasts, this
+  // warns about a persistent degraded-state and needs to survive being
+  // occluded by macOS's own Accessibility Access modal (which Recall's
+  // requestPermission triggers at startup). Stays until the user X's
+  // it; if they grant Accessibility, the check skips the broadcast
+  // entirely on next launch.
+  const payload = {
+    id: `accessibility-warn-${Date.now()}`,
+    title: 'Meeting auto-detection disabled',
+    body: "Raven can't auto-detect Zoom/Meet/Teams meetings without Accessibility permission. Grant access in System Settings → Privacy & Security → Accessibility to enable.",
+    type: 'warning' as const,
+  }
+
+  // webContents.send doesn't queue - if the overlay's React app hasn't
+  // mounted and wired up `window.raven.on('overlay:notification', ...)`
+  // yet, the message is silently dropped. This function runs right after
+  // window creation in boot(), which is well before the renderer bundle
+  // has finished loading + mounting. Defer the send until did-finish-load
+  // + 1s grace for React's useEffect to run. The identical pattern would
+  // benefit the hotkey-failure notification above, but we're only
+  // touching this one since it's the one we actively verified was
+  // getting lost.
+  const broadcast = (win: BrowserWindow) => {
+    try {
+      if (!win.isDestroyed()) {
+        win.webContents.send('overlay:notification', payload)
+      }
+    } catch (err) {
+      log.warn('Failed to broadcast accessibility-warning notification:', err)
+    }
+  }
+  const scheduleBroadcast = (win: BrowserWindow | null) => {
+    if (!win || win.isDestroyed()) return
+    const fire = () => setTimeout(() => broadcast(win), 1_000)
+    if (win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', fire)
+    } else {
+      fire()
+    }
+  }
+  scheduleBroadcast(overlayWindow)
+  scheduleBroadcast(dashboardWindow)
 }
 
 
@@ -279,11 +409,12 @@ function boot(): void {
     }
 
     registerGlobalHotkeys(dashboard, overlay)
+    warnIfProAccessibilityLimited(overlay, dashboard)
   }
 
-  ipcMain.on('onboarding:completed', () => {
-    log.info('Onboarding completed — showing overlay')
-    createDefaultMode()
+  ipcMain.on('onboarding:completed', async () => {
+    log.info('Onboarding completed - showing overlay')
+    await createDefaultMode()
     const stealthPref = getSetting('stealthEnabled')
     if (stealthPref) {
       setStealthMode(true)
@@ -291,6 +422,7 @@ function boot(): void {
     setOverlayEnabled(true)
     overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
+    warnIfProAccessibilityLimited(overlay, dashboard)
     setTrayOnboarding(false)
   })
 
@@ -323,7 +455,7 @@ app.whenReady().then(() => {
     try {
       const markerPath = join(process.resourcesPath, '.raven-pro')
       if (existsSync(markerPath)) appMode = 'pro'
-    } catch { /* not present — stay free */ }
+    } catch { /* not present - stay free */ }
   }
   saveSetting('mode', appMode)
   log.info(`App mode: ${appMode}`)
@@ -332,7 +464,7 @@ app.whenReady().then(() => {
   if (app.isPackaged && appMode === 'pro') {
     const initVersion = store.get('_packagedInit' as keyof import('./store').LocalSettings) as string | undefined
     if (!initVersion) {
-      log.info('First packaged run — clearing stale dev settings')
+      log.info('First packaged run - clearing stale dev settings')
       store.set('proOnboardingComplete' as keyof import('./store').LocalSettings, false)
       store.set('proOnboardingStep' as keyof import('./store').LocalSettings, '')
       store.set('onboardingComplete' as keyof import('./store').LocalSettings, false)
@@ -350,6 +482,10 @@ app.whenReady().then(() => {
   // Initialize database
   databaseService.initialize()
   ensureActiveMode()
+  // One-time content migration: upgrade pre-v2.1 General Assistant mode
+  // to the new prompt + notesTemplate if the user hasn't edited it.
+  // See src/main/services/builtinModes.ts for match logic.
+  migrateGeneralAssistantPromptV21()
 
   registerIpcHandlers()
   registerSystemAudioHandlers()
@@ -399,9 +535,20 @@ app.whenReady().then(() => {
       BrowserWindow.getAllWindows().forEach((win) => {
         win.webContents.send('sessions:list-updated')
       })
+      // Still fire-and-forget at the IPC return boundary so the UI
+      // isn't held on network latency, but the in-flight DELETE is
+      // now tracked via the session_tombstones table. A failure
+      // leaves the tombstone unconfirmed and the periodic sync cycle
+      // retries until the server actually loses the row. See the
+      // modes counterpart for the long-form rationale.
       if (isProMode()) {
         import(/* @vite-ignore */ '../pro/main/syncService')
-          .then(({ deleteSessionFromBackend }) => deleteSessionFromBackend(id))
+          .then(async ({ deleteSessionFromBackend }) => {
+            const confirmed = await deleteSessionFromBackend(id)
+            if (confirmed) {
+              databaseService.confirmSessionTombstone(id)
+            }
+          })
           .catch((err) => ipcLog.warn('Failed to delete session from backend:', err))
       }
     }
@@ -469,10 +616,24 @@ app.whenReady().then(() => {
       .catch((err) => ipcLog.warn('Mode sync failed:', err))
   }
 
+  // Fire the backend DELETE and, if it succeeds, confirm the tombstone
+  // that deleteMode() wrote. Still fire-and-forget at the IPC boundary
+  // so the UI isn't held on network latency, but now the in-flight
+  // fetch is tracked: failures leave the tombstone unconfirmed and the
+  // periodic sync cycle (retryUnconfirmedModeDeletes) will retry until
+  // the server actually loses the row. Before this fix, any failure
+  // (dev HMR interruption, 5xx, offline at delete time) silently left
+  // the server with an orphan row that pull would resurrect on next
+  // boot.
   function deleteModeFromCloud(modeId: string): void {
     if (!isProMode()) return
     import(/* @vite-ignore */ '../pro/main/syncService')
-      .then(({ deleteModeFromBackend }) => deleteModeFromBackend(modeId))
+      .then(async ({ deleteModeFromBackend }) => {
+        const confirmed = await deleteModeFromBackend(modeId)
+        if (confirmed) {
+          databaseService.confirmModeTombstone(modeId)
+        }
+      })
       .catch((err) => ipcLog.warn('Mode delete sync failed:', err))
   }
 
@@ -538,20 +699,6 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('modes:reset-builtin', async (_event, id: string) => {
-    try {
-      const success = resetBuiltinMode(id)
-      if (success) {
-        syncModeToCloud()
-        return databaseService.getMode(id)
-      }
-      return null
-    } catch (error) {
-      ipcLog.error('modes:reset-builtin error:', error)
-      return null
-    }
-  })
-
   ipcMain.handle('modes:get-active', async () => {
     try {
       return databaseService.getActiveMode()
@@ -570,10 +717,30 @@ app.whenReady().then(() => {
     }
   })
 
+  // Fetch a built-in mode's canonical systemPrompt from the backend.
+  // Called from the renderer at mode-creation time (Templates picker).
+  // Pro-only; returns null for OSS users so the renderer falls back
+  // to its bundled template.systemPrompt. Returns null on any fetch
+  // failure for the same reason.
+  //
+  // Key convention matches backend/src/seed.ts MODE_PROMPTS: bare keys
+  // like 'interview', 'sales', 'meeting', 'job-search', 'learning',
+  // 'general'. The client strips its `tpl-` prefix before calling.
+  ipcMain.handle('prompts:fetch-mode-template', async (_event, key: string) => {
+    if (!isProMode()) return null
+    try {
+      const { getServerModePrompt } = await import('../pro/main/promptService')
+      return await getServerModePrompt(key)
+    } catch (error) {
+      ipcLog.debug('prompts:fetch-mode-template error:', error)
+      return null
+    }
+  })
+
   // ---- Context / RAG ----
 
   ipcMain.handle('context:upload-file', async (event, modeId: string, filePath: string, fileName: string, fileSize: number) => {
-    // Inflight guard — one upload at a time
+    // Inflight guard - one upload at a time
     if ((globalThis as Record<string, unknown>).__uploadInFlight) {
       return { success: false, error: 'An upload is already in progress' }
     }
@@ -636,9 +803,20 @@ app.whenReady().then(() => {
       const { deleteContextFile } = await import('./services/ragService')
       const result = deleteContextFile(fileId)
 
+      // deleteContextFile already wrote the tombstone transactionally.
+      // Fire-and-forget the backend DELETE at the IPC boundary to keep
+      // the UI snappy, but track the outcome: on success confirm the
+      // tombstone so the sync retry loop stops hammering. On failure
+      // leave it unconfirmed and let runSyncCycle retry. See the
+      // mode/session equivalents for the full rationale.
       if (isProMode() && result) {
         import(/* @vite-ignore */ '../pro/main/syncService')
-          .then(({ deleteContextFileFromCloud }) => deleteContextFileFromCloud(modeId, fileId))
+          .then(async ({ deleteContextFileFromCloud }) => {
+            const confirmed = await deleteContextFileFromCloud(modeId, fileId)
+            if (confirmed) {
+              databaseService.confirmContextFileTombstone(fileId)
+            }
+          })
           .catch((err) => ipcLog.warn('Context cloud delete failed:', err))
       }
 
@@ -780,13 +958,15 @@ app.whenReady().then(() => {
   ipcMain.handle('transcription:start-test', async (event, deviceId: string) => {
     const sender = event.sender
 
-    // Clean up any previous test session
+    // Clean up any previous test session. Swallow close errors - we're
+    // about to drop the reference anyway, so a failed close just means the
+    // underlying socket/transcriber was already torn down.
     if (testTranscriptionWs) {
-      try { testTranscriptionWs.close() } catch {}
+      try { testTranscriptionWs.close() } catch { /* already-closed, ignore */ }
       testTranscriptionWs = null
     }
     if (testAssemblyAITranscriber) {
-      try { await testAssemblyAITranscriber.close() } catch {}
+      try { await testAssemblyAITranscriber.close() } catch { /* already-closed, ignore */ }
       testAssemblyAITranscriber = null
     }
     testTranscriptionProvider = null
@@ -992,6 +1172,22 @@ app.on('before-quit', () => {
   audioManager.shutdown().catch((err) => {
     log.error('Shutdown error:', err)
   })
+
+  // Shut down the Recall SDK if it was initialized in pro mode. Without
+  // this, the SDK's native process gets SIGKILLed by the OS during
+  // quitAndInstall(); on Windows that has left GStreamer / audio-device
+  // locks held into the NSIS relaunch. Fire-and-forget to match
+  // audioManager above - we don't want to block quit, just give the SDK
+  // a chance to tear down cleanly.
+  if (isProMode()) {
+    import(/* @vite-ignore */ '../pro/main/recallService')
+      .then(async ({ getRecallService, isRecallSdkReady }) => {
+        if (isRecallSdkReady()) {
+          await getRecallService().shutdown()
+        }
+      })
+      .catch((err) => log.warn('Recall shutdown error (non-fatal):', err))
+  }
 
   // Force-close the dashboard window (bypass the hide-on-close behavior)
   const dashboard = getDashboardWindow()

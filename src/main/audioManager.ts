@@ -1,5 +1,5 @@
 /**
- * AudioManager — main process coordinator for recording lifecycle.
+ * AudioManager - main process coordinator for recording lifecycle.
  * Owns the full pipeline: native capture -> AEC -> transcription.
  *
  * In pro mode, tries Recall SDK first (handles both capture + transcription).
@@ -11,7 +11,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { getSetting, isProMode } from './store'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
-import { setProcessedAudioCallback, startCapture, stopCapture } from './systemAudioNative'
+import { setProcessedAudioCallback, setCaptureExitCallback, startCapture, stopCapture } from './systemAudioNative'
 import { updateTrayRecordingState } from './trayManager'
 import { checkPermissionsForRecording, requestMicrophoneAccess } from './permissions'
 import { createLogger } from './logger'
@@ -30,6 +30,17 @@ interface TranscriptionProvider {
   setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void
 }
 
+// If no AEC-processed audio chunk has arrived in this long during an
+// active native-capture session, something is likely wrong: native
+// helper wedged, macOS TCC permission revoked mid-session but the
+// helper hasn't exited, AEC module stuck, etc. Surface a warning so
+// the user can stop + restart rather than silently recording nothing.
+// 10 min is the threshold used in the launch plan; a quiet meeting
+// still produces continuous silence-audio chunks, so legitimate silence
+// doesn't trip this - only the absence of ANY chunks does.
+const AUDIO_SILENCE_WARN_THRESHOLD_MS = 10 * 60 * 1000
+const AUDIO_SILENCE_CHECK_INTERVAL_MS = 60 * 1000
+
 export class AudioManager {
   private isRecording = false
   private isStarting = false
@@ -45,6 +56,11 @@ export class AudioManager {
   private transcriptionStartupAbort: AbortController | null = null
   private transcriptionRetryTimer: ReturnType<typeof setTimeout> | null = null
   private proSessionStarted = false
+  // Silence watchdog: bookkeeping for F3. Only meaningful on the native
+  // capture path (Recall sessions bypass setProcessedAudioCallback).
+  private lastAudioChunkAt: number | null = null
+  private silenceCheckTimer: ReturnType<typeof setInterval> | null = null
+  private silenceWarningSent = false
 
   constructor() {
     this.transcriptionService = new TranscriptionService()
@@ -61,6 +77,13 @@ export class AudioManager {
       if (!this.isRecording) return
 
       this.chunkCount++
+      // Stamp every chunk for the silence watchdog and clear any prior
+      // "audio has been quiet" notification state. If audio had stopped
+      // and then resumed, the user deserves a clean slate - a fresh
+      // silence period can then produce a fresh warning.
+      this.lastAudioChunkAt = Date.now()
+      this.silenceWarningSent = false
+
       if (this.chunkCount <= 3) {
         log.debug(`AEC-processed chunk from ${source}, size: ${buffer.byteLength}`)
       }
@@ -72,6 +95,33 @@ export class AudioManager {
         this.activeProvider.sendAudio(buffer, source)
       }
     })
+
+    // If the native capture child dies MID-SESSION (not as a result of
+    // user-initiated stopCapture), stop the recording state and push an
+    // error notification so the user isn't staring at a "Recording" UI
+    // with no audio actually flowing. Common triggers:
+    //   - macOS Screen Recording permission revoked in System Settings
+    //     (SCStream fails, Swift helper exits with status 1)
+    //   - Swift audiocapture binary hit a fatal error or OOM
+    //   - Windows native module crashed
+    // The callback only fires for UNEXPECTED exits - stopCapture() sets
+    // an `expectingCaptureExit` flag in systemAudioNative that suppresses
+    // this path, so normal user stops don't trip a spurious error toast.
+    setCaptureExitCallback((reason) => {
+      if (!this.isRecording || this.usingRecall) return
+
+      const hintsAtPermission = /permission|SCStream|AVAuthorization|TCC/i.test(reason.stderrTail)
+      const body = hintsAtPermission
+        ? 'The audio capture process stopped. This usually means macOS revoked Screen Recording or Microphone access for Raven. Check System Settings → Privacy & Security and re-grant, then restart the app.'
+        : 'The audio capture process exited unexpectedly and the session was stopped. Check the app logs for details.'
+
+      log.error('Capture died mid-session:', reason)
+      this.broadcastError('Recording stopped', body)
+      this.stopRecordingInternal({ reason: 'CAPTURE_DIED' }).catch((err) =>
+        log.error('Failed to stop after capture death:', err),
+      )
+    })
+
     log.info('Audio pipeline configured')
   }
 
@@ -87,7 +137,7 @@ export class AudioManager {
   private registerIpcHandlers(): void {
     ipcMain.on('audio:stop-from-limit', () => {
       if (!this.isRecording) return
-      log.info('AI limit reached — auto-stopping recording')
+      log.info('AI limit reached - auto-stopping recording')
       this.stopRecordingInternal({ reason: 'SESSION_TIME_LIMIT' })
         .catch((err) => log.error('Failed to stop recording on AI limit:', err))
     })
@@ -165,7 +215,7 @@ export class AudioManager {
             log.error('Transcription failed to start:', result.error)
           }
         } else {
-          log.warn('No Deepgram API key — transcription disabled')
+          log.warn('No Deepgram API key - transcription disabled')
         }
 
         const captureStarted = startCapture()
@@ -180,6 +230,14 @@ export class AudioManager {
       this.recordingStartTime = Date.now()
       this.proSessionStarted = false
       this.broadcastRecordingState(true)
+      // Start the silence watchdog for native-capture sessions. Skipped
+      // for Recall sessions because audio doesn't flow through our
+      // setProcessedAudioCallback on that path - the Recall SDK has its
+      // own error events (setCaptureExitCallback above) that cover the
+      // equivalent failure modes.
+      if (!this.usingRecall) {
+        this.startSilenceWatchdog()
+      }
       log.info(
         'Recording started',
         deviceId ? `device: ${deviceId}` : '(default)'
@@ -294,9 +352,10 @@ export class AudioManager {
     }
   }
 
-  private async stopRecordingInternal(opts: { reason: 'USER_STOP' | 'TRANSCRIPTION_FAILED' | 'SESSION_TIME_LIMIT' }): Promise<{ success: boolean; duration: number }> {
+  private async stopRecordingInternal(opts: { reason: 'USER_STOP' | 'TRANSCRIPTION_FAILED' | 'SESSION_TIME_LIMIT' | 'CAPTURE_DIED' }): Promise<{ success: boolean; duration: number }> {
     this.clearSessionTimer()
     this.clearTranscriptionRetryLoop()
+    this.stopSilenceWatchdog()
     this.broadcastTranscriptionConnectionState({ phase: 'idle', provider: null, retryCount: 0, maxRetries: 3, nextRetryAt: null })
 
     if (!this.usingRecall) {
@@ -500,7 +559,7 @@ export class AudioManager {
       if (chain.ok) return
 
       if (retries >= maxRetries) {
-        log.error('All transcription providers failed after retries — auto-stopping recording')
+        log.error('All transcription providers failed after retries - auto-stopping recording')
         await this.stopRecordingInternal({ reason: 'TRANSCRIPTION_FAILED' })
         return
       }
@@ -579,14 +638,32 @@ export class AudioManager {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Session check failed'
-      const isSessionLimit = message.toLowerCase().includes('session limit')
-        || message.toLowerCase().includes('daily session')
+      const lower = message.toLowerCase()
+      const isSessionLimit = lower.includes('session limit')
+        || lower.includes('daily session')
       if (isSessionLimit) {
         return { allowed: false, error: message, code: 'SESSION_LIMIT' }
       }
-      // Network error or pro module unavailable — allow one grace session
-      // with a short time limit so we don't silently bypass billing.
-      log.warn('Session check failed (backend may be unreachable) — allowing grace session:', message)
+      // Auth-class failures must NOT fall into the "backend unreachable"
+      // grace path - they're a different failure mode. The backend IS
+      // reachable; we just don't have a valid token. Granting grace
+      // here lets a logged-out user start a recording that can't
+      // possibly transcribe (caught in staging: Recall/AssemblyAI/
+      // Deepgram all return 401 with no token, and the audio pipeline
+      // runs for 38s before auto-stopping on provider exhaustion -
+      // user sees a "Listening..." indicator capturing silence).
+      // Deny + surface a clear re-auth code so the UI can redirect to
+      // login.
+      const isAuthError = lower.includes('missing authorization token')
+        || lower.includes('session expired')
+        || lower.includes('unauthorized')
+      if (isAuthError) {
+        log.warn('Session check blocked - auth required:', message)
+        return { allowed: false, error: 'Please sign in to start a recording.', code: 'AUTH_REQUIRED' }
+      }
+      // True network / backend outage - keep the grace path so a flaky
+      // connection doesn't lock the user out mid-meeting.
+      log.warn('Session check failed (backend may be unreachable) - allowing grace session:', message)
       return { allowed: true, sessionMaxSeconds: 120, code: 'BACKEND_UNAVAILABLE' }
     }
   }
@@ -597,7 +674,7 @@ export class AudioManager {
 
     this.sessionTimer = setTimeout(() => {
       if (!this.isRecording) return
-      log.info('Free-tier session time limit reached — auto-stopping')
+      log.info('Free-tier session time limit reached - auto-stopping')
 
       const payload = { type: 'SESSION_TIME_LIMIT' }
       try {
@@ -630,7 +707,7 @@ export class AudioManager {
       )
 
       if (!isRecallSdkReady()) {
-        log.info('Recall SDK not ready — using native capture')
+        log.info('Recall SDK not ready - using native capture')
         return false
       }
 
@@ -643,7 +720,7 @@ export class AudioManager {
       let result
       if (meetings.length > 0) {
         const meeting = meetings[meetings.length - 1]
-        log.info(`Detected meeting: ${meeting.platform || 'unknown'} — using meeting capture`)
+        log.info(`Detected meeting: ${meeting.platform || 'unknown'} - using meeting capture`)
         result = await recallService.start(meeting.windowId)
       } else {
         result = await recallService.start()
@@ -680,7 +757,7 @@ export class AudioManager {
     }
 
     if (!deepgramKey) {
-      log.error('No Deepgram key available for fallback — transcription disabled')
+      log.error('No Deepgram key available for fallback - transcription disabled')
       return
     }
 
@@ -709,18 +786,88 @@ export class AudioManager {
     }
   }
 
-  private broadcastError(message: string): void {
-    const payload = { id: `sys-${Date.now()}`, message, type: 'error' }
+  /**
+   * Push a user-visible error notification to the overlay + dashboard.
+   * Uses the same 'overlay:notification' channel the preload whitelist
+   * permits (see src/preload/index.ts:364-374) and matches
+   * OverlayNotification.NotificationData's shape. Before the fix this
+   * sent to a bare 'notification' channel with a { message } payload -
+   * preload rejected the channel and the overlay's listener would have
+   * received nothing, so every "error notification" produced by this
+   * method was silently dropped.
+   */
+  broadcastError(title: string, body: string): void {
+    this.broadcastNotification({ title, body, type: 'error', autoDismissMs: 8000 })
+  }
+
+  /**
+   * Non-fatal user-visible warning (yellow pill instead of red). Same
+   * channel + shape as broadcastError; kept separate so the call-site
+   * can read clearly whether a given condition is "something is broken,
+   * act now" or "heads-up, you may want to act".
+   */
+  broadcastWarning(title: string, body: string, autoDismissMs = 15000): void {
+    this.broadcastNotification({ title, body, type: 'warning', autoDismissMs })
+  }
+
+  private broadcastNotification(payload: {
+    title: string
+    body: string
+    type: 'error' | 'warning' | 'info'
+    autoDismissMs: number
+  }): void {
+    const withId = { id: `sys-${Date.now()}`, ...payload }
     try {
       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-        this.overlayWindow.webContents.send('notification', payload)
+        this.overlayWindow.webContents.send('overlay:notification', withId)
       }
-    } catch { /* ignore */ }
+    } catch { /* window torn down - ignore */ }
     try {
       if (this.dashboardWindow && !this.dashboardWindow.isDestroyed()) {
-        this.dashboardWindow.webContents.send('notification', payload)
+        this.dashboardWindow.webContents.send('overlay:notification', withId)
       }
-    } catch { /* ignore */ }
+    } catch { /* window torn down - ignore */ }
+  }
+
+  /**
+   * Silence watchdog: once per minute while recording, check whether any
+   * AEC-processed audio chunk has arrived in the last
+   * AUDIO_SILENCE_WARN_THRESHOLD_MS. If not, broadcast a warning once
+   * per silence period and leave it at that - the lastAudioChunkAt stamp
+   * resets as soon as audio resumes, which also resets silenceWarningSent,
+   * so a subsequent silence period can trip another warning.
+   *
+   * Scoped to native capture because Recall sessions don't flow through
+   * setProcessedAudioCallback - the SDK's own error events cover that
+   * path. See the usingRecall check at the watchdog start site.
+   */
+  private startSilenceWatchdog(): void {
+    this.stopSilenceWatchdog() // defensive: don't leak intervals on restart
+    this.lastAudioChunkAt = Date.now() // grace period - don't warn immediately
+    this.silenceWarningSent = false
+    this.silenceCheckTimer = setInterval(() => {
+      if (!this.isRecording || this.silenceWarningSent) return
+      if (this.lastAudioChunkAt === null) return
+      const elapsed = Date.now() - this.lastAudioChunkAt
+      if (elapsed < AUDIO_SILENCE_WARN_THRESHOLD_MS) return
+
+      this.silenceWarningSent = true
+      const minutes = Math.round(elapsed / 60_000)
+      log.warn(`Audio silence watchdog tripped - no chunks for ~${minutes} min`)
+      this.broadcastWarning(
+        'Audio has gone quiet',
+        `No audio has reached Raven in about ${minutes} minutes. If this is unexpected, try stopping and restarting the recording.`,
+      )
+    }, AUDIO_SILENCE_CHECK_INTERVAL_MS)
+  }
+
+  private stopSilenceWatchdog(): void {
+    if (this.silenceCheckTimer) {
+      clearInterval(this.silenceCheckTimer)
+      this.silenceCheckTimer = null
+    }
+    this.lastAudioChunkAt = null
+    this.silenceWarningSent = false
   }
 
   async shutdown(): Promise<void> {

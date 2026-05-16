@@ -1,5 +1,5 @@
 /**
- * TranscriptionService — main process.
+ * TranscriptionService - main process.
  * Opens a WebSocket to Deepgram, streams audio chunks, receives transcript events.
  * Emits transcript updates to the overlay window.
  */
@@ -50,6 +50,14 @@ export class TranscriptionService {
   private apiKey: string = '';
   private transcriptEntries: TranscriptEntry[] = [];
   private isActive = false;
+  // With Deepgram diarize=true, the mic stream may contain multiple
+  // speaker IDs when remote voices bleed through the local mic (e.g.,
+  // FaceTime audio played through the speaker is picked up by the
+  // microphone). Whichever speaker ID shows up FIRST on the mic
+  // stream is assumed to be the local user - heuristic, but better
+  // than labeling everything "you". Reset between recording sessions
+  // in start().
+  private localMicSpeakerId: number | null = null;
 
   setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void {
     this.dashboardWindow = dashboard;
@@ -68,6 +76,9 @@ export class TranscriptionService {
 
     log.info('Starting both connections...');
     this.isActive = true;
+    // Reset diarization state for the new session - last session's
+    // "speaker 0" is not the same person as this session's.
+    this.localMicSpeakerId = null;
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
@@ -75,7 +86,7 @@ export class TranscriptionService {
     ]);
 
     log.info(
-      `Connection results — Mic: ${micResult.success}, System: ${systemResult.success}`
+      `Connection results - Mic: ${micResult.success}, System: ${systemResult.success}`
     );
 
     if (!micResult.success && !systemResult.success) {
@@ -105,12 +116,38 @@ export class TranscriptionService {
         smart_format: 'true',
         interim_results: 'true',
         punctuate: 'true',
+        // Speaker diarization. On the mic stream this lets us tell
+        // apart the local user from remote voices that leak through
+        // (FaceTime, in-person meetings where the other party is
+        // audible through the mic). Without it, everything on mic is
+        // labeled "you" and both sides of a FaceTime call merge.
+        // nova-3 supports diarize for all languages it transcribes.
+        diarize: 'true',
         sample_rate: String(AUDIO_SAMPLE_RATE),
         channels: String(AUDIO_CHANNELS),
         encoding: 'linear16',
         endpointing: String(DEEPGRAM_ENDPOINTING_MS),
         utterance_end_ms: String(DEEPGRAM_UTTERANCE_END_MS),
       });
+
+      // Inject keyterms (brand name + user vocabulary) for nova-3's
+      // Keyword Prompting feature. Free-tier path talks directly to
+      // Deepgram so we can't share the backend's sanitizer - replicate
+      // the mandatory-"Raven"-first + dedupe + 100-cap contract here.
+      const vocabString = (getSetting('vocabulary' as keyof import('./store').LocalSettings) as string) || '';
+      const userTerms = vocabString.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+      const seen = new Set<string>();
+      const finalTerms: string[] = [];
+      for (const term of ['Raven', ...userTerms]) {
+        const key = term.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        finalTerms.push(term);
+        if (finalTerms.length >= 100) break;
+      }
+      // URLSearchParams repeats a key for each appended value - which is
+      // exactly how Deepgram wants `keyterms` passed.
+      for (const term of finalTerms) params.append('keyterms', term);
 
       const url = `${DEEPGRAM_WS_BASE}?${params.toString()}`;
 
@@ -121,7 +158,7 @@ export class TranscriptionService {
       return new Promise((resolve) => {
         const connectionTimeout = setTimeout(() => {
           log.error(`${source} WebSocket connection timed out after 10s`);
-          try { state.ws?.close(); } catch {}
+          try { state.ws?.close(); } catch { /* already-closed, ignore */ }
           resolve({ success: false });
         }, 10_000);
 
@@ -220,7 +257,18 @@ export class TranscriptionService {
     }
   }
 
-  private handleTranscriptResult(data: { channel?: { alternatives?: Array<{ transcript?: string }> }; is_final?: boolean }, source: AudioSource): void {
+  private handleTranscriptResult(
+    data: {
+      channel?: {
+        alternatives?: Array<{
+          transcript?: string
+          words?: Array<{ speaker?: number }>
+        }>
+      }
+      is_final?: boolean
+    },
+    source: AudioSource,
+  ): void {
     log.debug(`handleTranscriptResult called for ${source}`);
     
     const transcript = data.channel?.alternatives?.[0]?.transcript;
@@ -233,7 +281,27 @@ export class TranscriptionService {
 
     const isFinal = !!data.is_final;
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
-    const speaker: 'you' | 'them' = source === 'mic' ? 'you' : 'them';
+
+    // Speaker attribution. System-stream audio is always the remote
+    // party, regardless of diarize output (OS system audio is by
+    // definition not the local user). Mic stream uses diarize: the
+    // first speaker_id seen wins the "you" label; any different
+    // speaker_id after that is a remote voice leaking through the
+    // microphone (FaceTime speaker feedback, in-person, etc.).
+    let speaker: 'you' | 'them' = source === 'mic' ? 'you' : 'them';
+    if (source === 'mic') {
+      const words = data.channel?.alternatives?.[0]?.words;
+      const firstWordSpeaker = words?.[0]?.speaker;
+      if (typeof firstWordSpeaker === 'number') {
+        if (this.localMicSpeakerId === null) {
+          this.localMicSpeakerId = firstWordSpeaker;
+          log.info(`Mic stream: registered speaker_id ${firstWordSpeaker} as local user`);
+        } else if (firstWordSpeaker !== this.localMicSpeakerId) {
+          speaker = 'them';
+          log.debug(`Mic stream: speaker_id ${firstWordSpeaker} != local (${this.localMicSpeakerId}), tagging as 'them'`);
+        }
+      }
+    }
 
     if (isFinal) {
       const now = Date.now();
@@ -249,7 +317,7 @@ export class TranscriptionService {
       } else {
         if (this.transcriptEntries.length >= MAX_TRANSCRIPT_ENTRIES) {
           const dropped = this.transcriptEntries.length - Math.floor(MAX_TRANSCRIPT_ENTRIES * 0.8);
-          log.warn(`Transcript cap reached (${MAX_TRANSCRIPT_ENTRIES}) — dropping ${dropped} oldest entries`);
+          log.warn(`Transcript cap reached (${MAX_TRANSCRIPT_ENTRIES}) - dropping ${dropped} oldest entries`);
           this.transcriptEntries = this.transcriptEntries.slice(-Math.floor(MAX_TRANSCRIPT_ENTRIES * 0.8));
         }
         const entry: TranscriptEntry = {
@@ -368,7 +436,7 @@ export class TranscriptionService {
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(() => {
               log.warn('Flush timeout reached, force closing');
-              try { state.ws?.close(); } catch {}
+              try { state.ws?.close(); } catch { /* already-closed, ignore */ }
               resolve();
             }, TRANSCRIPT_FLUSH_TIMEOUT_MS);
 
@@ -384,7 +452,7 @@ export class TranscriptionService {
         }
       } catch (err) {
         log.error('Close error:', err);
-        try { state.ws?.close(); } catch {}
+        try { state.ws?.close(); } catch { /* already-closed, ignore */ }
       }
       state.ws = null;
     }

@@ -10,7 +10,7 @@ enum AudioSource: String {
     case mic = "mic"
 }
 
-// MARK: - Mic Capture (AUHAL AudioUnit — non-disruptive)
+// MARK: - Mic Capture (AUHAL AudioUnit - non-disruptive)
 //
 // Uses CoreAudio's low-level AUHAL (Hardware Abstraction Layer) AudioUnit
 // instead of AVAudioEngine. The critical difference:
@@ -18,7 +18,7 @@ enum AudioSource: String {
 // AVAudioEngine reconfigures the hardware device (sample rate, buffer size)
 // when started, which disrupts other apps (Teams, Zoom) sharing the device.
 //
-// AUHAL reads the hardware's CURRENT configuration and adapts to it —
+// AUHAL reads the hardware's CURRENT configuration and adapts to it -
 // no hardware properties are changed, so other apps are unaffected.
 // This is the same approach used by OBS, Logic Pro, and Audio Hijack.
 
@@ -189,7 +189,7 @@ final class MicCapture {
         fputs("[Mic] Started (AUHAL, non-disruptive, \(nominalRate)Hz → 16kHz)\n", stderr)
     }
 
-    /// Called from the CoreAudio realtime thread — copies data and dispatches processing
+    /// Called from the CoreAudio realtime thread - copies data and dispatches processing
     fileprivate func renderInput(
         ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
         inTimeStamp: UnsafePointer<AudioTimeStamp>,
@@ -482,7 +482,7 @@ struct AudioCaptureApp {
         
         fputs("[AudioCapture] Starting dual capture (AUHAL mic + ScreenCaptureKit system)\n", stderr)
         
-        // System audio capture — "Them" stream
+        // System audio capture - "Them" stream
         systemCapture = SystemAudioCapture { data in
             systemChunkCount += 1
             if systemChunkCount <= 5 || systemChunkCount % 100 == 0 {
@@ -491,7 +491,7 @@ struct AudioCaptureApp {
             writeChunk(source: .system, data: data)
         }
         
-        // Mic capture — "You" stream (AUHAL, non-disruptive)
+        // Mic capture - "You" stream (AUHAL, non-disruptive)
         micCapture = MicCapture()
         
         do {

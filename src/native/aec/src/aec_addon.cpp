@@ -292,7 +292,7 @@ public:
     }
 
     // Drain all buffered output without copying data to caller.
-    // Used when AEC is bypassed — keeps the pipeline flowing to
+    // Used when AEC is bypassed - keeps the pipeline flowing to
     // prevent backpressure while discarding the processed audio.
     void DrainOutput() {
         if (!initialized_ || !output_sink_) return;

@@ -78,7 +78,7 @@ declare global {
         email: string;
         name: string | null;
         avatarUrl: string | null;
-        plan: 'FREE' | 'PRO' | 'TEAM';
+        plan: 'FREE' | 'PRO';
         subscriptionStatus: string;
       } | null>;
       authStartBrowserLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
@@ -89,6 +89,7 @@ declare global {
       authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authLogout: () => Promise<{ success: boolean }>;
       authDeleteAccount: () => Promise<{ success: boolean; error?: string }>;
+      authExportData: () => Promise<{ success: boolean; path?: string; cancelled?: boolean; error?: string }>;
       onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => () => void;
       onAuthSessionExpired: (callback: (data: { reason: string }) => void) => () => void;
       onSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
@@ -97,7 +98,7 @@ declare global {
       authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; avatarUrl: string | null; preferences?: Record<string, unknown> }; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;
-      authOpenCheckout: (plan: 'PRO' | 'TEAM', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
+      authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
       authOpenBillingPortal: () => Promise<{ success: boolean; error?: string }>;
       proxyGetUsage: () => Promise<{
         plan: string;
@@ -126,11 +127,17 @@ declare global {
       quitApp: () => Promise<void>;
       relaunchApp: () => Promise<void>;
       getAppVersion: () => Promise<string>;
-      updateCheck: () => Promise<{ success: boolean; error?: string }>;
+      updateCheck: () => Promise<{ success: boolean; error?: string; skipped?: string }>;
       updateDownload: () => Promise<{ success: boolean; error?: string }>;
       updateInstall: () => Promise<{ success: boolean }>;
       updateGetState: () => Promise<{ status: string; version?: string; error?: string; progress?: number }>;
       onUpdateStateChanged: (callback: (state: { status: string; version?: string; error?: string; progress?: number }) => void) => () => void;
+      recallIsAvailable: () => Promise<boolean>;
+      recallGetState: () => Promise<{ isRecording: boolean; windowId: number | null; sdkReady: boolean }>;
+      recallGetDetectedMeetings: () => Promise<Array<{ windowId: number; platform: string | null; title: string | null; detectedAt: number }>>;
+      recallStartMeetingRecording: (windowId: number) => Promise<{ success: boolean; error?: string; fallback?: boolean }>;
+      recallStartAdhocRecording: () => Promise<{ success: boolean; error?: string; fallback?: boolean }>;
+      recallStopRecording: () => Promise<{ success: boolean }>;
       profileSelectPicture: () => Promise<string | null>;
       profileSelectPictureRaw: () => Promise<string | null>;
       profileSavePictureData: (dataUrl: string) => Promise<string | null>;
@@ -179,9 +186,12 @@ declare global {
         update: (id: string, updates: Partial<Omit<Mode, 'id' | 'isBuiltin' | 'createdAt'>>) => Promise<Mode | null>;
         delete: (id: string) => Promise<{ success: boolean; error?: string }>;
         duplicate: (id: string, newName: string) => Promise<Mode | null>;
-        resetBuiltin: (id: string) => Promise<Mode | null>;
         getActive: () => Promise<Mode | null>;
         setActive: (id: string) => Promise<boolean>;
+        onListUpdated: (callback: () => void) => () => void;
+      };
+      prompts: {
+        fetchModeTemplate: (key: string) => Promise<string | null>;
       };
       context: {
         selectFile: () => Promise<{ filePath: string; fileName: string; fileSize: number } | null>;
@@ -270,6 +280,7 @@ declare global {
       permissionsOpenAccessibility: () => Promise<boolean>;
       sendOnboardingCompleted: () => void;
       sendHotkeyToggleRecording: () => void;
+      reportRendererError: (payload: { message: string; stack?: string; componentStack?: string }) => void;
       onStealthChanged: (callback: (enabled: boolean) => void) => () => void;
       onHotkeyToggleRecording: (callback: () => void) => () => void;
       onHotkeyAiSuggestion: (callback: () => void) => () => void;

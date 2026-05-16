@@ -7,15 +7,26 @@ import { RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP, RAG_DEFAULT_TOP_K, RAG_MAX_CONTEXT_T
 
 const log = createLogger('RAG');
 
-type PipelineFn = (...args: unknown[]) => Promise<EmbeddingModel>;
-interface EmbeddingModel {
-  (input: string[], options?: Record<string, unknown>): Promise<{ tolist(): number[][] }>;
+// @xenova/transformers' `pipeline` signature carries a very complex generic
+// that our narrow feature-extraction usage doesn't benefit from. Keep our
+// own minimal view of a pipeline factory + the returned model, and satisfy
+// the SDK with `any` at the import boundary.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TransformersPipelineFn = any;
+
+interface FeatureExtractionOutput {
+  data: Float32Array;
+  tolist(): number[][];
 }
 
-let pipeline: PipelineFn | null = null;
+interface EmbeddingModel {
+  (input: string | string[], options?: Record<string, unknown>): Promise<FeatureExtractionOutput>;
+}
+
+let pipeline: TransformersPipelineFn | null = null;
 let embeddingModel: EmbeddingModel | null = null;
 
-async function getEmbeddingPipeline() {
+async function getEmbeddingPipeline(): Promise<EmbeddingModel> {
   if (embeddingModel) return embeddingModel;
 
   if (!pipeline) {
@@ -24,7 +35,8 @@ async function getEmbeddingPipeline() {
   }
 
   log.info('Loading embedding model (first time may download ~30MB)...');
-  embeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+  const pipelineFn = pipeline as TransformersPipelineFn;
+  embeddingModel = (await pipelineFn('feature-extraction', 'Xenova/all-MiniLM-L6-v2')) as EmbeddingModel;
   log.info('Embedding model loaded');
   return embeddingModel;
 }
@@ -97,7 +109,7 @@ function chunkText(text: string, chunkSize = RAG_CHUNK_SIZE, overlap = RAG_CHUNK
 async function embedText(text: string): Promise<number[]> {
   const model = await getEmbeddingPipeline();
   const output = await model(text, { pooling: 'mean', normalize: true });
-  return Array.from(output.data as Float32Array);
+  return Array.from(output.data);
 }
 
 async function embedChunks(
@@ -109,7 +121,7 @@ async function embedChunks(
 
   for (let i = 0; i < chunks.length; i++) {
     const output = await model(chunks[i], { pooling: 'mean', normalize: true });
-    embeddings.push(Array.from(output.data as Float32Array));
+    embeddings.push(Array.from(output.data));
     onProgress?.(i + 1, chunks.length);
   }
 

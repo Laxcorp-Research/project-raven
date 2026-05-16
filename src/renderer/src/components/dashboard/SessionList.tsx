@@ -108,7 +108,6 @@ interface SessionListProps {
 
 export function SessionList({ onSessionSelect, activeSessionId, activeSession, searchQuery = '' }: SessionListProps) {
   const { isPro } = useAppMode()
-  const [isPaidSubscriber, setIsPaidSubscriber] = useState(false)
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -123,7 +122,6 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
     isOpen: false,
     sessionId: null,
   })
-  const [upgradeModal, setUpgradeModal] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' } | null>(null)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
 
@@ -132,11 +130,6 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
     const unsubscribe = window.raven.sessions.onListUpdated(() => {
       loadSessions()
     })
-    if (isPro) {
-      window.raven.proxyGetUsage().then((usage) => {
-        setIsPaidSubscriber(usage.plan === 'PRO' || usage.plan === 'TEAM')
-      }).catch(() => {})
-    }
     return () => unsubscribe()
   }, [isPro])
 
@@ -417,14 +410,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
           style={{ top: menuState.y, left: menuState.x }}
         >
           <button
-            onClick={() => {
-              if (!isPro || isPaidSubscriber) {
-                openRegenerateModal(menuState.sessionId!)
-              } else {
-                setMenuState({ sessionId: null, x: 0, y: 0 })
-                setUpgradeModal(true)
-              }
-            }}
+            onClick={() => openRegenerateModal(menuState.sessionId!)}
             className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors"
           >
             Regenerate
@@ -466,34 +452,6 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
         />
       )}
 
-      {upgradeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setUpgradeModal(false)} />
-          <div className="relative rounded-2xl bg-gradient-to-r from-purple-600 to-blue-600 p-6 text-white shadow-2xl max-w-sm w-full mx-4">
-            <p className="text-lg font-semibold mb-1">Upgrade to Raven Pro</p>
-            <p className="text-sm text-white/75 mb-5">
-              Regenerating session summaries is a Pro feature. Upgrade for unlimited AI responses, longer sessions, and more.
-            </p>
-            <div className="flex items-center justify-between mt-1">
-              <button
-                onClick={() => {
-                  setUpgradeModal(false)
-                  window.raven.authOpenCheckout('PRO')
-                }}
-                className="px-5 py-2 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
-              >
-                Upgrade Now
-              </button>
-              <button
-                onClick={() => setUpgradeModal(false)}
-                className="px-4 py-2 text-sm font-medium text-white/60 hover:text-white transition-colors"
-              >
-                Maybe later
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
