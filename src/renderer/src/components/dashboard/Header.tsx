@@ -64,6 +64,24 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   const [syncStatus, setSyncStatus] = useState<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number } | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
+  // Phase 2 M5: realtime WS connection state driven by
+  // src/pro/main/wsConnector.ts. 'connected' = events flow
+  // sub-second; 'reconnecting' = transient drop, expect events
+  // again momentarily; 'disconnected' = WS gave up (auth dead or
+  // explicit logout), the 60-min periodic safety net is the only
+  // cross-device freshness path. Distinct from the existing
+  // `syncStatus` which tracks the periodic-sync timer's health.
+  //
+  // Initial 'disconnected' is the honest default: the WS
+  // connector starts in 'disconnected' state until the first
+  // open succeeds. The status broadcast fires on every
+  // transition so the user sees it flip to 'reconnecting' then
+  // 'connected' within a couple seconds of login on a normal
+  // network. OSS users (isPro = false) never get a transition
+  // event because the connector is gated on auth, so they stay
+  // at the harmless 'disconnected' default forever - which is
+  // correct (there's no cloud to be connected to in OSS mode).
+  const [wsState, setWsState] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
 
   useEffect(() => {
@@ -75,6 +93,28 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
+  }, [])
+
+  useEffect(() => {
+    // Phase 2 M5: subscribe to realtime WS connection state. The
+    // listener exists for both Pro and OSS users because the
+    // preload always exposes the channel - but only Pro users
+    // will see meaningful transitions (OSS mode keeps the WS
+    // connector dormant; state stays 'disconnected').
+    //
+    // We deliberately do NOT call any sync API to query the
+    // initial state on mount because the wsConnector broadcasts
+    // its state on every transition AND the BrowserWindow is
+    // already present by the time the connector starts (boot
+    // path goes proLoader -> startWsConnector AFTER the
+    // dashboard window opens). The first 'reconnecting' or
+    // 'connected' broadcast flips us out of the 'disconnected'
+    // default within a couple seconds.
+    if (!window.raven?.onSyncConnectionState) return
+    const unsub = window.raven.onSyncConnectionState((data) => {
+      setWsState(data.state)
+    })
+    return unsub
   }, [])
 
   const loadSyncStatus = useCallback(async () => {
@@ -261,12 +301,29 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                 }}
                 disabled={syncing}
                 className={`p-2.5 rounded-full transition-colors ${
+                  // Priority order:
+                  //   1. consecutiveFailures >= 3 - the periodic-sync layer
+                  //      has given up. RED + AlertTriangle. This signals a
+                  //      hard problem (auth dead, server unreachable for
+                  //      long enough that 3 sync cycles failed) and
+                  //      supersedes whatever WS thinks.
+                  //   2. syncFeedback toast active. Toast wins for its 3-5
+                  //      second display window then clears.
+                  //   3. WS state. The Phase 2 M5 visualisation: connected
+                  //      = subtle blue tint (events flowing); reconnecting
+                  //      = amber pulse (transient drop, expect events soon);
+                  //      disconnected = neutral grey (either OSS mode or
+                  //      WS gave up but periodic-sync is still trying).
                   syncStatus && syncStatus.consecutiveFailures >= 3
                     ? 'bg-red-50 text-red-600 hover:bg-red-100'
                     : syncFeedback === 'All synced' || syncFeedback?.startsWith('Synced')
                     ? 'bg-green-50 text-green-600'
                     : syncFeedback?.startsWith('Sync failed')
                     ? 'bg-red-50 text-red-600'
+                    : wsState === 'connected'
+                    ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                    : wsState === 'reconnecting'
+                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 }`}
               >
@@ -274,12 +331,26 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                   <RefreshCw size={18} className="animate-spin" />
                 ) : syncStatus && syncStatus.consecutiveFailures >= 3 ? (
                   <AlertTriangle size={18} />
+                ) : wsState === 'reconnecting' ? (
+                  // Spinning RefreshCw signals "transient drop, working
+                  // on it" - matches the user's mental model from the
+                  // syncing-in-progress state above.
+                  <RefreshCw size={18} className="animate-spin" />
                 ) : (
                   <Cloud size={18} />
                 )}
               </button>
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {syncing ? 'Syncing...' : syncFeedback || (syncStatus && syncStatus.consecutiveFailures >= 3 ? `Sync failing (${syncStatus.consecutiveFailures} attempts) - click to retry` : 'Sync to cloud')}
+                {syncing
+                  ? 'Syncing...'
+                  : syncFeedback
+                  || (syncStatus && syncStatus.consecutiveFailures >= 3
+                    ? `Sync failing (${syncStatus.consecutiveFailures} attempts) - click to retry`
+                    : wsState === 'connected'
+                    ? 'Connected - changes sync instantly'
+                    : wsState === 'reconnecting'
+                    ? 'Reconnecting to cloud...'
+                    : 'Sync to cloud')}
               </div>
             </div>
           )}

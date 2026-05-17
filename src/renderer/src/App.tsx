@@ -106,15 +106,49 @@ function App(): JSX.Element {
             // Auth IPC not registered (shouldn't happen in pro mode)
           }
 
-          log.info('Auth check:', { authenticated, onboarded })
+          // Server-side onboarding flag: when the user is
+          // authenticated, the cached `getCurrentUser()` returns
+          // their user record which now includes `onboardedAt`. A
+          // truthy onboardedAt means the user has finished
+          // onboarding on at least one device for this account, so
+          // we treat them as onboarded regardless of what the
+          // local electron-store `proOnboardingComplete` flag says
+          // (which it wouldn't if the user wiped %APPDATA% or moved
+          // to a new device). See backend migration
+          // 0018_add_user_onboarded_at + auth route POST
+          // /api/auth/me/onboarded.
+          //
+          // We OR with the local flag for backwards compat:
+          //   * Older clients that completed onboarding before the
+          //     migration shipped only have the local flag.
+          //   * After a successful onboarding completion the local
+          //     flag is set immediately while the markOnboarded
+          //     IPC may still be in flight - the OR keeps the
+          //     boot-time check stable across that window.
+          let serverOnboarded = false
+          if (authenticated) {
+            try {
+              const authUser = await window.raven.authGetCurrentUser()
+              serverOnboarded = !!(authUser && authUser.onboardedAt)
+            } catch { /* fall back to local-only flag */ }
+          }
+          const effectivelyOnboarded = onboarded || serverOnboarded
+
+          log.info('Auth check:', { authenticated, onboarded, serverOnboarded, effectivelyOnboarded })
 
           if (!authenticated) {
             setProAuthenticated(false)
             setView('onboarding-pro')
-          } else if (!onboarded) {
+          } else if (!effectivelyOnboarded) {
             setProAuthenticated(true)
             setView('onboarding-pro')
           } else {
+            // Mirror the server flag locally if it was the
+            // tie-breaker, so future cold boots can fast-path
+            // without a network round-trip.
+            if (serverOnboarded && !onboarded) {
+              window.raven.storeSet('proOnboardingComplete', true)
+            }
             const cachedProfile = settings.cachedUserProfile as UserProfile | undefined
             const cachedSub = settings.cachedSubscription as CachedSubscription | undefined
             if (cachedProfile) setUserProfile(cachedProfile)
@@ -162,12 +196,71 @@ function App(): JSX.Element {
     const cleanups: Array<() => void> = []
 
     try {
-      cleanups.push(window.raven.onAuthLoginCompleted((data) => {
-        if (data.success) {
-          log.info('Auth login completed via deep link - updating state')
-          setProAuthenticated(true)
-          setView('onboarding-pro')
-        }
+      cleanups.push(window.raven.onAuthLoginCompleted(async (data) => {
+        if (!data.success) return
+        // Auth completion is a DASHBOARD-window-only state transition.
+        // The overlay window also receives this broadcast (the
+        // authIpc.broadcastAuthLoginCompleted helper sends to every
+        // window), but the overlay's job is to render the small
+        // floating pill (`view === 'overlay'`), not the onboarding
+        // flow. Without this guard the overlay would flip its `view`
+        // to `'onboarding-pro'` and start rendering the full
+        // ProOnboarding component on its full-screen-transparent
+        // canvas. The bug stays invisible until `overlay.show()`
+        // fires (currently triggered by the dashboard's own
+        // `onboarding:completed` IPC), at which point the user sees
+        // an apparent SECOND window with onboarding content sitting
+        // on top of the dashboard - reported live by user 2026-05-10
+        // after a Google OAuth flow on staging dev mode.
+        //
+        // Same gate as the onAuthSessionExpired listener below.
+        if (windowType === 'overlay') return
+        log.info('Auth login completed via deep link - updating state')
+        setProAuthenticated(true)
+        // Returning-user fast-path. The server-side `onboardedAt`
+        // field on the user record is the source of truth for "this
+        // user has completed onboarding before." It survives the
+        // local data dir being wiped, works across devices, and
+        // does not depend on heuristics like "OS permissions are
+        // already granted" (which had real edge cases - users could
+        // grant permissions outside the app and skip the
+        // educational tour without ever asking for it). See
+        // backend route POST /api/auth/me/onboarded + migration
+        // 0018_add_user_onboarded_at for how this gets set, and
+        // ProOnboarding.handleFinish() for where the renderer
+        // makes the call.
+        //
+        // Local fallback: also accept `proOnboardingComplete` from
+        // electron-store as a positive signal. Covers the
+        // intermediate state right after the user finishes
+        // onboarding but the markOnboarded() IPC hasn't returned
+        // yet, and the edge case of a much older client whose
+        // server doesn't yet support /me/onboarded (the route 404s
+        // and the field never lands).
+        //
+        // If neither signal fires (genuinely new account, never
+        // onboarded anywhere), fall through to the onboarding-pro
+        // flow. Also fall through on any storage / IPC error so a
+        // transient failure can't soft-lock the user.
+        try {
+          const settings = await window.raven.storeGetAll()
+          const localFlag = (settings.proOnboardingComplete || settings.onboardingComplete) as boolean
+          const authUser = await window.raven.authGetCurrentUser()
+          const serverOnboarded = !!(authUser && authUser.onboardedAt)
+          if (serverOnboarded || localFlag) {
+            // Persist locally for boot-time fast-paths and for
+            // offline relaunches. The serverOnboarded value is
+            // already authoritative; the localFlag mirror just
+            // saves a network round-trip on next boot.
+            if (serverOnboarded && !localFlag) {
+              window.raven.storeSet('proOnboardingComplete', true)
+            }
+            const allGranted = await permissionsAllGranted()
+            setView(allGranted ? 'dashboard' : 'permissions-gate')
+            return
+          }
+        } catch { /* fall through to onboarding-pro */ }
+        setView('onboarding-pro')
       }))
     } catch {
       // not in pro mode

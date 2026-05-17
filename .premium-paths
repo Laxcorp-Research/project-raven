@@ -13,6 +13,15 @@ infra/
 .cursor/
 mintlify-docs/
 
+# Premium-only directories (additional, listed here so they line up
+# with the docs/ block visually). scripts/load-test/ is operational
+# tooling that signs JWTs against the staging secret, drives chaos
+# tests via aws-cli ECS commands, and references staging URLs +
+# RDS instance class details. Useful internally; not useful to OSS
+# users (who don't have access to staging anyway) and reveals
+# infrastructure layout.
+scripts/load-test/
+
 # Premium-only files
 docs/API_REFERENCE.md
 docs/AUDIO_PIPELINE.md
@@ -25,6 +34,12 @@ docs/LAUNCH_CHECKLIST.md
 docs/LAUNCH_V2_1_PLAN.md
 docs/MODES.md
 docs/OVERLAY_STEALTH.md
+# Phase 2 architecture + verification plans: reference staging URLs,
+# EC2 instance ids, AWS resource names, secret key names. The
+# customer-facing description of WebSocket sync is in the marketing
+# site / public docs - these docs are the engineering plan.
+docs/PHASE2_REALTIME_SYNC_PLAN.md
+docs/PHASE2_VERIFICATION_PLAN.md
 docs/RAG.md
 docs/RELEASE_RUNBOOK.md
 docs/REPO_STRUCTURE.md
@@ -34,6 +49,16 @@ docs/TESTING_GUIDE.md
 docs/UNUSED_API_AUDIT.md
 docs/USAGE_GATING.md
 docs/V2_2_STABILITY_PLAN.md
+# V2_3_LAUNCH_LOG records production deployment artifacts:
+# ECS task definition revisions, Secrets Manager keys, CDN URLs,
+# rollback procedures, incident-response knobs. Highly operational.
+docs/V2_3_LAUNCH_LOG.md
+# WINDOWS_CODE_SIGNING documents the SSL.com EV cert configuration,
+# eSigner CKA setup, credential IDs, and the signing flow. The
+# customer-facing aspect (SmartScreen behavior) is documented in
+# the public docs/_evidence/W12_smartscreen.md - this file is the
+# operational signing playbook.
+docs/WINDOWS_CODE_SIGNING.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
 .github/workflows/release-electron.yml

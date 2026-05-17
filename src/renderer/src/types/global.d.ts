@@ -80,6 +80,7 @@ declare global {
         avatarUrl: string | null;
         plan: 'FREE' | 'PRO';
         subscriptionStatus: string;
+        onboardedAt: string | null;
       } | null>;
       authStartBrowserLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
       authCancelBrowserLogin: () => Promise<{ success: boolean }>;
@@ -94,8 +95,9 @@ declare global {
       onAuthSessionExpired: (callback: (data: { reason: string }) => void) => () => void;
       onSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
       offSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
-      authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
+      authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; onboardedAt?: string | null }; error?: string }>;
       authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; avatarUrl: string | null; preferences?: Record<string, unknown> }; error?: string }>;
+      authMarkOnboarded: () => Promise<{ success: boolean; onboardedAt?: string | null; error?: string }>;
       authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
       authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;
       authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
@@ -271,7 +273,8 @@ declare global {
       syncGetStatus: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number }>;
       syncTrigger: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number; merged: number }>;
       syncGetLog: () => Promise<Array<{ timestamp: string; status: string; sessionsSynced: number; durationMs: number }>>;
-      onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean }) => void) => () => void;
+      onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => void) => () => void;
+      onSyncConnectionState: (callback: (data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => void) => () => void;
       permissionsGetStatus: () => Promise<{ microphone: string; screen: string; accessibility: string }>;
       permissionsRequestMicrophone: () => Promise<boolean>;
       permissionsOpenScreenRecording: () => Promise<boolean>;

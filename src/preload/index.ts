@@ -311,6 +311,7 @@ contextBridge.exposeInMainWorld('raven', {
   authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
   authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) =>
     ipcRenderer.invoke('auth:update-profile', updates),
+  authMarkOnboarded: () => ipcRenderer.invoke('auth:mark-onboarded'),
   authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
   authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
   authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),
@@ -328,10 +329,21 @@ contextBridge.exposeInMainWorld('raven', {
   syncGetStatus: () => ipcRenderer.invoke('sync:get-status'),
   syncTrigger: () => ipcRenderer.invoke('sync:trigger'),
   syncGetLog: () => ipcRenderer.invoke('sync:get-log'),
-  onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean }) => void) => {
-    const handler = (_event: unknown, data: { phase: string; synced: number; total: number; done: boolean }) => callback(data)
+  onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => void) => {
+    const handler = (_event: unknown, data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => callback(data)
     ipcRenderer.on('sync:progress', handler)
     return () => ipcRenderer.removeListener('sync:progress', handler)
+  },
+  // Phase 2 M5: realtime WS connection state. Driven by
+  // src/pro/main/wsConnector.ts on every connect / reconnect /
+  // disconnect transition. Header.tsx uses this to recolour the
+  // cloud icon so the user knows whether cross-device sync is
+  // currently live (connected), in flight (reconnecting), or
+  // dark (disconnected - safety-net only).
+  onSyncConnectionState: (callback: (data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => void) => {
+    const handler = (_event: unknown, data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => callback(data)
+    ipcRenderer.on('sync:connection-state', handler)
+    return () => ipcRenderer.removeListener('sync:connection-state', handler)
   },
   // Permissions
   permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),

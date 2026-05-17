@@ -62,7 +62,7 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   const { isPro } = useAppMode()
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number; done: boolean } | null>(null)
+  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number; done: boolean; error?: boolean } | null>(null)
   const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
@@ -194,8 +194,16 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
     try {
       const unsub = window.raven.onSyncProgress((data) => {
         if (data.done) {
+          // Keep the actual synced count (not data.total) so the
+          // terminal frame is truthful. Before the 2026-05-11 fix the
+          // success path collapsed `synced` to `data.total` on done,
+          // which on the new auth_expired/error/network_error paths
+          // (where synced may be < total) would render the false
+          // text "Uploaded N sessions to cloud" even though the
+          // backend rejected the batch. error:true now keeps the
+          // partial count and lets the UI render "Sync interrupted".
           setTimeout(() => setSyncProgress(null), 3000)
-          setSyncProgress({ synced: data.total, total: data.total, done: true })
+          setSyncProgress({ synced: data.synced, total: data.total, done: true, error: data.error })
         } else {
           setSyncProgress({ synced: data.synced, total: data.total, done: false })
         }
@@ -334,22 +342,42 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
       {isPro && <UpdateBanner />}
 
       {syncProgress && (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-2 bg-blue-50 border-b border-blue-100">
-          <Cloud size={16} className="text-blue-500 shrink-0" />
+        <div className={`shrink-0 flex items-center gap-3 px-4 py-2 border-b ${
+          syncProgress.error
+            ? 'bg-amber-50 border-amber-100'
+            : 'bg-blue-50 border-blue-100'
+        }`}>
+          <Cloud size={16} className={`shrink-0 ${syncProgress.error ? 'text-amber-600' : 'text-blue-500'}`} />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between text-xs text-blue-700 mb-1">
+            <div className={`flex items-center justify-between text-xs mb-1 ${
+              syncProgress.error ? 'text-amber-700' : 'text-blue-700'
+            }`}>
               <span>
-                {syncProgress.done
+                {syncProgress.error
+                  ? `Sync interrupted${syncProgress.synced > 0 ? ` - uploaded ${syncProgress.synced} of ${syncProgress.total}` : ''}. Will retry shortly.`
+                  : syncProgress.done
                   ? `Uploaded ${syncProgress.total} session${syncProgress.total > 1 ? 's' : ''} to cloud`
                   : `Uploading sessions to cloud... ${syncProgress.synced} of ${syncProgress.total}`}
               </span>
-              <span className="text-blue-500">
-                {syncProgress.done ? 'Done' : `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%`}
+              <span className={syncProgress.error ? 'text-amber-600' : 'text-blue-500'}>
+                {syncProgress.error
+                  ? 'Paused'
+                  : syncProgress.done
+                  ? 'Done'
+                  : `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%`}
               </span>
             </div>
-            <div className="w-full h-1 bg-blue-100 rounded-full overflow-hidden">
+            <div className={`w-full h-1 rounded-full overflow-hidden ${
+              syncProgress.error ? 'bg-amber-100' : 'bg-blue-100'
+            }`}>
               <div
-                className={`h-full rounded-full transition-all duration-500 ${syncProgress.done ? 'bg-green-500' : 'bg-blue-500'}`}
+                className={`h-full rounded-full transition-all duration-500 ${
+                  syncProgress.error
+                    ? 'bg-amber-500'
+                    : syncProgress.done
+                    ? 'bg-green-500'
+                    : 'bg-blue-500'
+                }`}
                 style={{ width: `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%` }}
               />
             </div>

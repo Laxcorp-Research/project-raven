@@ -68,14 +68,15 @@ export function ApiKeysTab() {
 
   const modelOptions = aiProvider === 'anthropic'
     ? [
-        { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (recommended)' },
-        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (powerful)' },
-        { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+        { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (fast, recommended for live use)' },
+        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (balanced)' },
+        { value: 'claude-opus-4-7', label: 'Claude Opus 4.7 (deep reasoning, xhigh effort)' },
       ]
     : [
-        { value: 'gpt-5-mini', label: 'GPT-5 Mini (recommended)' },
-        { value: 'gpt-5.2', label: 'GPT-5.2 (powerful)' },
-        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini (fast, recommended for live use)' },
+        { value: 'gpt-5.4', label: 'GPT-5.4 (balanced)' },
+        { value: 'gpt-5.5', label: 'GPT-5.5 (deep reasoning)' },
+        { value: 'gpt-5.2', label: 'GPT-5.2 (previous frontier)' },
       ]
 
   const selectedModelLabel = modelOptions.find(m => m.value === aiModel)?.label || aiModel
@@ -389,7 +390,7 @@ export function ApiKeysTab() {
           <button
             onClick={() => {
               setAiProvider('openai')
-              setAiModel('gpt-5-mini')
+              setAiModel('gpt-5.4-mini')
               setSaveMessage(null)
             }}
             className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${

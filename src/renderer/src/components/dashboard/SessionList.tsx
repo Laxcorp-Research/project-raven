@@ -110,6 +110,24 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
   const { isPro } = useAppMode()
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  // Distinguishes "this device has NEVER successfully pulled from cloud"
+  // (lastSyncAt === null, post-login pull still in flight) from "this
+  // device has synced before, the empty list is real" (lastSyncAt is
+  // an ISO timestamp). Drives the empty-state copy below: a Pro user
+  // who just logged in on a fresh machine sees "Loading your sessions
+  // from cloud..." for the second or two it takes for the post-login
+  // pull to complete; everyone else sees the normal "No sessions yet".
+  //
+  // Pre-fix, both states rendered "No sessions yet" because the
+  // dashboard read the empty local SQLite immediately on mount and
+  // had no signal about whether a pull was incoming. Fresh-device
+  // users got a misleading "your account is empty" message right
+  // before their data popped in.
+  //
+  // null = haven't checked yet (initial mount); a string = synced at
+  // least once; we keep null distinct from string('') so the brief
+  // pre-IPC moment doesn't flicker the empty-state copy.
+  const [lastSyncAt, setLastSyncAt] = useState<string | null | undefined>(undefined)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [menuState, setMenuState] = useState<MenuState>({ sessionId: null, x: 0, y: 0 })
   const menuRef = useRef<HTMLDivElement>(null)
@@ -127,11 +145,35 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
   useEffect(() => {
     loadSessions()
+    refreshSyncStatus()
     const unsubscribe = window.raven.sessions.onListUpdated(() => {
       loadSessions()
+      // A pull just completed and broadcast list-updated. Refresh the
+      // last-sync timestamp so the next render exits the "Loading from
+      // cloud" branch even if the pull merged zero new sessions
+      // (account legitimately has 0 sessions on the server).
+      refreshSyncStatus()
     })
     return () => unsubscribe()
   }, [isPro])
+
+  async function refreshSyncStatus() {
+    if (!isPro) {
+      setLastSyncAt(null)
+      return
+    }
+    try {
+      const status = await window.raven.syncGetStatus()
+      setLastSyncAt(status.lastSyncAt)
+    } catch {
+      // syncGetStatus throws for OSS mode or before sync handlers are
+      // registered. Treat as "no sync ever" so the empty state copy
+      // falls through to the harmless "No sessions yet" - we don't
+      // want to lie to the user about a cloud pull that's not even
+      // configured.
+      setLastSyncAt(null)
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -239,10 +281,35 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
   const activeId = activeSession?.id || activeSessionId
 
   if (sessions.length === 0 && !activeSession) {
+    // Loading-from-cloud branch: Pro user, local DB empty, no prior
+    // sync ever recorded on this device. The post-login (or post-boot
+    // restore) pullAndMergeRemoteSessions is in flight; once it
+    // completes and broadcasts sessions:list-updated, our listener
+    // refreshes lastSyncAt and this branch exits naturally.
+    //
+    // Three other states fall through to the "No sessions yet" copy:
+    //   - OSS user (isPro = false; refreshSyncStatus forces
+    //     lastSyncAt = null but we also gate on isPro to keep the
+    //     copy honest).
+    //   - Pro user, lastSyncAt = string (pull completed, account
+    //     legitimately has no sessions).
+    //   - Pro user, syncGetStatus IPC failed (we don't know; default
+    //     to the conservative copy rather than misleading a user
+    //     into expecting cloud data that may never arrive).
+    const isWaitingForFirstPull = isPro && lastSyncAt === null
     return (
       <div className="p-8 text-center">
-        <p className="text-gray-500 text-sm">No sessions yet</p>
-        <p className="text-gray-400 text-xs mt-1">Start a session to see it here</p>
+        {isWaitingForFirstPull ? (
+          <>
+            <p className="text-gray-500 text-sm">Loading your sessions from cloud...</p>
+            <p className="text-gray-400 text-xs mt-1">This only happens the first time on a new device.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-gray-500 text-sm">No sessions yet</p>
+            <p className="text-gray-400 text-xs mt-1">Start a session to see it here</p>
+          </>
+        )}
       </div>
     )
   }

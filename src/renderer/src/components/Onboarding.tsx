@@ -165,7 +165,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       await window.raven.storeSet('aiProvider', aiProvider)
       await window.raven.storeSet(
         'aiModel',
-        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5-mini'
+        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5.4-mini'
       )
       await window.raven.storeSet('onboardingComplete', true)
       onComplete()

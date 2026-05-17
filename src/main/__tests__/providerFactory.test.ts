@@ -208,7 +208,7 @@ describe('providerFactory', () => {
       expect(provider.name).toBe('anthropic')
     })
 
-    it('returns openai provider with fast model (gpt-5-mini)', async () => {
+    it('returns openai provider with fast model (gpt-5.4-mini)', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'openai',

@@ -3,6 +3,36 @@ import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 
+// CRITICAL: single-instance lock is the FIRST runtime action this main
+// process takes. If a second instance launches (e.g. Windows Shell
+// invoked Raven again to handle a `raven://` OAuth deep-link callback
+// while the app was already running) we quit IMMEDIATELY - before any
+// later import has a chance to open the database, register IPC
+// handlers, or create a window. Without this top-of-file guard, the
+// previous setupDeepLinkHandlers() lock check fired far too late
+// (after app.whenReady, after boot() had already created the dashboard
+// window) and the user ended up with two visible Raven windows on
+// screen: the original instance + the OAuth-callback instance whose
+// dashboard was already onscreen by the time it realised it should
+// have quit. Reproduced live on 2026-05-08 by the user finishing
+// Google OAuth and seeing both an "all sessions" dashboard AND a
+// fresh permissions-step onboarding window in parallel.
+//
+// Once we hold the lock, the OS routes every subsequent raven://...
+// invocation to us via the `second-instance` event registered later
+// in setupDeepLinkHandlers(). The deep-link URL arrives in the
+// argv array there and is forwarded to handleDeepLink() which
+// focuses the existing dashboard window and processes the auth code.
+if (!app.requestSingleInstanceLock()) {
+  // Lost the lock => we are the second instance. The first instance
+  // will receive our argv via 'second-instance'. Hard-exit so no
+  // further imports run; app.quit() alone is async and would let the
+  // module-load chain continue creating windows before the quit
+  // settles.
+  app.quit()
+  process.exit(0)
+}
+
 if (process.platform === 'win32') {
   const gstRoot = process.env.GSTREAMER_1_0_ROOT_MSVC_X86_64
     || (existsSync('C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64') ? 'C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64' : '')
@@ -102,7 +132,7 @@ ipcMain.on('sentry:capture-renderer-error', (_event, payload: {
       // Attach React component stack as a non-standard property -
       // Sentry's beforeSend won't strip it and it's invaluable for
       // tracing which component threw.
-      ;(err as Error & { componentStack?: string }).componentStack = payload.componentStack
+      (err as Error & { componentStack?: string }).componentStack = payload.componentStack
     }
     captureException(err)
   } catch { /* best effort - we don't want error reporting to throw */ }

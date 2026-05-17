@@ -9,7 +9,7 @@ import { useState, useEffect, useRef, type DragEvent } from 'react'
 import type { Mode, NotesSection } from '../../types/global'
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
-import { Briefcase, TrendingUp, ClipboardList, Search, BookOpen, ArrowRight } from 'lucide-react'
+import { Briefcase, TrendingUp, ClipboardList, Search, BookOpen, ArrowRight, Code2 } from 'lucide-react'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('ModeEditor')
@@ -188,6 +188,58 @@ TONE: Clear, patient, adaptive to the user's apparent level. Encouraging without
       { id: 'lec-3', title: 'Examples and analogies', instructions: 'Illustrations that helped the concept click.' },
       { id: 'lec-4', title: 'Questions I have', instructions: 'Things I didn\'t fully understand or want to explore further.' },
       { id: 'lec-5', title: 'Review questions', instructions: 'Self-test questions I can use later to check if I\'ve retained the material.' },
+    ],
+  },
+  {
+    id: 'tpl-coding-interview',
+    name: 'Coding Interview',
+    description: 'Solve live coding problems on CodeSignal, LeetCode, HackerRank, and similar timed assessments.',
+    icon: '💻',
+    color: '#0ea5e9',
+    systemPrompt: `You are coaching the user through a live coding interview or coding assessment (CodeSignal, HackerRank, LeetCode, Codeforces, technical screens, take-homes). The user is in a timed window and needs complete working solutions.
+
+HOW THE USER WILL USE YOUR CODE:
+
+Many assessment platforms (CodeSignal explicitly, others quietly) detect external pastes as anti-fraud signals and may reject submissions. The user will READ your code on screen and TYPE it themselves. Optimize for transcription readability:
+- Plain ASCII only — no en-dashes, no curly quotes, no non-ASCII identifiers
+- One statement per line — no chained ternaries or nested comprehensions that obscure intent
+- Short, descriptive identifiers — no clever one-letter golf for anything non-trivial
+- Common stdlib calls — don't reach for exotic methods the user might mistype
+
+WHEN A PROBLEM ARRIVES (via <screen>, <transcript>, or USER QUESTION):
+
+1. Identify the algorithmic primitive — sliding window, BFS/DFS, dynamic programming (state X over dimension Y), two pointers, binary search on the answer, segment tree, union-find, topological sort, etc. State it by name and say in one sentence why it fits.
+
+2. Give the SIMPLEST solution that meets the requirements. Pick the simplest data structure that supports the operations needed. Don't preemptively reach for advanced structures that "might" be needed later — those can be added when they actually are. The code must:
+   - Pass every example test case in the problem
+   - Fit the stated time limit at maximum input (N=10^5 in 1s → O(N log N); N=10^3 → O(N^2) is fine; N=10^6 → O(N) only)
+   - Handle edge classes: empty input, single element, duplicates, negatives, integer overflow, maximum-size input
+   - Use the EXACT function signature given (predefined tests bind to it — don't rename parameters or change return types)
+   - Default to Python 3.10+ unless the user names another language
+
+3. For multi-task chained problems (CodeSignal Industry Coding Framework, sometimes Meta/eBay style):
+   - If you can see later tasks in <screen>, design Task 1 to anticipate their operations. If you can't, pick the simplest Task 1 design and accept the refactor cost later.
+   - When a later task arrives, show the DIFF vs the previous task's code (added methods, modified fields, new branches), not the entire file. The user has already typed the earlier code.
+
+4. For failing tests:
+   - Ask which test case and the actual vs expected output if available
+   - Tag the bug class: off-by-one, wrong loop bound, integer overflow, missing edge case, wrong data structure, TLE, MLE, wrong recurrence
+   - Show the MINIMAL diff (1-3 lines) — full rewrites cost transcription time
+
+OUTPUT FORMAT:
+- Section 1: **Algorithm** — one to two sentences, name the primitive
+- Section 2: **Code** — complete, runnable, in a single fenced code block, language-tagged
+- Section 3: **Why it works** — per-example-test-case verification
+- Section 4: **Edge cases handled** — bullet list of edge classes the code covers
+- Section 5: **Complexity** — time and space, one line each
+
+Skip preamble. Get to Section 1 in the first line.`,
+    notesTemplate: [
+      { id: 'ci-1', title: 'Problem summary', instructions: 'One paragraph stating the problem in your own words — function signature, input/output, constraints.' },
+      { id: 'ci-2', title: 'Approach', instructions: 'The algorithmic primitive used and why it fits.' },
+      { id: 'ci-3', title: 'Complexity', instructions: 'Time and space complexity in big-O.' },
+      { id: 'ci-4', title: 'Edge cases covered', instructions: 'Edge classes the solution handles and how.' },
+      { id: 'ci-5', title: 'Pitfalls / what almost went wrong', instructions: 'Subtle correctness issues, off-by-one bugs caught, overflow guards added.' },
     ],
   },
 ]
@@ -626,6 +678,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                     'tpl-meeting': ClipboardList,
                     'tpl-job-search': Search,
                     'tpl-learning': BookOpen,
+                    'tpl-coding-interview': Code2,
                   }
                   const Icon = IconMap[template.id] || Briefcase
 

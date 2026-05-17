@@ -5,7 +5,7 @@ import { getProviderFromStore, getProProvider, getProFastProvider } from './serv
 import { getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -436,7 +436,7 @@ export class ClaudeService {
         }
 
         const streamTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), 60_000)
+          setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), AI_STREAM_TIMEOUT_MS)
         );
         await Promise.race([
           provider.streamResponse(

@@ -53,10 +53,26 @@ export function ProfileTab() {
   }
 
   async function loadProfile() {
+    // Track whether ANY auth source produced a user record. Using a
+    // local variable instead of reading the `displayName`/`userEmail`
+    // React state at the end of this function. The React state is
+    // captured by closure at function-entry time and stays as the
+    // initial empty strings even after applyUser() schedules state
+    // updates - so a closure-based fallback would incorrectly fire
+    // `setIsAuthenticated(false)` AFTER applyUser already set it
+    // true, producing a Pro-view -> OSS-view flicker right after the
+    // Settings panel opens. Reported live by user 2026-05-11 on the
+    // dev:pro:staging session: Profile tab briefly showed Account
+    // Email + Password & Security + Delete Account sections, then
+    // they all disappeared a moment later and the OSS-minimal view
+    // took over.
+    let applied = false
+
     try {
       const cached = await window.raven.authGetCurrentUser()
       if (cached) {
         applyUser(cached)
+        applied = true
       }
     } catch { /* not pro */ }
 
@@ -66,20 +82,26 @@ export function ProfileTab() {
       setProfilePicData(data)
     }
 
-        try {
-          const sub = await window.raven.authGetSubscription()
-          if (sub?.plan) setUserPlan(sub.plan)
-          if (sub?.status) setSubStatus(sub.status)
-        } catch { /* free mode */ }
+    try {
+      const sub = await window.raven.authGetSubscription()
+      if (sub?.plan) setUserPlan(sub.plan)
+      if (sub?.status) setSubStatus(sub.status)
+    } catch { /* free mode */ }
 
     try {
       const result = await window.raven.authFetchProfile()
       if (result.success && result.user) {
         applyUser(result.user as { name: string | null; email: string; avatarUrl?: string | null })
+        applied = true
       }
     } catch { /* network error - cached data is fine */ }
 
-    if (!displayName && !userEmail) {
+    // Only fall back to the local-only / open-source "Display Name
+    // from electron-store" path if NO auth source produced a user.
+    // Without this guard the fallback always ran (because the
+    // closure values were stale-empty), which is what produced the
+    // 2026-05-11 flicker bug.
+    if (!applied) {
       const name = (await window.raven.storeGet('displayName')) as string
       setDisplayName(name || '')
       setSavedName(name || '')

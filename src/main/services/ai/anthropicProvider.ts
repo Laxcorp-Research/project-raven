@@ -1,5 +1,42 @@
 import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks } from './types';
 
+// Models that support adaptive thinking via `thinking: { type: 'adaptive' }`.
+// On these models, manual `thinking: { type: 'enabled', budget_tokens: N }` is
+// either deprecated (Opus 4.6, Sonnet 4.6) or rejected outright with 400
+// (Opus 4.7). The xhigh effort level was introduced with Opus 4.7 for
+// coding/agentic use cases.
+//
+// IMPORTANT: thinking-capable responses are LONGER. The thinking blocks
+// themselves consume output tokens (they are emitted before the final
+// answer). A 1024 max_tokens cap routinely truncates the final response on
+// these models. Callers that opt into a thinking model must request enough
+// headroom; we also bump the per-call default below.
+const ADAPTIVE_THINKING_MODELS = new Set<string>([
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+]);
+
+// xhigh effort is exclusive to Opus 4.7 today (per Anthropic docs); using it
+// on Opus 4.6 / Sonnet 4.6 returns 400. The other models in the set above
+// fall back to the API's default (`high`) which still triggers thinking on
+// complex requests.
+const XHIGH_EFFORT_MODELS = new Set<string>([
+  'claude-opus-4-7',
+]);
+
+// Default max_tokens for non-thinking models. Matches what callers expected
+// before this provider learned about adaptive thinking.
+const DEFAULT_MAX_TOKENS = 1024;
+
+// Default max_tokens for thinking-capable models. Adaptive thinking emits
+// reasoning blocks BEFORE the final answer; on a hard problem (e.g. a
+// CodeSignal task that needs full source code in the response) the
+// thinking alone can easily consume 4-8K tokens, and the final answer
+// another 4-8K. 16384 leaves comfortable headroom without being wasteful
+// for shorter queries (output tokens are billed only as emitted).
+const THINKING_DEFAULT_MAX_TOKENS = 16384;
+
 export class AnthropicProvider implements AIProvider {
   readonly name = 'anthropic' as const;
   private apiKey: string;
@@ -8,6 +45,28 @@ export class AnthropicProvider implements AIProvider {
   constructor(apiKey: string, model: string) {
     this.apiKey = apiKey;
     this.model = model;
+  }
+
+  /**
+   * Returns the `thinking` + `output_config` parameters appropriate for this
+   * model, or an empty object if the model has no thinking support. Splitting
+   * this out lets streamResponse and generateShort share the logic and lets
+   * tests assert the wiring without hitting the SDK.
+   */
+  private thinkingParams(): Record<string, unknown> {
+    if (!ADAPTIVE_THINKING_MODELS.has(this.model)) return {};
+    const base: Record<string, unknown> = { thinking: { type: 'adaptive' } };
+    if (XHIGH_EFFORT_MODELS.has(this.model)) {
+      base.output_config = { effort: 'xhigh' };
+    }
+    return base;
+  }
+
+  private resolveMaxTokens(requested?: number): number {
+    if (typeof requested === 'number' && requested > 0) return requested;
+    return ADAPTIVE_THINKING_MODELS.has(this.model)
+      ? THINKING_DEFAULT_MAX_TOKENS
+      : DEFAULT_MAX_TOKENS;
   }
 
   async streamResponse(
@@ -27,9 +86,10 @@ export class AnthropicProvider implements AIProvider {
     try {
       const stream = client.messages.stream({
         model: this.model,
-        max_tokens: params.maxTokens ?? 1024,
+        max_tokens: this.resolveMaxTokens(params.maxTokens),
         system: params.system,
         messages: anthropicMessages,
+        ...this.thinkingParams(),
       });
 
       stream.on('text', (text: string) => {
@@ -65,6 +125,10 @@ export class AnthropicProvider implements AIProvider {
       { role: 'user', content: params.prompt },
     ];
 
+    // generateShort is for quick title/summary generations. We do NOT enable
+    // thinking here even on thinking-capable models: callers expect a 60-token
+    // single-line output and the thinking overhead would dominate. The cap
+    // stays at the caller's request (default 60).
     const response = await client.messages.create({
       model: this.model,
       max_tokens: params.maxTokens ?? 60,

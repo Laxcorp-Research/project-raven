@@ -173,7 +173,12 @@ describe('ClaudeService', () => {
   });
 
   it('windowTranscript truncates long transcripts', () => {
-    const lines = Array.from({ length: 100 }, (_, i) => `Line ${i}`).join('\n');
+    // Must exceed TRANSCRIPT_LINE_LIMIT (300) to trigger the slice. Picking
+    // 350 leaves headroom above the limit and stays well within memory.
+    // When TRANSCRIPT_LINE_LIMIT was bumped from 50 to 300 (Coding Interview
+    // mode work, 2026-05-13) the previous 100-line fixture stopped triggering
+    // truncation - the test was passing accidentally on the old number.
+    const lines = Array.from({ length: 350 }, (_, i) => `Line ${i}`).join('\n');
 
     const result = (service as any).windowTranscript(lines);
 

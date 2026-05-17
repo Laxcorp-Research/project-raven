@@ -81,6 +81,29 @@ export async function initializeProFeatures(): Promise<void> {
         .catch((err) => log.warn('Retroactive push failed (non-fatal):', err))
 
       pullAndMergeRemoteSessions().catch((err) => log.debug('Initial session pull failed:', err))
+
+      // Phase 2 realtime sync. Start the WS stream alongside the
+      // periodic-sync timer so server-side mutations on other
+      // devices fan out sub-second instead of waiting on the
+      // 15-min poll. onConnect re-runs the pull as a catch-up
+      // path for anything that landed during a disconnect window
+      // (initial boot disconnect, post-reboot reconnect, etc.).
+      // The connector is idempotent against being started twice
+      // (e.g., a triggerPostLoginSync racing with this boot path),
+      // so calling it here is safe even on the
+      // already-authenticated-since-last-boot path.
+      try {
+        const { startWsConnector } = await import(
+          /* @vite-ignore */ '../pro/main/wsConnector'
+        )
+        startWsConnector({
+          onConnect: () => {
+            pullAndMergeRemoteSessions().catch((err) => log.debug('WS-onConnect catch-up session pull failed:', err))
+          },
+        })
+      } catch (err) {
+        log.warn('Failed to start WS connector on boot (non-fatal):', err)
+      }
     }
 
     // Initialize Recall AI Desktop SDK for premium audio capture

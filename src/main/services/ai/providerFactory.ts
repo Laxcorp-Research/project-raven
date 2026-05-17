@@ -41,7 +41,7 @@ export function clearProviderCache(): void {
 
 const FAST_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-5-mini',
+  openai: 'gpt-5.4-mini',
 };
 
 // Deep-mode models used by the Pro path when the user toggles "Smart
