@@ -44,7 +44,7 @@
     "build:swift": "cd src/native/swift/AudioCapture && swift build -c release"
   },
   "overrides": {
-    "protobufjs": "^7.5.5"
+    "protobufjs": "^7.6.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
