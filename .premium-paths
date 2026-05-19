@@ -12,11 +12,11 @@ backend/
 infra/
 .cursor/
 mintlify-docs/
-# admin-app/ is the operator dashboard at admin.useraven.ai. Source
-# references admin API endpoints, IP allowlist contracts, and
-# revenue/MRR computation logic that is fundamentally pro-side.
-# Not useful to OSS users (they have no managed backend to admin),
-# and exposing the routes here would publish the admin surface map.
+# admin-app/ is the internal operator dashboard. Source references
+# admin API endpoints, IP allowlist contracts, and revenue/MRR
+# computation logic that is fundamentally pro-side. Not useful to
+# OSS users (they have no managed backend to admin), and exposing
+# the routes here would publish the admin surface map.
 admin-app/
 
 # Premium-only directories (additional, listed here so they line up
@@ -65,6 +65,14 @@ docs/V2_3_LAUNCH_LOG.md
 # the public docs/_evidence/W12_smartscreen.md - this file is the
 # operational signing playbook.
 docs/WINDOWS_CODE_SIGNING.md
+# W01 is a vendor support ticket pasted verbatim. Contains the
+# operator's personal email + SSL.com account / eSigner / credential
+# IDs. The rest of docs/_evidence/* is fine for OSS (technical
+# verification notes for Windows-specific features); only W01 is
+# gated. Audit on 2026-05-19 caught this had been on OSS HEAD since
+# the file's creation; remediation: rotate the SSL.com credential
+# referenced inside.
+docs/_evidence/W01_sslcom_support_ticket.md
 docs/ADMIN_RUNBOOK.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml

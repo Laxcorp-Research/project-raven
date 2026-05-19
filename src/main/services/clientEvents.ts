@@ -1,8 +1,8 @@
 /**
  * Server-attributed product events from the Electron client.
  *
- * Send-side counterpart of backend/src/routes/events.ts. Distinct
- * from src/main/analytics.ts:
+ * Send-side counterpart of the Pro backend's POST /api/events
+ * route. Distinct from src/main/analytics.ts:
  *   - analytics.ts ships ANONYMOUS events to PostHog with a
  *     random distinctId. Aggregate insights, opt-out-able. Privacy
  *     contract is "telemetry is anonymous".
@@ -45,7 +45,7 @@ const PLATFORM = process.platform
 const VERSION = app.getVersion()
 
 /**
- * Allowlist mirrors backend/src/routes/events.ts ALLOWED_EVENT_NAMES.
+ * Allowlist mirrors the backend's ALLOWED_EVENT_NAMES set.
  * Kept here as a typed union so the call sites get compile-time
  * checking - if the backend allowlist drifts, callers won't catch
  * it until runtime, but the typed front prevents typos in this
