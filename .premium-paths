@@ -73,6 +73,10 @@ docs/WINDOWS_CODE_SIGNING.md
 # the file's creation; remediation: rotate the SSL.com credential
 # referenced inside.
 docs/_evidence/W01_sslcom_support_ticket.md
+# Drafts of operator-side outbound messages and notes.  These quote
+# sensitive identifiers verbatim because the recipient needs them
+# (e.g. account IDs, credential IDs) and so MUST stay private.
+docs/_drafts/
 docs/ADMIN_RUNBOOK.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
