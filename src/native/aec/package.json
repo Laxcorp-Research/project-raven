@@ -13,5 +13,11 @@
   "dependencies": {
     "cmake-js": "^7.3.0",
     "node-addon-api": "^8.3.1"
+  },
+  "overrides": {
+    "axios": "^1.15.2",
+    "tar": "^7.5.13",
+    "follow-redirects": "^1.15.12",
+    "protobufjs": "^7.5.8"
   }
 }
