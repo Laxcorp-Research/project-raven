@@ -45,6 +45,15 @@ export function requestAccessibilityAccess(): boolean {
   log.info('Requesting Accessibility permission...')
   const granted = systemPreferences.isTrustedAccessibilityClient(true)
   log.info(`Accessibility permission ${granted ? 'granted' : 'prompt shown'}`)
+  // Server-attributed event. Only fires the granted side here -
+  // the macOS API returns false when the prompt is shown but
+  // not yet answered, so we'd produce a phantom denied event
+  // for every "first time the user opened the permissions
+  // wizard." A future enhancement could poll the status
+  // post-prompt to confirm denial.
+  if (granted) {
+    void trackPerm('permission_granted', 'accessibility')
+  }
   return granted
 }
 
@@ -56,6 +65,7 @@ export async function requestMicrophoneAccess(): Promise<boolean> {
     log.info('Requesting microphone permission...')
     const granted = await systemPreferences.askForMediaAccess('microphone')
     log.info(`Microphone permission ${granted ? 'granted' : 'denied'}`)
+    void trackPerm(granted ? 'permission_granted' : 'permission_denied', 'microphone')
     return granted
   }
 
@@ -73,6 +83,7 @@ export async function requestMicrophoneAccess(): Promise<boolean> {
     if (status === 'granted') return true
     if (status === 'denied') {
       log.warn('Microphone access denied at OS level - user must toggle in Settings -> Privacy -> Microphone')
+      void trackPerm('permission_denied', 'microphone')
       return false
     }
     // 'not-determined' / 'restricted' / 'unknown' - let the OS prompt
@@ -164,4 +175,24 @@ export function registerPermissionHandlers(): void {
     openAccessibilityPreferences()
     return true
   })
+}
+
+/**
+ * Fire-and-forget helper for the permission_granted /
+ * permission_denied events. Lives at the bottom of this file so
+ * the import cost (a dynamic import of the clientEvents module)
+ * is only paid on the permission-grant code paths. Failure is
+ * silent - event emission is operational telemetry, not a
+ * functional dependency of the permission flow.
+ */
+async function trackPerm(
+  name: 'permission_granted' | 'permission_denied',
+  permission: 'microphone' | 'screen' | 'accessibility',
+): Promise<void> {
+  try {
+    const { trackEvent } = await import('./services/clientEvents')
+    trackEvent(name, { metadata: { permission } })
+  } catch {
+    /* OSS / module unavailable - no-op */
+  }
 }

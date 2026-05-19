@@ -462,6 +462,27 @@ export class ClaudeService {
                 streamHadError = true;
                 this.isProcessing = false;
                 this.broadcastError(errorMsg);
+                // Server-attributed product event. Categorise
+                // the error into a small set of reasons so the
+                // admin dashboard can aggregate ("how many
+                // users hit rate limits today?") without
+                // having to text-parse arbitrary upstream
+                // strings. Anything that doesn't match a known
+                // shape falls into 'other'.
+                void (async () => {
+                  try {
+                    const { trackEvent } = await import('./services/clientEvents');
+                    const lower = (errorMsg || '').toLowerCase();
+                    let reason = 'other';
+                    if (lower.includes('rate') && lower.includes('limit')) reason = 'rate_limited';
+                    else if (lower.includes('timeout') || lower.includes('timed out')) reason = 'timeout';
+                    else if (lower.includes('network') || lower.includes('fetch') || lower.includes('connection')) reason = 'network';
+                    else if (lower.includes('auth') || lower.includes('401') || lower.includes('403')) reason = 'auth';
+                    else if (lower.includes('429')) reason = 'rate_limited';
+                    else if (lower.includes('5')) reason = 'upstream_5xx';
+                    trackEvent('ai_request_failed', { metadata: { reason } });
+                  } catch { /* OSS / module unavailable */ }
+                })();
               },
             }
           ),

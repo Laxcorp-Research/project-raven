@@ -278,6 +278,14 @@ contextBridge.exposeInMainWorld('raven', {
   analyticsSetEnabled: (enabled: boolean) =>
     ipcRenderer.invoke('analytics:set-enabled', enabled),
   analyticsIsEnabled: () => ipcRenderer.invoke('analytics:is-enabled'),
+  // Server-attributed client events (Pro only - main-process
+  // gate handles OSS). Always-defined to keep renderer code
+  // free of mode branches; in OSS this resolves to a silent
+  // accepted=false response.
+  trackClientEvent: (
+    name: string,
+    args?: { sessionId?: string; metadata?: Record<string, unknown> },
+  ) => ipcRenderer.invoke('client-event:track', name, args),
   // Auth (pro mode - handlers registered dynamically by proLoader)
   authIsBackendConfigured: () => ipcRenderer.invoke('auth:is-backend-configured'),
   authIsAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),

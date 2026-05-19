@@ -11,6 +11,20 @@ type AiProvider = 'anthropic' | 'openai'
 
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
+
+  // Fire-and-forget product event the first time this component
+  // mounts on a fresh signup. Pairs with the existing
+  // onboarding_completed event the main process fires when the
+  // server-side onboardedAt timestamp gets set, giving the
+  // admin dashboard a full "did they start AND finish?" funnel.
+  // useEffect-with-[] runs once per component lifetime - the
+  // wizard remounts on signout/signin which is the correct
+  // signal here.
+  useEffect(() => {
+    void window.raven.trackClientEvent('onboarding_started')
+    // intentionally empty deps - fire once per mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [accessibilityPermission, setAccessibilityPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')

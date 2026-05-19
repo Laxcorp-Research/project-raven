@@ -292,6 +292,16 @@ declare global {
       onHotkeyScrollDown: (callback: () => void) => () => void;
       onHotkeyMove: (callback: (direction: 'up' | 'down' | 'left' | 'right') => void) => () => void;
       analyticsTrack: (name: string, properties?: Record<string, unknown>) => Promise<void>;
+      // Server-attributed client event. Renderer fires this on
+      // user actions that matter for support / funnel analysis
+      // (recording attempts, checkout opens, etc.). The main
+      // process buffers + batches + ships to /api/events. Pro-
+      // only at the send layer; on OSS the call resolves to
+      // { accepted: false } and nothing is sent.
+      trackClientEvent: (
+        name: string,
+        args?: { sessionId?: string; metadata?: Record<string, unknown> },
+      ) => Promise<{ accepted: boolean; reason?: string }>;
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void;
 
       // Legacy overlay API (used by Settings.tsx, TitleBar.tsx, InputBar.tsx)

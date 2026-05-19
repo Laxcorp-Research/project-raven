@@ -143,7 +143,10 @@ export function ChatTab() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => window.raven.authOpenCheckout('PRO')}
+              onClick={() => {
+                void window.raven.trackClientEvent('checkout_opened', { metadata: { plan: 'PRO', surface: 'overlay_chat' } })
+                void window.raven.authOpenCheckout('PRO')
+              }}
               className="px-4 py-1.5 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
             >
               Upgrade Now

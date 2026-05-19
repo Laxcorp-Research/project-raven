@@ -12,6 +12,12 @@ backend/
 infra/
 .cursor/
 mintlify-docs/
+# admin-app/ is the operator dashboard at admin.useraven.ai. Source
+# references admin API endpoints, IP allowlist contracts, and
+# revenue/MRR computation logic that is fundamentally pro-side.
+# Not useful to OSS users (they have no managed backend to admin),
+# and exposing the routes here would publish the admin surface map.
+admin-app/
 
 # Premium-only directories (additional, listed here so they line up
 # with the docs/ block visually). scripts/load-test/ is operational
@@ -59,8 +65,10 @@ docs/V2_3_LAUNCH_LOG.md
 # the public docs/_evidence/W12_smartscreen.md - this file is the
 # operational signing playbook.
 docs/WINDOWS_CODE_SIGNING.md
+docs/ADMIN_RUNBOOK.md
 .github/SECRETS.md
 .github/workflows/deploy-backend.yml
+.github/workflows/deploy-admin.yml
 .github/workflows/release-electron.yml
 .github/workflows/sync-docs.yml
 build/entitlements.mac.plist

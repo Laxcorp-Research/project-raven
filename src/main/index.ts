@@ -69,6 +69,7 @@ import { initializeProFeatures } from './proLoader'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
+import { initClientEvents, shutdownClientEvents } from './services/clientEvents'
 import { inflightHandle, cooldownHandle } from './ipcThrottle'
 import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus } from './permissions'
@@ -467,6 +468,11 @@ function boot(): void {
   createTray()
   initAutoUpdater()
   initAnalytics()
+  // Server-attributed product events. Ships to both OSS and
+  // Pro (the module is itself isProMode-gated so OSS is a
+  // hard no-op). See src/main/services/clientEvents.ts for
+  // the privacy + buffering design.
+  initClientEvents()
 }
 
 app.whenReady().then(() => {
@@ -1197,6 +1203,7 @@ app.on('before-quit', () => {
   destroyTray()
   stopAutoUpdater()
   void shutdownAnalytics()
+  void shutdownClientEvents()
 
   // Stop active recording: kills audiocapture child process, closes Deepgram WebSockets, saves session
   audioManager.shutdown().catch((err) => {

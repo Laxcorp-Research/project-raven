@@ -94,6 +94,23 @@ class SessionManager {
     }
 
     this.broadcastSessionUpdate();
+
+    // Server-attributed product event. Dynamic-import keeps this
+    // free of a hard dependency on the clientEvents module (so
+    // sessionManager.test.ts doesn't have to mock it).
+    void (async () => {
+      try {
+        const { trackEvent } = await import('./clientEvents');
+        trackEvent('recording_started', {
+          sessionId: this.activeSession!.id,
+          metadata: {
+            incognito: this.isIncognito,
+            modeId: resolvedModeId,
+          },
+        });
+      } catch { /* OSS or module unavailable */ }
+    })();
+
     return this.activeSession;
   }
 
@@ -201,6 +218,19 @@ class SessionManager {
       .map((e) => `${e.source === 'mic' ? displayName : 'Them'}: ${e.text}`)
       .join('\n');
     log.info('Session ended:', sessionId, 'duration:', durationSeconds, 's');
+
+    // Server-attributed product event. Mirrors the start path
+    // above; same dynamic-import shape to keep tests free of
+    // a hard dependency on clientEvents.
+    void (async () => {
+      try {
+        const { trackEvent } = await import('./clientEvents');
+        trackEvent('recording_ended', {
+          sessionId,
+          metadata: { durationSeconds, modeId },
+        });
+      } catch { /* OSS or module unavailable */ }
+    })();
 
     this.activeSession = null;
     this.broadcastSessionUpdate();

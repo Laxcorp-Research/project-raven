@@ -99,6 +99,13 @@ export function BillingTab({ initialSubscription }: BillingTabProps = {}) {
 
   async function handleUpgrade() {
     setLoading(true)
+    // Server-attributed product event. Fires BEFORE we ask the
+    // main process to open the checkout - we want to capture
+    // the user's intent ("clicked Upgrade") independently of
+    // whether the checkout URL load actually succeeded.
+    void window.raven.trackClientEvent('checkout_opened', {
+      metadata: { plan: 'PRO', interval: billingInterval, surface: 'billing_tab' },
+    })
     try {
       const result = await window.raven.authOpenCheckout('PRO', billingInterval)
       if (!result.success) console.error('Checkout failed:', result.error)
@@ -112,6 +119,7 @@ export function BillingTab({ initialSubscription }: BillingTabProps = {}) {
   async function handleManageBilling() {
     setPortalLoading(true)
     setPortalError(null)
+    void window.raven.trackClientEvent('portal_opened', { metadata: { surface: 'billing_tab' } })
     try {
       const result = await window.raven.authOpenBillingPortal()
       if (!result.success) {

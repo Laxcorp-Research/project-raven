@@ -195,6 +195,7 @@ export class AudioManager {
           const captureStarted = startCapture()
           if (!captureStarted) {
             log.error('Native audio capture failed to start')
+            void trackRecordingFailed('native_capture_failed_to_start_pro')
             return { success: false, error: 'Audio capture failed to start' }
           }
           shouldStartProRetryLoop = true
@@ -221,6 +222,7 @@ export class AudioManager {
         const captureStarted = startCapture()
         if (!captureStarted) {
           log.error('Native audio capture failed to start')
+          void trackRecordingFailed('native_capture_failed_to_start')
           return { success: false, error: 'Audio capture failed to start' }
         }
       }
@@ -896,5 +898,20 @@ export class AudioManager {
     this.usingRecall = false
     this.isRecording = false
     this.recordingStartTime = null
+  }
+}
+
+/**
+ * Fire-and-forget helper for the recording_failed product
+ * event. Dynamic-import keeps audioManager test mocks free of a
+ * hard dependency on clientEvents; failure is silent (the
+ * recording flow has its own user-facing error path).
+ */
+async function trackRecordingFailed(reason: string): Promise<void> {
+  try {
+    const { trackEvent } = await import('./services/clientEvents')
+    trackEvent('recording_failed', { metadata: { reason } })
+  } catch {
+    /* OSS or module unavailable */
   }
 }
