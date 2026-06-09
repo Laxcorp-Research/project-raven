@@ -9,6 +9,14 @@ contextBridge.exposeInMainWorld('raven', {
   apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) =>
     ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey),
   apiKeysHas: () => ipcRenderer.invoke('store:has-api-keys'),
+  // 60db api key is stored encrypted via a dedicated IPC channel (generic
+  // store:set is blocked by PROTECTED_STORE_KEYS).
+  sixtydbApiKeySave: (key: string) =>
+    ipcRenderer.invoke('store:save-sixtydb-api-key', key),
+  // Returns { mimeType, bytes } where bytes is the raw audio Buffer/Uint8Array.
+  // Renderer wraps it in a Blob and plays via HTMLAudioElement.
+  ttsSynthesize: (text: string) =>
+    ipcRenderer.invoke('tts:synthesize', text) as Promise<{ mimeType: string; bytes: Uint8Array }>,
   apiKeysClear: () => ipcRenderer.invoke('store:clear-api-keys'),
   planIsFree: () => ipcRenderer.invoke('store:is-free-mode'),
   planIsPro: () => ipcRenderer.invoke('store:is-pro-mode'),

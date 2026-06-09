@@ -149,6 +149,46 @@ export function OverlayWindow() {
   const requestInFlightRef = useRef(false)
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 60db TTS playback. One Audio element at a time; new responses cancel
+  // previous playback. Object URLs are revoked on stop / unmount.
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const currentAudioUrlRef = useRef<string | null>(null)
+
+  const stopCurrentAudio = useCallback(() => {
+    if (currentAudioRef.current) {
+      try { currentAudioRef.current.pause() } catch { /* noop */ }
+      currentAudioRef.current = null
+    }
+    if (currentAudioUrlRef.current) {
+      try { URL.revokeObjectURL(currentAudioUrlRef.current) } catch { /* noop */ }
+      currentAudioUrlRef.current = null
+    }
+  }, [])
+
+  const speakText = useCallback(async (text: string) => {
+    if (!text || !text.trim()) return
+    try {
+      const enabled = await window.raven.storeGet('readResponsesAloud')
+      if (!enabled) return
+      const result = await window.raven.ttsSynthesize(text) as { mimeType: string; bytes: ArrayBuffer | Uint8Array } | { __ipcError: true; error: string }
+      if ('__ipcError' in result) {
+        log.warn('TTS synthesize failed:', result.error)
+        return
+      }
+      stopCurrentAudio()
+      const bytes = result.bytes instanceof Uint8Array ? result.bytes : new Uint8Array(result.bytes)
+      const blob = new Blob([bytes], { type: result.mimeType })
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      currentAudioRef.current = audio
+      currentAudioUrlRef.current = url
+      audio.addEventListener('ended', stopCurrentAudio, { once: true })
+      audio.play().catch((err) => log.warn('Audio play rejected:', err))
+    } catch (err) {
+      log.warn('speakText failed:', err)
+    }
+  }, [stopCurrentAudio])
   const notificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   const hasResponse = responses.length > 0 || isLoadingResponse
@@ -207,6 +247,8 @@ export function OverlayWindow() {
 
     const unsubClaude = window.raven.onClaudeResponse((data) => {
       if (data.type === 'start') {
+        // Cancel any in-flight TTS playback when a new response begins.
+        stopCurrentAudio()
         requestInFlightRef.current = true
         setIsLoadingResponse(true)
         setLimitInfo(null)
@@ -251,6 +293,11 @@ export function OverlayWindow() {
                 : entry
             )
           )
+        }
+        // Speak the final response if the user toggled it on. Fires-and-forgets;
+        // any failure (no api key, network, etc.) is logged but silent in UI.
+        if (data.fullText) {
+          void speakText(data.fullText)
         }
         setActiveResponseId(null)
         activeResponseIdRef.current = null
@@ -340,6 +387,7 @@ export function OverlayWindow() {
     }) ?? (() => {})
 
     return () => {
+      stopCurrentAudio()
       unsubStealth()
       unsubRecording()
       unsubNotification()

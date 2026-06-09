@@ -75,7 +75,7 @@ export function registerIpcHandlers(): void {
     return getSetting(key)
   })
 
-  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'apiKeysConfigured']
+  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'sixtydbApiKey', 'apiKeysConfigured']
 
   safeHandle(
     'store:set',
@@ -113,6 +113,24 @@ export function registerIpcHandlers(): void {
 
   safeHandle('store:has-api-keys', () => {
     return hasApiKeys()
+  })
+
+  // 60db api key has its own dedicated channel (parallel to store:save-api-keys)
+  // because PROTECTED_STORE_KEYS blocks generic store:set writes to it. Encryption
+  // happens inside saveSetting() since sixtydbApiKey is in API_KEY_FIELDS.
+  safeHandle('store:save-sixtydb-api-key', (key: string) => {
+    assertString(key, 'key', 500)
+    saveSetting('sixtydbApiKey', key)
+    return true
+  })
+
+  // TTS — synth on main keeps the api key off the renderer, audio bytes are
+  // returned for the renderer to play via HTMLAudioElement.
+  safeHandle('tts:synthesize', async (text: string) => {
+    assertString(text, 'text', 50_000)
+    const { ttsService } = await import('./ttsService')
+    const buf = await ttsService.synthesize(text)
+    return { mimeType: ttsService.mimeType(), bytes: buf }
   })
 
   safeHandle('store:clear-api-keys', () => {
