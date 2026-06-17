@@ -83,6 +83,13 @@ docs/ADMIN_RUNBOOK.md
 .github/workflows/deploy-admin.yml
 .github/workflows/release-electron.yml
 .github/workflows/sync-docs.yml
+# build-aec-deps.yml uploads the prebuilt AEC/GStreamer bottle to the
+# production releases bucket using prod AWS credentials. It names the
+# bucket (s3://raven-production-releases/...) and pins AWS_REGION, which
+# reveals release-infrastructure layout — same reason the deploy-*.yml
+# workflows above are gated. The build recipe itself is not useful to OSS
+# users (they have no upload target). Gated 2026-06-17.
+.github/workflows/build-aec-deps.yml
 build/entitlements.mac.plist
 build/.raven-pro
 
