@@ -39,13 +39,32 @@ By using the Service, you agree to the collection and use of information in acco
 | Anonymous Product Analytics | A randomly-generated device-scoped identifier of the form `anon-<timestamp>-<random>` (NOT your email, NOT your account ID, not cross-referenced with any of those server-side); event names (`app_launched`, `session_started`, `session_ended` with a duration BUCKET like "5-15m" rather than the exact duration, `ai_request` with the action type, `transcription_provider`, `error_boundary_caught`); per-event metadata (app version, platform, CPU arch, Electron version). The user's IP is explicitly nulled (`$ip: null`) on every event before transmission. Forwarded to PostHog. | Both |
 | Account-attributed Product Events (Pro only) | Once you sign in to Raven Pro, a small fixed set of lifecycle / outcome events tied to your account is recorded on our own servers (not a third party). The current list: `app_launched`, `onboarding_started`, `onboarding_completed`, `onboarding_step`, `permission_granted`, `permission_denied`, `recording_attempt`, `recording_started`, `recording_failed`, `recording_ended`, `ai_request_attempt`, `ai_request_failed`, `checkout_opened`, `portal_opened`, `client_error`. Each event records: name (from this list only — anything not on the list is rejected at the backend), your account id, optional session id, platform string, app version, and an optional small JSON metadata blob (capped at 4KB) capturing things like the failure reason (`mic_unavailable`, `rate_limited`). Keys that look like credentials (`password`, `token`, `apiKey`, `secret`) are stripped on the way in as defense in depth. These events power our internal user-support and product-health tooling — they are NOT shared with PostHog, Sentry, or any third party. | Pro Tier |
 
-#### 2.3 Information We Do Not Collect
+#### 2.3 Information We Do Not Share With Third Parties
 
 - **Audio recordings:** Raven processes audio in real time for transcription. Raw audio is not written to disk and is not stored by us.
 - **Video or screen content:** Raven does not capture video, screen recordings, or visual content of any kind.
 - **Transcript or AI content via crash reports or product analytics:** Sentry and PostHog never receive transcript text, AI prompts, AI responses, file content, mode names, or names of meeting participants. The Account-attributed Product Events captured on our own backend likewise never contain transcript, AI prompt/response, file content, or recording audio - only a fixed-name event identifier plus a small structured metadata blob (e.g. `{ reason: 'mic_unavailable' }`).
 - **IP addresses via product analytics:** every PostHog event sets `$ip: null` so PostHog does not record the IP from the connecting socket.
 - **Cleartext passwords:** passwords are hashed with bcrypt cost factor 12 the moment a request body reaches the backend; the cleartext is never written to disk or to logs.
+
+#### 2.4 Operator Access to Pro Session Content (for Support, Abuse Investigation, and Debugging)
+
+If you use Raven Pro, your session transcripts, AI conversation history, mode configurations, and uploaded context files are stored on our servers so the app can sync them across your devices and so we can render them for you in the in-app session history.
+
+Authorized Raven operators (currently a single named operator at Laxcorp Software Design - FZCO) may review this content for the following specific purposes:
+
+- **Customer support** — when you contact support with a question or issue that requires us to see what you saw in your session.
+- **Abuse / fraud / safety investigations** — when we have a credible report or system signal that an account is being used in violation of the Terms of Service.
+- **Engineering debugging** — when investigating a confirmed product bug whose reproduction requires inspecting the affected session data.
+
+Every operator review of session content writes a row to our internal `admin_audit_log` table that records the operator's identity, the route accessed, the session id, and a timestamp. The audit log is retained for 24 months. You can request a copy of all `admin_audit_log` rows that reference your account by emailing **privacy@useraven.ai**; we will respond within 30 days per applicable data-access law.
+
+We do NOT review session content for:
+- Product analytics / aggregated insights — that's what the Anonymous Product Analytics path in §2.2 is for.
+- Training third-party AI models — we have never shared customer session content with any model provider, and our agreements with the model APIs (Anthropic, OpenAI) explicitly forbid them from training on the prompts/responses Raven forwards on your behalf.
+- Marketing, advertising, or sales targeting.
+
+If you would prefer that we cannot review your content even for support purposes, contact **privacy@useraven.ai** and we will scope your account to "metadata-only" support, which restricts operators to event timestamps and aggregate counts (you will receive degraded support quality in exchange).
 
 ### 3. How We Use Your Information
 
