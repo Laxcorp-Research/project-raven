@@ -13,16 +13,34 @@
  *     (which we already disclose for Pro accounts)".
  *
  * Behavior:
- *   - OSS mode and unauthenticated state: every trackEvent() call
- *     is a no-op. No buffer growth, no eventual flush. Module
- *     loads but does nothing.
- *   - Pro + authenticated: events buffered in memory, flushed
- *     every FLUSH_INTERVAL_MS or when buffer reaches FLUSH_AT.
- *     POST /api/events with the buffer; on any failure (network,
- *     5xx) we discard the batch rather than retry. Events are
- *     "best effort" - losing one to a network blip is acceptable;
- *     the source of truth for whether something happened is the
- *     side effect (a session row, a Sentry error), not the event.
+ *   - trackEvent() always buffers, regardless of isProMode() at
+ *     call time. The actual gate on whether anything leaves the
+ *     device is at flush time, via isAuthenticated() from the
+ *     authService, AND via initClientEvents not starting a flush
+ *     timer in OSS mode.  Earlier versions had a synchronous
+ *     isProMode() check inside trackEvent() that silently dropped
+ *     events fired from the renderer during the brief window
+ *     between renderer-side auth ready and main-process pro-mode
+ *     flag propagation - which manifested as missing
+ *     `onboarding_started` events for fresh signups (Bug
+ *     triaged 2026-06-03; see admin dashboard activity feed
+ *     for s1090404300@gmail.com vs xcn04248@gmail.com).
+ *   - OSS mode: events buffer in memory but never leave the
+ *     device (initClientEvents() returns early before setting
+ *     the flush timer, so flush() is never invoked; the buffer's
+ *     MAX_BUFFER cap means the in-memory footprint is bounded
+ *     at ~40KB).
+ *   - Pro + authenticated: events buffered, flushed every
+ *     FLUSH_INTERVAL_MS or when buffer reaches FLUSH_AT. POST
+ *     /api/events with the buffer; on any failure (network, 5xx)
+ *     we discard the batch rather than retry. Events are "best
+ *     effort" - losing one to a network blip is acceptable; the
+ *     source of truth for whether something happened is the side
+ *     effect (a session row, a Sentry error), not the event.
+ *   - Pro + temporarily unauthenticated (e.g., tokens being
+ *     refreshed): flush() detects this and prepends the batch
+ *     back to the buffer for the next flush attempt rather than
+ *     dropping it.
  *   - Buffer has a hard cap (MAX_BUFFER) so a long offline window
  *     can't grow memory unbounded. Oldest events are dropped first
  *     (FIFO) so the most recent state is preserved.
@@ -156,14 +174,26 @@ export function initClientEvents(): void {
 }
 
 /**
- * Public send API. Drops the call silently if we're in OSS, not
- * authenticated, or the buffer is overflowing.
+ * Public send API. Always buffers; whether anything actually
+ * leaves the device is decided at flush time (which happens
+ * only in Pro mode + authenticated; see the file header
+ * "Behavior" section for the full contract). The buffer is
+ * bounded by MAX_BUFFER so an event-only-in-memory scenario
+ * (OSS, or Pro with a long offline window) cannot grow memory
+ * unbounded.
+ *
+ * NOTE: do not re-add an `if (!isProMode()) return` guard here.
+ * The renderer can fire trackClientEvent over IPC in the brief
+ * window between client-side auth completion and main-process
+ * pro-mode propagation - dropping events synchronously here is
+ * how the `onboarding_started` event used to vanish for fresh
+ * signups. The flush-time isAuthenticated() check is the
+ * authoritative gate for "ready to send."
  */
 export function trackEvent(
   name: ClientEventName,
   args?: { sessionId?: string; metadata?: Record<string, unknown> },
 ): void {
-  if (!isProMode()) return
   if (buffer.length >= MAX_BUFFER) {
     // FIFO drop: oldest goes, newest survives. Keeps the recent
     // window intact across a long offline period.
@@ -172,7 +202,9 @@ export function trackEvent(
   buffer.push({ name, sessionId: args?.sessionId, metadata: args?.metadata })
   // Aggressive early flush when we've crossed the batch threshold
   // - keeps recent events visible to the admin dashboard without
-  // waiting up to FLUSH_INTERVAL_MS.
+  // waiting up to FLUSH_INTERVAL_MS. flush() is itself gated by
+  // isAuthenticated() so an early flush from OSS or a not-yet-
+  // authenticated client is still safe.
   if (buffer.length >= FLUSH_AT) {
     void flush()
   }
@@ -192,7 +224,15 @@ export function trackEvent(
 async function flush(): Promise<void> {
   if (flushInFlight) return
   if (buffer.length === 0) return
-  if (!isProMode()) return
+  // Note: no `if (!isProMode()) return` here. The gate that
+  // matters is the dynamic-import + isAuthenticated() pair
+  // below: on OSS the pro/main/authService import path doesn't
+  // exist and the import throws, the catch block drops the
+  // batch, and the only side effect is a debug log.  Putting an
+  // isProMode() short-circuit here would re-introduce the same
+  // race-condition class as the (now removed) one in
+  // trackEvent: a renderer-fired event could be buffered between
+  // pro-mode flips and never escape.
 
   // Snapshot the buffer and clear it; new events enqueued during
   // the in-flight POST go into a fresh array.
@@ -235,6 +275,31 @@ async function flush(): Promise<void> {
   } finally {
     flushInFlight = false
   }
+}
+
+/**
+ * Test-only escape hatches.  Underscore prefix signals these are
+ * NOT part of the production-callable surface; they exist solely
+ * so the regression test for the trackEvent buffering contract
+ * (the bug that hid `onboarding_started` for fresh signups) can
+ * inspect internal state without depending on the dynamic
+ * pro/main/authService import. Production code does not import
+ * these.
+ */
+export function _getBufferForTests(): ReadonlyArray<QueuedEvent> {
+  return buffer.slice()
+}
+export function _resetForTests(): void {
+  buffer = []
+  initialized = false
+  if (flushTimer) {
+    clearInterval(flushTimer)
+    flushTimer = null
+  }
+  flushInFlight = false
+}
+export function _flushForTests(): Promise<void> {
+  return flush()
 }
 
 /**
