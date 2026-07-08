@@ -22,6 +22,9 @@ function getTrayIconPath(recording: boolean): string {
 function showDashboard(action?: string): void {
   const dashboard = getDashboardWindow()
   if (dashboard && !dashboard.isDestroyed()) {
+    // A hide-on-close window comes back via show(); a minimized one
+    // needs an explicit restore() first or show() leaves it minimized.
+    if (dashboard.isMinimized()) dashboard.restore()
     dashboard.show()
     dashboard.focus()
     if (action) {
@@ -83,6 +86,15 @@ export function createTray(): void {
 
     tray.setToolTip('Raven')
     tray.setContextMenu(buildContextMenu())
+
+    // On Windows/Linux, left-clicking the tray icon is the natural way
+    // to reopen the app; setContextMenu only binds the RIGHT-click menu
+    // there, so without this a left-click does nothing and the closed
+    // (now hidden) dashboard appears unrecoverable. On macOS a tray
+    // left-click opens the menu by convention, so we don't override it.
+    if (process.platform !== 'darwin') {
+      tray.on('click', () => showDashboard())
+    }
 
     log.info('Tray icon created')
   } catch (err) {

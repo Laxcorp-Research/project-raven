@@ -150,6 +150,7 @@ declare global {
       windowAutoSizeOverlay: (mode: 'compact' | 'expanded') => Promise<boolean>;
       windowMoveOverlay: (direction: 'up' | 'down' | 'left' | 'right') => Promise<boolean>;
       windowSetIgnoreMouseEvents: (ignore: boolean) => Promise<boolean>;
+      windowSetOverlayFocusable: (focusable: boolean) => Promise<boolean>;
       windowShowDashboard: () => Promise<boolean>;
       windowResize: (width: number, height: number) => Promise<boolean>;
       windowGetOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;

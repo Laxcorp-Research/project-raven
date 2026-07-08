@@ -54,6 +54,7 @@ import {
   getDashboardWindow,
   setStealthMode,
   setOverlayEnabled,
+  showOverlayWindow,
   registerStealthTrayCallbacks
 } from './windowManager'
 import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
@@ -209,8 +210,9 @@ function registerGlobalHotkeys(
       if (overlayWindow.isVisible()) {
         overlayWindow.hide()
       } else {
-        overlayWindow.show()
-        overlayWindow.focus()
+        // showOverlayWindow re-arms mouse-move forwarding on Windows
+        // (showInactive), so the panel stays grabbable after a hide.
+        showOverlayWindow()
         overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1)
       }
     }
@@ -222,13 +224,15 @@ function registerGlobalHotkeys(
       overlayWindow.webContents.send('hotkey:ai-suggestion')
       // Make sure overlay is visible when asking for help
       if (!overlayWindow.isVisible()) {
-        overlayWindow.show()
-        overlayWindow.focus()
+        showOverlayWindow()
       }
     }
   })
 
-  // Toggle Recording: Cmd/Ctrl + R.
+  // Toggle Recording: Cmd/Ctrl + Shift + Space.
+  // NOTE: this is a SYSTEM-WIDE shortcut. It was previously Cmd/Ctrl+R,
+  // which hijacked the browser's refresh in every app while Raven ran.
+  // Shift+Space is effectively never bound globally by other apps.
   // Only the overlay subscribes to 'hotkey:toggle-recording'
   // (OverlayWindow / OverlayToolbar). The dashboard uses its own
   // dashboard-scoped keyboard shortcut which it relays to main via
@@ -236,14 +240,16 @@ function registerGlobalHotkeys(
   // handled in ipc.ts. The previous extra `dashboardWindow.send(...)` here
   // was misleading - it had no subscriber and implied the dashboard
   // received global-hotkey toggles when it didn't.
-  const recordingRegistered = globalShortcut.register(`${modifier}+R`, () => {
+  const recordingRegistered = globalShortcut.register(`${modifier}+Shift+Space`, () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.webContents.send('hotkey:toggle-recording')
     }
   })
 
-  // Clear Conversation: Cmd/Ctrl + Shift + R
-  const clearRegistered = globalShortcut.register(`${modifier}+Shift+R`, () => {
+  // Clear Conversation: Cmd/Ctrl + Shift + Backspace.
+  // Was Cmd/Ctrl+Shift+R, which clobbered the browser's hard-refresh
+  // system-wide (same global-shortcut hijack class as the recording key).
+  const clearRegistered = globalShortcut.register(`${modifier}+Shift+Backspace`, () => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.webContents.send('hotkey:clear-conversation')
     }
@@ -430,7 +436,11 @@ function boot(): void {
     setOverlayEnabled(true)
     dashboard.on('ready-to-show', () => {
       setTimeout(() => {
-        overlay.show()
+        // Windows: show via showOverlayWindow (showInactive) so the
+        // now-focusable overlay doesn't steal focus on launch and arms
+        // mouse-move forwarding. macOS keeps its existing show().
+        if (process.platform === 'win32') showOverlayWindow()
+        else overlay.show()
       }, OVERLAY_SHOW_DELAY_MS)
     })
 
@@ -451,7 +461,9 @@ function boot(): void {
       setStealthMode(true)
     }
     setOverlayEnabled(true)
-    overlay.show()
+    // Windows: showInactive (focusable overlay must not steal focus on show).
+    if (process.platform === 'win32') showOverlayWindow()
+    else overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
     warnIfProAccessibilityLimited(overlay, dashboard)
     setTrayOnboarding(false)

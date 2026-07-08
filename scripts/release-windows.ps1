@@ -182,7 +182,11 @@ if ($currentVersion -ne $Version) {
     $raw = Get-Content $pkgJsonPath -Raw
     # Replace ONLY the top-level "version": "<x.y.z>" line. Other
     # version fields (runtime versions, dependency pins) stay intact.
-    $raw = $raw -replace '("version":\s*")[^"]+(")', "`$1$Version`$2"
+    # Use BRACED backreferences (${1}/${2}); a bare `$1` immediately
+    # followed by a version starting with a digit (e.g. 2.3.3) is parsed
+    # by .NET regex as group $12, which doesn't exist, so the capture is
+    # dropped and package.json gets corrupted to "$12.3.3".
+    $raw = $raw -replace '("version":\s*")[^"]+(")', "`${1}$Version`${2}"
     Set-Content -Path $pkgJsonPath -Value $raw -NoNewline
     git add package.json
     git commit -m "chore(release): bump version to $Version" | Out-Null

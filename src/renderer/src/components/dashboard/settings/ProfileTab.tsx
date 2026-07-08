@@ -2,6 +2,39 @@ import { useState, useEffect } from 'react'
 import { useAppMode } from '../../../hooks/useAppMode'
 import { ImageCropModal } from './ImageCropModal'
 
+/**
+ * Downscale a (cropped) avatar data URL to a small JPEG so it can be stored
+ * inline on the user record server-side without bloating the row or the
+ * /me payload. Avatars render at <=80px, so 256px is plenty; JPEG q0.85 on a
+ * 256px image lands in the tens of KB. A white matte avoids transparent
+ * areas turning black under JPEG. Best-effort - callers fall back to the
+ * original on failure.
+ */
+async function resizeAvatarDataUrl(dataUrl: string, maxDim = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.max(1, Math.round(img.width * scale))
+      const h = Math.max(1, Math.round(img.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('no 2d context'))
+        return
+      }
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, w, h)
+      ctx.drawImage(img, 0, 0, w, h)
+      resolve(canvas.toDataURL('image/jpeg', 0.85))
+    }
+    img.onerror = () => reject(new Error('failed to load image for resize'))
+    img.src = dataUrl
+  })
+}
+
 export function ProfileTab() {
   const { isPro } = useAppMode()
   const [displayName, setDisplayName] = useState('')
@@ -141,6 +174,16 @@ export function ProfileTab() {
       const data = await window.raven.profileGetPictureData(path)
       setProfilePicData(data)
       setAvatarUrl(null)
+      // Persist the avatar on the user record (resized small) so it survives
+      // logout/login/reinstall and never leaks across accounts. The local
+      // file above is only a fast-display cache that is cleared on logout;
+      // the server copy is the source of truth shown on the next login.
+      if (isAuthenticated) {
+        try {
+          const resized = await resizeAvatarDataUrl(croppedDataUrl)
+          await window.raven.authUpdateProfile({ avatarUrl: resized })
+        } catch { /* best-effort: the local cache still shows it this session */ }
+      }
       window.dispatchEvent(new Event('profile-updated'))
     }
   }
@@ -148,6 +191,18 @@ export function ProfileTab() {
   async function handleRemovePicture() {
     await window.raven.profileRemovePicture()
     setProfilePicData(null)
+    // Also clear the server-persisted copy from view so the avatar + Remove
+    // button disappear immediately (after a re-login the custom avatar lives
+    // in avatarUrl, not profilePicData).
+    setAvatarUrl(null)
+    // Clear the server-persisted avatar too, otherwise it would reappear on
+    // the next login. Empty string lets a later OAuth login repopulate the
+    // provider picture, which is the expected "custom avatar removed" result.
+    if (isAuthenticated) {
+      try {
+        await window.raven.authUpdateProfile({ avatarUrl: '' })
+      } catch { /* best-effort */ }
+    }
     window.dispatchEvent(new Event('profile-updated'))
   }
 
@@ -161,7 +216,14 @@ export function ProfileTab() {
   }
 
   const hasChanges = displayName.trim() !== savedName
-  const hasCustomPic = !!profilePicData
+  // A custom avatar is removable whether it's the fresh local cache
+  // (profilePicData, set this session) or the server-persisted copy shown
+  // after a re-login (avatarUrl holding our inlined data:image URL). An
+  // external https provider picture (Google/OAuth) is NOT a custom avatar,
+  // so Remove stays hidden for it - matching the pre-server-persistence
+  // behavior. Without the data: check the Remove button vanished after
+  // logging back in (the local cache is cleared on logout).
+  const hasCustomPic = !!profilePicData || (!!avatarUrl && avatarUrl.startsWith('data:'))
   const avatarSrc = profilePicData || avatarUrl
 
   return (

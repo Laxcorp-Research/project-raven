@@ -37,6 +37,7 @@ const {
   mockShowOverlay,
   mockHideOverlay,
   mockSetStealthMode,
+  mockSetOverlayFocusable,
   mockGetDashboardWindow,
   mockGetOverlayWindow,
   mockClampOverlayBoundsToDisplay,
@@ -45,6 +46,7 @@ const {
   mockShowOverlay: vi.fn(),
   mockHideOverlay: vi.fn(),
   mockSetStealthMode: vi.fn(),
+  mockSetOverlayFocusable: vi.fn(),
   mockGetDashboardWindow: vi.fn().mockReturnValue(null),
   mockGetOverlayWindow: vi.fn().mockReturnValue(null),
   mockClampOverlayBoundsToDisplay: vi.fn((b: Record<string, number>) => b),
@@ -129,6 +131,7 @@ vi.mock('../windowManager', () => ({
   showOverlay: mockShowOverlay,
   hideOverlay: mockHideOverlay,
   setStealthMode: mockSetStealthMode,
+  setOverlayFocusable: mockSetOverlayFocusable,
   getDashboardWindow: mockGetDashboardWindow,
   getOverlayWindow: mockGetOverlayWindow,
   clampOverlayBoundsToDisplay: mockClampOverlayBoundsToDisplay,
@@ -477,6 +480,32 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
       const result = handlers['window:set-ignore-mouse-events'](fakeEvent(), true)
 
       expect(result).toBe(false)
+    })
+  })
+
+  // ============================
+  // window:set-overlay-focusable
+  // ============================
+
+  describe('window:set-overlay-focusable', () => {
+    it('forwards true to setOverlayFocusable and returns true', () => {
+      const result = handlers['window:set-overlay-focusable'](fakeEvent(), true)
+
+      expect(mockSetOverlayFocusable).toHaveBeenCalledWith(true)
+      expect(result).toBe(true)
+    })
+
+    it('forwards false to setOverlayFocusable', () => {
+      handlers['window:set-overlay-focusable'](fakeEvent(), false)
+
+      expect(mockSetOverlayFocusable).toHaveBeenCalledWith(false)
+    })
+
+    it('rejects a non-boolean argument', () => {
+      const result = handlers['window:set-overlay-focusable'](fakeEvent(), 'yes') as { __ipcError?: boolean }
+
+      expect(result?.__ipcError).toBe(true)
+      expect(mockSetOverlayFocusable).not.toHaveBeenCalled()
     })
   })
 

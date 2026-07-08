@@ -63,10 +63,16 @@ vi.mock('../trayManager', () => ({
 
 const mockCheckPermissions = vi.hoisted(() => vi.fn(() => ({ ok: true, missing: [] })))
 const mockRequestMicAccess = vi.hoisted(() => vi.fn().mockResolvedValue(true))
+const mockGetPermissionStatus = vi.hoisted(() =>
+  vi.fn(() => ({ microphone: 'granted', screen: 'granted', accessibility: 'granted' })),
+)
+const mockOpenMicPrefs = vi.hoisted(() => vi.fn())
 
 vi.mock('../permissions', () => ({
   checkPermissionsForRecording: mockCheckPermissions,
   requestMicrophoneAccess: mockRequestMicAccess,
+  getPermissionStatus: mockGetPermissionStatus,
+  openMicrophonePreferences: mockOpenMicPrefs,
 }))
 
 const mockGetSetting = vi.hoisted(() => vi.fn(() => ''))
@@ -99,6 +105,7 @@ describe('AudioManager', () => {
     mockGetSetting.mockReturnValue('')
     mockIsProMode.mockReturnValue(false)
     mockStartCapture.mockReturnValue(true)
+    mockGetPermissionStatus.mockReturnValue({ microphone: 'granted', screen: 'granted', accessibility: 'granted' })
     mockTranscriptionService.start.mockResolvedValue({ success: true })
     mockTranscriptionService.stop.mockResolvedValue(undefined)
     mockSessionManager.endSession.mockReturnValue({ id: 'session-1', transcript: [{ id: '1', text: 'test' }] })
@@ -249,6 +256,57 @@ describe('AudioManager', () => {
         success: false,
         error: expect.stringContaining('Screen recording permission is required'),
       })
+    })
+  })
+
+  describe('audio:start-recording (Windows mic permission gate)', () => {
+    // Regression for "transcription works on one PC but not a teammate's
+    // fresh install": before the fix, audioManager only gated permissions
+    // on macOS, so a Windows machine with mic access turned OFF started a
+    // recording that silently captured nothing. The gate must abort with a
+    // clear error instead.
+    const originalPlatform = process.platform
+
+    beforeEach(() => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    })
+
+    it('aborts with a clear error + opens settings when Windows mic access is denied', async () => {
+      mockGetPermissionStatus.mockReturnValue({ microphone: 'denied', screen: 'granted', accessibility: 'granted' })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({}) as { success: boolean; error?: string }
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Microphone access is turned off')
+      expect(mockOpenMicPrefs).toHaveBeenCalled()
+      expect(manager.getIsRecording()).toBe(false)
+      expect(mockStartCapture).not.toHaveBeenCalled()
+    })
+
+    it('proceeds to record when Windows mic access is granted', async () => {
+      mockGetPermissionStatus.mockReturnValue({ microphone: 'granted', screen: 'granted', accessibility: 'granted' })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+
+      expect(result).toMatchObject({ success: true })
+      expect(mockOpenMicPrefs).not.toHaveBeenCalled()
+      expect(mockStartCapture).toHaveBeenCalled()
+    })
+
+    it('proceeds when mic status is not-determined (OS prompts at first stream open)', async () => {
+      mockGetPermissionStatus.mockReturnValue({ microphone: 'not-determined', screen: 'granted', accessibility: 'granted' })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+
+      expect(result).toMatchObject({ success: true })
+      expect(mockStartCapture).toHaveBeenCalled()
     })
   })
 
@@ -639,7 +697,6 @@ describe('AudioManager', () => {
 
   describe('silence watchdog (F3)', () => {
     const FIVE_MIN = 5 * 60 * 1000
-    const TEN_MIN = 10 * 60 * 1000
     const ELEVEN_MIN = 11 * 60 * 1000
 
     function attachWindows(): { overlaySend: ReturnType<typeof vi.fn>; dashSend: ReturnType<typeof vi.fn> } {

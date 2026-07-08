@@ -13,7 +13,7 @@ import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
 import { setProcessedAudioCallback, setCaptureExitCallback, startCapture, stopCapture } from './systemAudioNative'
 import { updateTrayRecordingState } from './trayManager'
-import { checkPermissionsForRecording, requestMicrophoneAccess } from './permissions'
+import { checkPermissionsForRecording, requestMicrophoneAccess, getPermissionStatus, openMicrophonePreferences } from './permissions'
 import { createLogger } from './logger'
 
 const log = createLogger('Audio')
@@ -166,6 +166,28 @@ export class AudioManager {
           if (perms.missing.includes('screen')) {
             log.error('Screen recording permission denied')
             return { success: false, error: 'Screen recording permission is required for system audio capture. Grant access in System Settings → Privacy & Security → Screen Recording, then restart the app.' }
+          }
+        }
+      } else if (process.platform === 'win32') {
+        // Windows has no programmatic mic prompt - the OS shows it the
+        // first time a stream opens for a 'not-determined' app, so we let
+        // that case proceed. But if the user has explicitly turned
+        // Microphone access OFF (Settings -> Privacy -> Microphone),
+        // recording would start and silently capture NOTHING - no mic
+        // transcript, no error. That is the most common reason Raven
+        // "works on one PC but not another fresh install": the dev box
+        // granted mic long ago, a teammate's clean machine has it off.
+        // permissions.ts already reads the real Windows status; gate on
+        // it here (win32-scoped, so the macOS branch above is untouched)
+        // and fail loudly with a deep link instead of recording silence.
+        const micStatus = getPermissionStatus().microphone
+        if (micStatus === 'denied') {
+          log.error('Microphone access denied at OS level (Windows privacy setting) - aborting start')
+          void trackRecordingFailed('microphone_permission_denied_win')
+          openMicrophonePreferences()
+          return {
+            success: false,
+            error: 'Microphone access is turned off for Raven. In Windows Settings -> Privacy & security -> Microphone, enable "Let desktop apps access your microphone", then try again.',
           }
         }
       }

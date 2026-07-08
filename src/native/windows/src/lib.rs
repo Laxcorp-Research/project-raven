@@ -9,6 +9,11 @@ use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+};
 
 #[macro_use]
 extern crate napi_derive;
@@ -143,6 +148,50 @@ pub fn stop_mic_capture() -> bool {
         return true;
     }
     false
+}
+
+/// Exclude a top-level window from the taskbar AND the Alt-Tab switcher
+/// while keeping it focusable.
+///
+/// The overlay must stay focusable so setIgnoreMouseEvents(forward:true)
+/// mouse-move forwarding survives a hide -> re-show (issue D). A focusable
+/// top-level window otherwise appears in Alt-Tab; Electron's `skipTaskbar`
+/// only removes the taskbar button, not the Alt-Tab entry. WS_EX_TOOLWINDOW
+/// removes it from both while preserving activation and keyboard input.
+///
+/// `handle` is BrowserWindow.getNativeWindowHandle() - an 8-byte
+/// little-endian HWND pointer on win32-x64. Returns false (never panics) if
+/// the handle is unusable. Intended to be applied while the window is still
+/// hidden so the style is in effect before its first show.
+#[napi]
+pub fn set_window_tool_window(handle: Buffer) -> bool {
+    let bytes: &[u8] = handle.as_ref();
+    let raw = match bytes.get(0..8).and_then(|b| <[u8; 8]>::try_from(b).ok()) {
+        Some(arr) => u64::from_le_bytes(arr),
+        None => return false,
+    };
+    if raw == 0 {
+        return false;
+    }
+    let hwnd = HWND(raw as isize);
+    unsafe {
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let new_ex_style =
+            (ex_style | (WS_EX_TOOLWINDOW.0 as isize)) & !(WS_EX_APPWINDOW.0 as isize);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex_style);
+        // Force the extended-style change to take effect without moving,
+        // resizing, re-ordering, or activating the (still-hidden) window.
+        let _ = SetWindowPos(
+            hwnd,
+            HWND(0),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+    true
 }
 
 #[derive(Clone)]

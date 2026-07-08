@@ -488,7 +488,7 @@ export function OverlayWindow() {
     return () => unsub()
   }, [handleToggleRecording])
 
-  // Hotkey: clear conversation (Cmd/Ctrl+Shift+R).
+  // Hotkey: clear conversation (Cmd/Ctrl+Shift+Backspace).
   // The hotkey was previously registered in main + broadcast as
   // 'hotkey:clear-conversation', but no overlay subscriber existed, so
   // pressing it silently did nothing. Clear responses locally and ask
@@ -1293,6 +1293,18 @@ export function OverlayWindow() {
                   type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
+                  onMouseDown={() => {
+                    // The overlay is shown inactive (showInactive) so it never
+                    // steals focus on appearance. Activating it on input click
+                    // ensures the text box reliably receives keyboard focus
+                    // after a re-show. No-op on macOS (panel takes input).
+                    // We deliberately do NOT revert on blur: flipping the
+                    // window back to focusable:false kills setIgnoreMouseEvents
+                    // mouse-move forwarding after Ctrl+\ (issue D).
+                    void window.raven.windowSetOverlayFocusable(true).then(() => {
+                      inputRef.current?.focus()
+                    })
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault()

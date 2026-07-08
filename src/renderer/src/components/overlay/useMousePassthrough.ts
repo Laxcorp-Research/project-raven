@@ -53,12 +53,25 @@ export function useMousePassthrough(refs: HitTestRefs) {
       setOverlayMouseIgnore(true)
     }
 
+    // After a hide -> re-show (e.g. Ctrl+\), main re-arms mouse-move
+    // forwarding via showOverlayWindow() (showInactive on Windows) and the
+    // window comes back in passthrough state (ignore=true). Sync our ref to
+    // that so the very next mousemove over the panel correctly flips to
+    // capture (the same-value guard would otherwise no-op if our ref were
+    // stale). Main owns the actual setIgnoreMouseEvents here, so we don't
+    // call it again - we just realign the local mirror.
+    const handleOverlayShown = () => {
+      mouseIgnoreRef.current = true
+    }
+
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('blur', handleWindowBlur)
+    const unsubOverlayShown = window.raven.on('overlay:shown', handleOverlayShown)
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('blur', handleWindowBlur)
+      unsubOverlayShown()
     }
   }, [isOverInteractiveUi, setOverlayMouseIgnore])
 

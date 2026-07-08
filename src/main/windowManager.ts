@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen, nativeTheme } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
+import { applyOverlayToolWindowStyle } from './windowsOverlayStyle'
 import { DASHBOARD_DEFAULT_WIDTH, DASHBOARD_DEFAULT_HEIGHT, DASHBOARD_MIN_WIDTH, DASHBOARD_MIN_HEIGHT } from './constants'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -9,6 +10,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
 let overlayEnabled = false
+// Tracks whether the overlay has been shown at least once. Used to fire
+// 'overlay:shown' only on RE-shows (not the initial boot show), so the
+// renderer can re-arm mouse-event forwarding without blocking background
+// clicks on first launch. See the 'show' handler in createOverlayWindow.
+let overlayHasShownOnce = false
 
 const stealthTrayCallbacks: { hide?: () => void; show?: () => void } = {}
 
@@ -176,9 +182,23 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     }
   })
 
-  // On macOS, hide instead of close so the window can be re-shown
+  // Hide-on-close instead of destroy, so the window can be re-shown from
+  // the tray. Raven keeps running in the tray + overlay after the
+  // dashboard is closed; a real quit goes through app.quit() ("Quit
+  // Raven" in the tray), and before-quit in index.ts removes this
+  // listener before closing so quit is never blocked.
+  //
+  // This applies to macOS AND Windows - both ship a persistent tray.
+  // Before this fix the guard was darwin-only, so on Windows pressing
+  // the custom title-bar close button (-> window:close IPC -> win.close())
+  // DESTROYED the dashboard and nulled `dashboardWindow`. After that the
+  // tray's showDashboard() / window:show-dashboard only re-show an
+  // EXISTING window, so the dashboard could never be brought back - "the
+  // window never comes back, not even from the tray icon". Linux is left
+  // as close-to-quit (tray support there is unreliable).
   dashboardWindow.on('close', (e) => {
-    if (process.platform === 'darwin' && dashboardWindow && !dashboardWindow.isDestroyed()) {
+    const hideOnClose = process.platform === 'darwin' || process.platform === 'win32'
+    if (hideOnClose && dashboardWindow && !dashboardWindow.isDestroyed()) {
       e.preventDefault()
       dashboardWindow.hide()
     }
@@ -228,9 +248,15 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     roundedCorners: false,
     show: false,
     title: 'Raven Overlay',
-    ...(process.platform === 'darwin'
-      ? { type: 'panel' as const }
-      : { focusable: false }),
+    // Windows: keep the overlay focusable (the BrowserWindow default).
+    // A focusable:false (WS_EX_NOACTIVATE) window loses setIgnoreMouseEvents
+    // (forward:true) mouse-move forwarding after a hide -> re-show cycle,
+    // which left the panel click-through and dead after Ctrl+\ (issue D).
+    // We avoid stealing focus from the meeting by always showing via
+    // showInactive() (see showOverlayWindow) - the overlay only activates
+    // when the user actually clicks its UI, and skipTaskbar keeps it out of
+    // the taskbar/Alt-Tab. macOS uses a non-activating panel window.
+    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -250,6 +276,11 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   } else {
     overlayWindow.setAlwaysOnTop(true, 'floating')
+    // The overlay is focusable (so mouse-forwarding survives Ctrl+\, issue D),
+    // which would otherwise make it appear in Alt-Tab. WS_EX_TOOLWINDOW keeps
+    // it out of the taskbar AND Alt-Tab. Applied while still hidden (show:false)
+    // so it takes effect before the first show. Best-effort / Windows-only.
+    applyOverlayToolWindowStyle(overlayWindow)
   }
 
   // Prevent throttling when overlay isn't focused
@@ -262,7 +293,18 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   overlayWindow.on('show', () => {
     if (!overlayEnabled && overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.hide()
+      return
     }
+    // On a RE-show (e.g. after Ctrl+\ hide), Windows can stop forwarding
+    // mouse-move messages to a click-through window, which leaves the
+    // overlay stuck ignoring the cursor - it "bleeds" through to the app
+    // behind and the panel can't be grabbed. Tell the renderer to re-arm
+    // its mouse passthrough. Skipped on the very first (boot) show so we
+    // don't briefly capture background clicks before the user interacts.
+    if (overlayHasShownOnce && overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('overlay:shown')
+    }
+    overlayHasShownOnce = true
   })
 
   // Load the overlay route
@@ -275,21 +317,48 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
   return overlayWindow
 }
 
+/**
+ * Show (or re-show) the overlay with mouse-event forwarding intact.
+ *
+ * On Windows, hiding the overlay and re-showing it with show()+focus()
+ * permanently drops the mouse-move forwarding hook that powers the
+ * overlay's click-through hit-testing - the panel then ignores the cursor
+ * entirely and clicks "bleed" through to the app behind (Electron
+ * #15376 / #40486). Re-applying setIgnoreMouseEvents alone does NOT fix
+ * it. The reliable re-arm is showInactive() (which rebuilds the native
+ * window's mouse hook) plus a fresh setIgnoreMouseEvents(true,{forward})
+ * BEFORE showing; the renderer's passthrough hit-testing then works again
+ * after Ctrl+\. showInactive also avoids stealing focus from the meeting
+ * (the overlay is focusable:false on Windows anyway; typing is handled by
+ * setOverlayFocusable on the input's focus).
+ *
+ * macOS doesn't have this bug and uses a panel window, so it keeps the
+ * existing show()+focus() behavior untouched.
+ */
+export function showOverlayWindow(): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (process.platform === 'win32') {
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true })
+    overlayWindow.showInactive()
+  } else {
+    overlayWindow.show()
+    overlayWindow.focus()
+  }
+}
+
 export function toggleOverlay(): void {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
 
   if (overlayWindow.isVisible()) {
     overlayWindow.hide()
   } else if (overlayEnabled) {
-    overlayWindow.show()
-    overlayWindow.focus()
+    showOverlayWindow()
   }
 }
 
 export function showOverlay(): void {
   if (!overlayWindow || overlayWindow.isDestroyed() || !overlayEnabled) return
-  overlayWindow.show()
-  overlayWindow.focus()
+  showOverlayWindow()
 }
 
 export function setOverlayEnabled(enabled: boolean): void {
@@ -300,6 +369,33 @@ export function setOverlayEnabled(enabled: boolean): void {
 export function hideOverlay(): void {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   overlayWindow.hide()
+}
+
+/**
+ * Activate the overlay so its chat/Assist text box can receive keyboard
+ * focus. Called from the input's onMouseDown.
+ *
+ * The overlay is created focusable on Windows (see createOverlayWindow) and
+ * shown inactive so it never steals focus on appearance; activating it on
+ * click makes typing reliable after a re-show.
+ *
+ * We deliberately do NOT honor `focusable === false`: dropping focusability
+ * (WS_EX_NOACTIVATE) makes the overlay lose setIgnoreMouseEvents
+ * (forward:true) mouse-move forwarding across a hide -> re-show, which left
+ * the whole panel click-through and dead after Ctrl+\ (issue D). A stray
+ * `false` is therefore a no-op rather than a regression.
+ *
+ * macOS uses a `panel` overlay that already accepts text input, so this is
+ * a Windows-only concern; on every other platform it's a no-op.
+ */
+export function setOverlayFocusable(focusable: boolean): void {
+  if (process.platform !== 'win32') return
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  // Never make the overlay non-focusable - it breaks mouse forwarding after
+  // Ctrl+\ (issue D). Only honor activation requests.
+  if (!focusable) return
+  overlayWindow.setFocusable(true)
+  overlayWindow.focus()
 }
 
 export function setStealthMode(enabled: boolean): void {

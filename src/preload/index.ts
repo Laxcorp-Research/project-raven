@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('window:move-overlay', direction),
   windowSetIgnoreMouseEvents: (ignore: boolean) =>
     ipcRenderer.invoke('window:set-ignore-mouse-events', ignore),
+  windowSetOverlayFocusable: (focusable: boolean) =>
+    ipcRenderer.invoke('window:set-overlay-focusable', focusable),
   windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
   windowResize: (width: number, height: number) => ipcRenderer.invoke('window:resize', width, height),
   windowGetOverlayBounds: () => ipcRenderer.invoke('window:get-overlay-bounds'),
@@ -409,6 +411,10 @@ contextBridge.exposeInMainWorld('raven', {
       'recall:participant-left',
       'recall:participant-speech-on',
       'recall:participant-speech-off',
+      // Fired by windowManager when the overlay is re-shown (e.g. after a
+      // Ctrl+\ hide). useMousePassthrough re-arms mouse-event forwarding
+      // so the overlay stays grabbable instead of bleeding clicks through.
+      'overlay:shown',
       // Fired by src/pro/main/deepLink.ts when the user returns from the
       // Dodo Payments checkout flow via the raven://billing-success deep
       // link. BillingTab refreshes its subscription state on this event

@@ -1,14 +1,27 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-const { mockTrayInstance, mockCreateFromPath } = vi.hoisted(() => ({
-  mockTrayInstance: {
-    setToolTip: vi.fn(),
-    setContextMenu: vi.fn(),
-    setImage: vi.fn(),
-    destroy: vi.fn(),
-  },
-  mockCreateFromPath: vi.fn(() => ({ isEmpty: () => false })),
-}))
+const { mockTrayInstance, mockCreateFromPath, mockDashboardWindow, mockGetDashboardWindow } = vi.hoisted(() => {
+  const dashboard = {
+    show: vi.fn(),
+    focus: vi.fn(),
+    restore: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    isMinimized: vi.fn(() => false),
+    webContents: { send: vi.fn() },
+  }
+  return {
+    mockTrayInstance: {
+      setToolTip: vi.fn(),
+      setContextMenu: vi.fn(),
+      setImage: vi.fn(),
+      destroy: vi.fn(),
+      on: vi.fn(),
+    },
+    mockCreateFromPath: vi.fn(() => ({ isEmpty: () => false })),
+    mockDashboardWindow: dashboard,
+    mockGetDashboardWindow: vi.fn(() => dashboard),
+  }
+})
 
 vi.mock('electron', () => ({
   Tray: vi.fn(function () { return mockTrayInstance }),
@@ -26,7 +39,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../windowManager', () => ({
-  getDashboardWindow: vi.fn(() => null),
+  getDashboardWindow: mockGetDashboardWindow,
   getOverlayWindow: vi.fn(() => null),
 }))
 
@@ -43,10 +56,23 @@ import { createTray, updateTrayRecordingState, setTrayVisibility, setTrayOnboard
 import { Tray, nativeImage } from 'electron'
 
 describe('trayManager', () => {
+  const originalPlatform = process.platform
+
+  const setPlatform = (platform: NodeJS.Platform) => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockCreateFromPath.mockReturnValue({ isEmpty: () => false })
+    mockGetDashboardWindow.mockReturnValue(mockDashboardWindow)
+    mockDashboardWindow.isDestroyed.mockReturnValue(false)
+    mockDashboardWindow.isMinimized.mockReturnValue(false)
     destroyTray()
+  })
+
+  afterEach(() => {
+    setPlatform(originalPlatform)
   })
 
   describe('createTray', () => {
@@ -71,6 +97,49 @@ describe('trayManager', () => {
       createTray()
 
       expect(nativeImage.createEmpty).toHaveBeenCalled()
+    })
+
+    it('binds a left-click handler that re-shows the dashboard on Windows', () => {
+      // Regression: on Windows the dashboard is hidden (not destroyed) on
+      // close, and setContextMenu only binds the RIGHT-click menu. Without
+      // a left-click handler the user has no way to bring a closed window
+      // back from the tray icon.
+      setPlatform('win32')
+
+      createTray()
+
+      const clickHandler = mockTrayInstance.on.mock.calls.find((c) => c[0] === 'click')?.[1] as
+        | (() => void)
+        | undefined
+      expect(clickHandler).toBeDefined()
+
+      clickHandler!()
+      expect(mockDashboardWindow.show).toHaveBeenCalled()
+      expect(mockDashboardWindow.focus).toHaveBeenCalled()
+    })
+
+    it('does not bind a left-click handler on macOS (left-click opens the menu by convention)', () => {
+      setPlatform('darwin')
+
+      createTray()
+
+      const clickHandler = mockTrayInstance.on.mock.calls.find((c) => c[0] === 'click')
+      expect(clickHandler).toBeUndefined()
+    })
+
+    it('left-click restores a minimized dashboard before showing it', () => {
+      setPlatform('win32')
+      mockDashboardWindow.isMinimized.mockReturnValue(true)
+
+      createTray()
+
+      const clickHandler = mockTrayInstance.on.mock.calls.find((c) => c[0] === 'click')?.[1] as
+        | (() => void)
+        | undefined
+      clickHandler!()
+
+      expect(mockDashboardWindow.restore).toHaveBeenCalled()
+      expect(mockDashboardWindow.show).toHaveBeenCalled()
     })
   })
 

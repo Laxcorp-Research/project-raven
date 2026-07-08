@@ -91,7 +91,15 @@ for f in "${candidate_files[@]}"; do
   fi
 done
 
-git add -A
+# Stage ONLY the filtered candidate paths - never `git add -A`. A blanket
+# `git add -A` sweeps in everything else in the working tree: Rust/napi build
+# artifacts (src/native/windows/target/, the compiled *.node), local tooling
+# output (scripts/load-test/*, .cursor/), etc. Those are gitignored on
+# production but NOT necessarily on main, so `git add -A` would stage + push
+# them into the PUBLIC repo - including secrets like scripts/load-test/tokens.txt.
+# The `-A -- <paths>` form still handles deletions, but scoped to the vetted,
+# premium-filtered candidate list, so the sync is safe from any working tree.
+git add -A -- "${candidate_files[@]}"
 
 # Now check what ACTUALLY changed (files already identical are ignored by git)
 actually_changed=$(git diff --cached --name-only)

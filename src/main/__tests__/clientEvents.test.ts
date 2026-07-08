@@ -151,7 +151,14 @@ describe('clientEvents - flush() send-side guard removal (regression)', () => {
     const fs = await import('node:fs')
     const path = await import('node:path')
     const sourcePath = path.resolve(__dirname, '../services/clientEvents.ts')
-    const src = fs.readFileSync(sourcePath, 'utf8')
+    // Normalize CRLF -> LF first. On a Windows (autocrlf) checkout the
+    // per-line comment strip below splits on '\n', leaving a trailing
+    // '\r' on each line; `/\/\/.*$/` then can't reach end-of-line
+    // (`.` and `$` don't span `\r`), so the explanatory comment that
+    // intentionally writes `if (!isProMode()) return` survives the
+    // strip and false-trips the assertion. This check is about code,
+    // not line endings.
+    const src = fs.readFileSync(sourcePath, 'utf8').replace(/\r\n/g, '\n')
 
     // Slice out just the flush() function body so a re-added
     // isProMode guard elsewhere (e.g., legitimately in

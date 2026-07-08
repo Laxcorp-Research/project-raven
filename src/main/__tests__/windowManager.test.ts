@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { BrowserWindow } from 'electron'
 
 const { mockBrowserWindowInstance, mockWebRequestHandlers: _mockWebRequestHandlers } = vi.hoisted(() => ({
   mockBrowserWindowInstance: {
@@ -22,6 +23,9 @@ const { mockBrowserWindowInstance, mockWebRequestHandlers: _mockWebRequestHandle
     isDestroyed: vi.fn(() => false),
     isVisible: vi.fn(() => false),
     setContentProtection: vi.fn(),
+    setFocusable: vi.fn(),
+    setIgnoreMouseEvents: vi.fn(),
+    showInactive: vi.fn(),
     setOpacity: vi.fn(),
     setAlwaysOnTop: vi.fn(),
     setVisibleOnAllWorkspaces: vi.fn(),
@@ -68,6 +72,12 @@ vi.mock('../store', () => ({
   saveSetting: mockSaveSetting,
 }))
 
+// The overlay tool-window (Alt-Tab exclusion) helper loads a Windows native
+// module; stub it so windowManager tests stay isolated from that .node.
+vi.mock('../windowsOverlayStyle', () => ({
+  applyOverlayToolWindowStyle: vi.fn(() => false),
+}))
+
 import {
   clampOverlayBoundsToDisplay,
   createDashboardWindow,
@@ -78,6 +88,8 @@ import {
   showOverlay,
   hideOverlay,
   setOverlayEnabled,
+  setOverlayFocusable,
+  showOverlayWindow,
   setStealthMode,
   registerStealthTrayCallbacks,
 } from '../windowManager'
@@ -236,6 +248,53 @@ describe('windowManager', () => {
       createDashboardWindow('/preload.js', null)
 
       expect(mockBrowserWindowInstance.webContents.setWindowOpenHandler).toHaveBeenCalled()
+    })
+  })
+
+  describe('dashboard close behavior (hide-on-close)', () => {
+    const getCloseHandler = () => {
+      createDashboardWindow('/preload.js', null)
+      return mockBrowserWindowInstance.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'close',
+      )?.[1] as ((e: { preventDefault: () => void }) => void) | undefined
+    }
+
+    it('hides instead of destroying on Windows (so the tray can re-show it)', () => {
+      // Regression for "the window never comes back, not even from the
+      // tray icon": before the fix this guard was darwin-only, so on
+      // Windows window:close DESTROYED the dashboard and nulled the
+      // reference - the tray could no longer re-show it.
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const closeHandler = getCloseHandler()
+      expect(closeHandler).toBeDefined()
+
+      const preventDefault = vi.fn()
+      closeHandler!({ preventDefault })
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.hide).toHaveBeenCalled()
+    })
+
+    it('hides instead of destroying on macOS', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const closeHandler = getCloseHandler()
+
+      const preventDefault = vi.fn()
+      closeHandler!({ preventDefault })
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.hide).toHaveBeenCalled()
+    })
+
+    it('allows close-to-quit on Linux where tray support is unreliable', () => {
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+      const closeHandler = getCloseHandler()
+
+      const preventDefault = vi.fn()
+      closeHandler!({ preventDefault })
+
+      expect(preventDefault).not.toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.hide).not.toHaveBeenCalled()
     })
   })
 
@@ -421,6 +480,123 @@ describe('windowManager', () => {
 
       setStealthMode(true)
       expect(hideCb).toHaveBeenCalled()
+    })
+  })
+
+  describe('setOverlayFocusable (issue A: overlay typing on Windows)', () => {
+    it('makes the overlay focusable + focuses it on Windows when true', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      mockBrowserWindowInstance.setFocusable.mockClear()
+      mockBrowserWindowInstance.focus.mockClear()
+
+      setOverlayFocusable(true)
+
+      expect(mockBrowserWindowInstance.setFocusable).toHaveBeenCalledWith(true)
+      expect(mockBrowserWindowInstance.focus).toHaveBeenCalled()
+    })
+
+    it('does NOT drop focusability when false (would re-break mouse forwarding after Ctrl+\\, issue D)', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      mockBrowserWindowInstance.setFocusable.mockClear()
+      mockBrowserWindowInstance.focus.mockClear()
+
+      setOverlayFocusable(false)
+
+      // focusable:false (WS_EX_NOACTIVATE) kills setIgnoreMouseEvents
+      // forwarding across a hide -> re-show; the overlay must stay focusable.
+      expect(mockBrowserWindowInstance.setFocusable).not.toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.focus).not.toHaveBeenCalled()
+    })
+
+    it('is a no-op on macOS (the panel overlay already accepts text input)', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      mockBrowserWindowInstance.setFocusable.mockClear()
+
+      setOverlayFocusable(true)
+
+      expect(mockBrowserWindowInstance.setFocusable).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('createOverlayWindow focusable model (issue D)', () => {
+    it('creates the Windows overlay focusable so mouse forwarding survives hide/show', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      vi.mocked(BrowserWindow).mockClear()
+      createOverlayWindow('/preload.js', null)
+      const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as Record<string, unknown>
+      // focusable:false (WS_EX_NOACTIVATE) is what killed setIgnoreMouseEvents
+      // forwarding after Ctrl+\. Must NOT be false (defaults to focusable).
+      expect(opts.focusable).not.toBe(false)
+    })
+
+    it('keeps the macOS overlay a non-activating panel (unchanged)', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      vi.mocked(BrowserWindow).mockClear()
+      createOverlayWindow('/preload.js', null)
+      const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as Record<string, unknown>
+      expect(opts.type).toBe('panel')
+      expect(opts.focusable).toBeUndefined()
+    })
+  })
+
+  describe('showOverlayWindow (issue D: re-arm mouse forwarding on Windows)', () => {
+    it('re-arms forwarding via setIgnoreMouseEvents + showInactive on Windows (not show/focus)', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      mockBrowserWindowInstance.setIgnoreMouseEvents.mockClear()
+      mockBrowserWindowInstance.showInactive.mockClear()
+      mockBrowserWindowInstance.show.mockClear()
+      mockBrowserWindowInstance.focus.mockClear()
+
+      showOverlayWindow()
+
+      expect(mockBrowserWindowInstance.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true })
+      expect(mockBrowserWindowInstance.showInactive).toHaveBeenCalled()
+      // show()+focus() is exactly what drops the forwarding hook on Windows.
+      expect(mockBrowserWindowInstance.show).not.toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.focus).not.toHaveBeenCalled()
+    })
+
+    it('uses show()+focus() on macOS (no forwarding bug; panel needs activation)', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      mockBrowserWindowInstance.showInactive.mockClear()
+      mockBrowserWindowInstance.show.mockClear()
+      mockBrowserWindowInstance.focus.mockClear()
+
+      showOverlayWindow()
+
+      expect(mockBrowserWindowInstance.show).toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.focus).toHaveBeenCalled()
+      expect(mockBrowserWindowInstance.showInactive).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('overlay re-show re-arms mouse passthrough (issue D)', () => {
+    it("suppresses 'overlay:shown' on the first show but fires it on re-show", () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      createOverlayWindow('/preload.js', null)
+      setOverlayEnabled(true)
+      const showHandler = mockBrowserWindowInstance.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'show',
+      )?.[1] as () => void
+      expect(showHandler).toBeDefined()
+      mockBrowserWindowInstance.webContents.send.mockClear()
+
+      // First (boot) show: must NOT re-arm, so it can't capture background
+      // clicks before the user interacts.
+      showHandler()
+      const firstShowReArmed = mockBrowserWindowInstance.webContents.send.mock.calls.some(
+        (c: unknown[]) => c[0] === 'overlay:shown',
+      )
+      expect(firstShowReArmed).toBe(false)
+
+      // Re-show (e.g. after Ctrl+\): re-arm the renderer's passthrough.
+      showHandler()
+      expect(mockBrowserWindowInstance.webContents.send).toHaveBeenCalledWith('overlay:shown')
     })
   })
 })

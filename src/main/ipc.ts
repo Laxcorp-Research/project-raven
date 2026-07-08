@@ -15,8 +15,10 @@ import type { LocalSettings } from './store'
 import {
   toggleOverlay,
   showOverlay,
+  showOverlayWindow,
   hideOverlay,
   setStealthMode,
+  setOverlayFocusable,
   getDashboardWindow,
   getOverlayWindow,
   clampOverlayBoundsToDisplay
@@ -263,6 +265,16 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  // Make the overlay window momentarily focusable so its text input can
+  // receive keyboard focus on Windows (where it's created focusable:false
+  // to avoid stealing focus from the meeting app). The renderer calls this
+  // true on the input's mousedown/focus and false on blur. No-op off-win32.
+  safeHandle('window:set-overlay-focusable', (focusable: boolean) => {
+    assertBoolean(focusable, 'focusable')
+    setOverlayFocusable(focusable)
+    return true
+  })
+
   safeHandle('window:resize', (width: number, height: number) => {
     assertNumber(width, 'width')
     assertNumber(height, 'height')
@@ -369,8 +381,7 @@ export function registerIpcHandlers(): void {
     if (overlay && !overlay.isDestroyed()) {
       overlay.webContents.send('hotkey:toggle-recording')
       if (!overlay.isVisible()) {
-        overlay.show()
-        overlay.focus()
+        showOverlayWindow()
       }
     }
   })
