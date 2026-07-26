@@ -15,6 +15,16 @@ export function ApiKeysTab() {
   const [originalAiProvider, setOriginalAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
   const [originalAiModel, setOriginalAiModel] = useState('claude-haiku-4-5')
   const [originalOpenaiKey, setOriginalOpenaiKey] = useState('')
+  // 60db TTS — optional, speaks AI responses aloud when readAloud is on.
+  const [sixtydbKey, setSixtydbKey] = useState('')
+  const [originalSixtydbKey, setOriginalSixtydbKey] = useState('')
+  const [showSixtydb, setShowSixtydb] = useState(false)
+  const [readAloud, setReadAloud] = useState(false)
+  const [originalReadAloud, setOriginalReadAloud] = useState(false)
+  // Transcription provider picker. 'deepgram' is the historical default; 'sixtydb'
+  // routes streaming STT through wss://api.60db.ai/ws/stt using the 60db key above.
+  const [sttProvider, setSttProvider] = useState<'deepgram' | 'sixtydb'>('deepgram')
+  const [originalSttProvider, setOriginalSttProvider] = useState<'deepgram' | 'sixtydb'>('deepgram')
   const [showDeepgram, setShowDeepgram] = useState(false)
   const [showAnthropic, setShowAnthropic] = useState(false)
   const [originalDeepgramKey, setOriginalDeepgramKey] = useState('')
@@ -48,6 +58,15 @@ export function ApiKeysTab() {
         if (prov === 'anthropic' || prov === 'openai') { setAiProvider(prov); setOriginalAiProvider(prov) }
         const mdl = (await window.raven.storeGet('aiModel')) as string
         if (mdl) { setAiModel(mdl); setOriginalAiModel(mdl) }
+        const sdbKey = (await window.raven.storeGet('sixtydbApiKey')) as string
+        if (sdbKey) { setSixtydbKey(sdbKey); setOriginalSixtydbKey(sdbKey) }
+        const aloud = (await window.raven.storeGet('readResponsesAloud')) as boolean
+        if (typeof aloud === 'boolean') { setReadAloud(aloud); setOriginalReadAloud(aloud) }
+        const sttProv = (await window.raven.storeGet('transcriptionProvider')) as string
+        if (sttProv === 'deepgram' || sttProv === 'sixtydb') {
+          setSttProvider(sttProv)
+          setOriginalSttProvider(sttProv)
+        }
       } catch (error) {
         log.error('Failed to load API keys:', error)
       }
@@ -87,6 +106,9 @@ export function ApiKeysTab() {
     || openaiKey.trim() !== originalOpenaiKey
     || aiProvider !== originalAiProvider
     || aiModel !== originalAiModel
+    || sixtydbKey.trim() !== originalSixtydbKey
+    || readAloud !== originalReadAloud
+    || sttProvider !== originalSttProvider
   const canSave = hasChanges
 
   const validateKeys = async (showSuccessMessage = true) => {
@@ -150,12 +172,20 @@ export function ApiKeysTab() {
         await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim(), openaiKey.trim())
         await window.raven.storeSet('aiProvider', aiProvider)
         await window.raven.storeSet('aiModel', aiModel)
+        // 60db key + read-aloud toggle. Key goes through its dedicated channel
+        // because PROTECTED_STORE_KEYS blocks generic store:set for api keys.
+        await window.raven.sixtydbApiKeySave(sixtydbKey.trim())
+        await window.raven.storeSet('readResponsesAloud', readAloud)
+        await window.raven.storeSet('transcriptionProvider', sttProvider)
         setSaveMessage({ type: 'success', text: 'Settings saved successfully' })
         setOriginalDeepgramKey(deepgramKey.trim())
         setOriginalAnthropicKey(anthropicKey.trim())
         setOriginalOpenaiKey(openaiKey.trim())
         setOriginalAiProvider(aiProvider)
         setOriginalAiModel(aiModel)
+        setOriginalSixtydbKey(sixtydbKey.trim())
+        setOriginalReadAloud(readAloud)
+        setOriginalSttProvider(sttProvider)
       } catch (error) {
         setSaveMessage({ type: 'error', text: 'Failed to save API keys' })
       }
@@ -438,6 +468,95 @@ export function ApiKeysTab() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Transcription Provider — Deepgram (default) vs 60db STT WebSocket */}
+      <div className="mt-6 pt-6 border-t border-gray-200 space-y-4">
+        <h4 className="text-sm font-medium text-gray-900">Transcription Provider</h4>
+        <div className="flex gap-3">
+          <button
+            onClick={() => { setSttProvider('deepgram'); setSaveMessage(null) }}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
+              sttProvider === 'deepgram'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <div className="font-medium">Deepgram</div>
+            <div className="text-xs mt-0.5 opacity-70">Nova-3 (default)</div>
+          </button>
+          <button
+            onClick={() => { setSttProvider('sixtydb'); setSaveMessage(null) }}
+            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium text-left transition-colors ${
+              sttProvider === 'sixtydb'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <div className="font-medium">60db</div>
+            <div className="text-xs mt-0.5 opacity-70">Uses the 60db key below</div>
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          Streaming transcription uses the chosen provider for both microphone and system audio.
+        </p>
+      </div>
+
+      {/* 60db TTS (optional) — speak AI responses aloud */}
+      <div className="mt-6 pt-6 border-t border-gray-200 space-y-4">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-medium text-gray-900">
+            60db Text-to-Speech <span className="text-gray-400 font-normal">(optional)</span>
+          </h4>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              window.raven.openExternal('https://docs.60db.ai/')
+            }}
+            className="text-xs text-blue-600 hover:text-blue-700"
+          >
+            Get API Key &rarr;
+          </a>
+        </div>
+        <p className="text-xs text-gray-500">
+          Reads AI responses aloud using 60db. Leave the key empty to disable.
+        </p>
+        <div className="relative">
+          <input
+            type={showSixtydb ? 'text' : 'password'}
+            value={sixtydbKey}
+            onChange={(e) => setSixtydbKey(e.target.value)}
+            placeholder="sk_live_..."
+            className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowSixtydb(!showSixtydb)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {showSixtydb ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M3 3l18 18" />
+              ) : (
+                <>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
+
+        <label className="flex items-center gap-3 cursor-pointer select-none pt-1">
+          <input
+            type="checkbox"
+            checked={readAloud}
+            onChange={(e) => setReadAloud(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-700">Read AI responses aloud</span>
+        </label>
       </div>
 
       {saveMessage && (

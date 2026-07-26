@@ -228,9 +228,15 @@ export class AudioManager {
           this.startSessionTimer(sessionCheck.sessionMaxSeconds)
         }
       } else {
-        const deepgramKey = getSetting('deepgramApiKey')
-        if (deepgramKey) {
-          this.transcriptionService.setApiKey(deepgramKey)
+        // Pick the user-selected transcription provider. Default 'deepgram'
+        // preserves the original behaviour; 'sixtydb' routes streaming STT
+        // through wss://api.60db.ai/ws/stt with the 60db API key.
+        const sttProvider = (getSetting('transcriptionProvider') as string) || 'deepgram'
+        const sttKey = sttProvider === 'sixtydb'
+          ? getSetting('sixtydbApiKey')
+          : getSetting('deepgramApiKey')
+        if (sttKey) {
+          this.transcriptionService.setApiKey(sttKey)
           this.transcriptionService.clearTranscript()
           this.activeProvider = this.transcriptionService
           const result = await this.transcriptionService.start()
@@ -238,7 +244,7 @@ export class AudioManager {
             log.error('Transcription failed to start:', result.error)
           }
         } else {
-          log.warn('No Deepgram API key - transcription disabled')
+          log.warn(`No ${sttProvider} API key - transcription disabled`)
         }
 
         const captureStarted = startCapture()

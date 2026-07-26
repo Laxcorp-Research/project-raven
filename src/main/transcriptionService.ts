@@ -14,6 +14,7 @@ import { AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS, DEEPGRAM_ENDP
 const log = createLogger('Transcription');
 
 const DEEPGRAM_WS_BASE = 'wss://api.deepgram.com/v1/listen';
+const SIXTYDB_STT_WS_BASE = 'wss://api.60db.ai/ws/stt';
 
 type AudioSource = 'mic' | 'system';
 
@@ -70,8 +71,10 @@ export class TranscriptionService {
 
   async start(): Promise<{ success: boolean; error?: string }> {
     if (!this.apiKey) {
-      log.error('No Deepgram API key!');
-      return { success: false, error: 'No Deepgram API key configured' };
+      const provider = (getSetting('transcriptionProvider') as string) || 'deepgram';
+      const label = provider === 'sixtydb' ? '60db' : 'Deepgram';
+      log.error(`No ${label} API key!`);
+      return { success: false, error: `No ${label} API key configured` };
     }
 
     log.info('Starting both connections...');
@@ -103,6 +106,13 @@ export class TranscriptionService {
     if (state.isConnected) {
       log.debug(`${source} already connected`);
       return { success: true };
+    }
+
+    // Dispatch to 60db when the user picked it as the transcription provider.
+    // Default 'deepgram' keeps the original code path untouched.
+    const provider = (getSetting('transcriptionProvider') as string) || 'deepgram';
+    if (provider === 'sixtydb') {
+      return this.startSixtydbConnection(source);
     }
 
     try {
@@ -214,6 +224,148 @@ export class TranscriptionService {
       });
     } catch (err: unknown) {
       log.error(`${source} failed to connect:`, err);
+      return { success: false };
+    }
+  }
+
+  // 60db STT WebSocket variant. Mirrors startConnection's contract: opens a
+  // per-source connection, wires onmessage/onclose, sets up reconnect on
+  // unexpected disconnect. The wire protocol differs from Deepgram:
+  //   1. connect → server sends connection_established + connected
+  //   2. client sends { type: "start", config: {...} } → server replies session_started
+  //   3. client streams raw binary PCM frames (linear16 16k mono — same format AudioManager pipes today)
+  //   4. server emits { type: "transcription", text, is_final, speech_final, ... }
+  //   5. client sends { type: "stop" } before closing
+  // We don't supply `context` so 60db emits a single canonical final per
+  // sentence (no two-phase first-emit), matching Deepgram's "one final
+  // per is_final=true" model that handleTranscriptResult already expects.
+  private async startSixtydbConnection(source: AudioSource): Promise<{ success: boolean }> {
+    const state = source === 'mic' ? this.micConnection : this.systemConnection;
+    try {
+      const { default: WebSocketModule } = await import('ws');
+      const transcriptionLanguage = (getSetting('transcriptionLanguage') as string) || 'en';
+      const url = `${SIXTYDB_STT_WS_BASE}?apiKey=${encodeURIComponent(this.apiKey)}`;
+      state.ws = new WebSocketModule(url) as WebSocket;
+
+      let sessionReady = false;
+
+      return new Promise((resolve) => {
+        const connectionTimeout = setTimeout(() => {
+          log.error(`${source} 60db STT WebSocket connection timed out after 10s`);
+          try { state.ws?.close(); } catch { /* already-closed, ignore */ }
+          resolve({ success: false });
+        }, 10_000);
+
+        state.ws!.onopen = () => {
+          log.info(`${source} 60db STT WebSocket connected (waiting for session_started)`);
+          // We resolve { success: true } only after the server's session_started
+          // confirms it's ready to accept audio. Until then we hold the timeout.
+        };
+
+        state.ws!.onmessage = (event: { data: unknown }) => {
+          let data: Record<string, unknown>;
+          try {
+            data = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
+          } catch (err) {
+            log.error(`${source} 60db parse error:`, err);
+            return;
+          }
+
+          // Initial handshake: connection_established → connected → send start.
+          if (data.connection_established) {
+            log.debug(`${source} 60db connection_established`);
+            const startMsg = {
+              type: 'start',
+              languages: [transcriptionLanguage],
+              config: {
+                encoding: 'linear',
+                sample_rate: AUDIO_SAMPLE_RATE,
+                continuous_mode: true,
+                utterance_end_ms: Math.max(300, DEEPGRAM_UTTERANCE_END_MS),
+                interim_results_frequency: 300,
+                // diarize=true on mic so we can apply the same "first speaker
+                // wins 'you'" heuristic the Deepgram path uses.
+                diarize: source === 'mic',
+                audio_enhancement: 'adaptive',
+              },
+            };
+            try { state.ws?.send(JSON.stringify(startMsg)); } catch (err) { log.error('60db start send failed:', err); }
+            return;
+          }
+
+          if (data.type === 'connected') {
+            log.debug(`${source} 60db proxy ready`);
+            return;
+          }
+
+          if (data.type === 'session_started') {
+            clearTimeout(connectionTimeout);
+            sessionReady = true;
+            state.isConnected = true;
+            log.info(`${source} 60db session_started`);
+            this.broadcastStatus(`${source}-connected`);
+            resolve({ success: true });
+            return;
+          }
+
+          if (data.type === 'transcription') {
+            // Normalize 60db's shape into the Deepgram-shaped envelope that
+            // handleTranscriptResult already consumes. text → alternatives[0].transcript;
+            // speech_final → is_final (canonical-only is the signal we want; first-emit
+            // partials and interims arrive with is_final=false).
+            const text = (data.text as string) || '';
+            const isFinal = !!data.speech_final;
+            // Best-effort diarization: 60db emits speakers[] as segment-level not
+            // word-level. Reuse the first segment's numeric suffix as the "speaker"
+            // hint for the local-mic heuristic.
+            const speakers = (data.speakers as Array<{ speaker?: string }> | undefined) || [];
+            const speakerStr = speakers[0]?.speaker; // e.g. "SPEAKER_00"
+            const speakerNum = speakerStr ? Number(speakerStr.replace(/[^0-9]/g, '')) : undefined;
+            const adapted = {
+              channel: {
+                alternatives: [{
+                  transcript: text,
+                  words: typeof speakerNum === 'number' && Number.isFinite(speakerNum)
+                    ? [{ speaker: speakerNum }]
+                    : undefined,
+                }],
+              },
+              is_final: isFinal,
+            };
+            this.handleTranscriptResult(adapted, source);
+            return;
+          }
+
+          if (data.type === 'error') {
+            log.error(`${source} 60db error:`, data.error, data.error_code);
+            return;
+          }
+
+          if (data.type === 'session_stopped') {
+            log.info(`${source} 60db session_stopped`, data.billing_summary);
+          }
+        };
+
+        state.ws!.onerror = (event: { message?: string }) => {
+          clearTimeout(connectionTimeout);
+          log.error(`${source} 60db WebSocket error:`, event.message || event);
+          if (!sessionReady) resolve({ success: false });
+        };
+
+        state.ws!.onclose = (event: { code?: number; reason?: string }) => {
+          const code = event?.code ?? 'unknown';
+          const reason = event?.reason ?? 'no reason';
+          log.warn(`${source} 60db WebSocket closed (code=${code}, reason="${reason}", sends=${state.sendCount || 0})`);
+          state.isConnected = false;
+          // 60db has no application-level KeepAlive; ws library handles ping/pong.
+          // Same reconnect policy as Deepgram path.
+          if (this.isActive && code !== 1000) {
+            this.attemptReconnect(source);
+          }
+        };
+      });
+    } catch (err: unknown) {
+      log.error(`${source} 60db failed to connect:`, err);
       return { success: false };
     }
   }
@@ -431,7 +583,13 @@ export class TranscriptionService {
     if (state.ws) {
       try {
         if (state.isConnected) {
-          state.ws.send(JSON.stringify({ type: 'CloseStream' }));
+          // Provider-specific terminate. Deepgram uses CloseStream; 60db uses
+          // {type:"stop"} which triggers session_stopped + billing summary.
+          const provider = (getSetting('transcriptionProvider') as string) || 'deepgram';
+          const closeMsg = provider === 'sixtydb'
+            ? JSON.stringify({ type: 'stop' })
+            : JSON.stringify({ type: 'CloseStream' });
+          state.ws.send(closeMsg);
 
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(() => {

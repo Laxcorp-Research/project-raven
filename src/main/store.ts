@@ -53,6 +53,20 @@ export interface LocalSettings {
   aiModel: string;
   openaiApiKey: string;
 
+  // Transcription provider. Default 'deepgram' preserves the existing behaviour.
+  // 'sixtydb' routes streaming STT to wss://api.60db.ai/ws/stt using sixtydbApiKey.
+  transcriptionProvider: 'deepgram' | 'sixtydb';
+
+  // TTS (60db) — optional. Speaks AI responses aloud when readResponsesAloud=true.
+  // sixtydbMode picks which 60db surface to call:
+  //   rest      POST /tts-synthesize        (default, simplest)
+  //   stream    POST /tts-stream NDJSON     (chunks collected then yielded)
+  //   websocket wss://api.60db.ai/ws/tts    (PCM 16k mono)
+  sixtydbApiKey: string;
+  sixtydbVoiceId: string;
+  sixtydbMode: 'rest' | 'stream' | 'websocket';
+  readResponsesAloud: boolean;
+
   // Active mode
   activeModeId: string | null;
 
@@ -84,6 +98,11 @@ const STORE_DEFAULTS: LocalSettings = {
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
+  transcriptionProvider: 'deepgram',
+  sixtydbApiKey: '',
+  sixtydbVoiceId: 'fbb75ed2-975a-40c7-9e06-38e30524a9a1', // 60db docs default
+  sixtydbMode: 'rest',
+  readResponsesAloud: false,
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
@@ -155,6 +174,11 @@ export function getAllSettings(): LocalSettings {
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),
+    transcriptionProvider: store.get('transcriptionProvider'),
+    sixtydbApiKey: store.get('sixtydbApiKey'),
+    sixtydbVoiceId: store.get('sixtydbVoiceId'),
+    sixtydbMode: store.get('sixtydbMode'),
+    readResponsesAloud: store.get('readResponsesAloud'),
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
@@ -193,7 +217,7 @@ export function saveSettings(settings: Partial<LocalSettings>): void {
 
 // ---- Secure storage helpers for API keys ----
 
-const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey'] as const;
+const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'sixtydbApiKey'] as const;
 
 function encryptValue(value: string): string {
   if (!value) return '';
@@ -232,12 +256,17 @@ export function saveApiKeys(deepgramKey: string, anthropicKey: string, openaiKey
 }
 
 export function hasApiKeys(): boolean {
-  const hasDeepgram = !!getApiKey('deepgramApiKey');
+  // Gate on whichever transcription provider the user picked. Default 'deepgram'
+  // preserves the original check.
+  const sttProvider = store.get('transcriptionProvider') || 'deepgram';
+  const hasStt = sttProvider === 'sixtydb'
+    ? !!getApiKey('sixtydbApiKey')
+    : !!getApiKey('deepgramApiKey');
   const provider = store.get('aiProvider') || 'anthropic';
   const hasAiKey = provider === 'openai'
     ? !!getApiKey('openaiApiKey')
     : !!getApiKey('anthropicApiKey');
-  return hasDeepgram && hasAiKey;
+  return hasStt && hasAiKey;
 }
 
 export function clearApiKeys(): void {
