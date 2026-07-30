@@ -9,6 +9,8 @@ export interface AIProviderConfig {
 
 export interface AIRequestOptions {
   signal?: AbortSignal;
+  /** Ollama-only: allow the model to emit internal reasoning before answering. */
+  thinking?: boolean;
 }
 
 export interface StreamCallbacks {

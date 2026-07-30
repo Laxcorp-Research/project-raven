@@ -1,8 +1,11 @@
 import type { AIContentPart, AIMessage, AIProvider, AIRequestOptions, StreamCallbacks } from './types'
-import type OpenAI from 'openai'
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434'
 const CONNECT_TIMEOUT_MS = 5_000
+const GENERATION_CONNECT_TIMEOUT_MS = 30_000
+// Reasoning tokens count toward num_predict. Smaller limits can be exhausted
+// before a thinking model emits any user-visible answer.
+const THINKING_TOKEN_BUDGET = 4_096
 
 export interface OllamaModelInfo {
   name: string
@@ -49,14 +52,6 @@ async function localFetch(baseURL: string, path: string, init: RequestInit = {},
     clearTimeout(timer)
     external?.removeEventListener('abort', abort)
   }
-}
-
-async function ollamaSdkFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const target = typeof input === 'string' || input instanceof URL ? new URL(input) : new URL(input.url)
-  validateOllamaUrl(`${target.protocol}//${target.host}`)
-  const response = await fetch(input, { ...init, redirect: 'manual' })
-  if (response.status >= 300 && response.status < 400) throw new Error('Ollama redirects are not allowed.')
-  return response
 }
 
 export class OllamaProvider implements AIProvider {
@@ -108,22 +103,49 @@ export class OllamaProvider implements AIProvider {
     callbacks: StreamCallbacks,
     options?: AIRequestOptions,
   ): Promise<void> {
-    await this.requireInstalled(options?.signal)
-    const OpenAIClient = (await import('openai')).default
-    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).origin}/v1`, fetch: ollamaSdkFetch })
     let fullText = ''
     try {
-      const stream = await client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: 'system', content: params.system }, ...params.messages.map(toOpenAIMessage)],
-        max_tokens: params.maxTokens ?? 300,
-        stream: true,
-      }, { signal: options?.signal, timeout: 30_000 })
-      for await (const chunk of stream) {
+      await this.requireInstalled(options?.signal)
+      const thinking = options?.thinking === true
+      const response = await localFetch(this.baseURL, '/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          messages: [{ role: 'system', content: params.system }, ...params.messages.map(toOllamaMessage)],
+          think: thinking,
+          stream: true,
+          options: {
+            num_predict: thinking
+              ? Math.max(params.maxTokens ?? 300, THINKING_TOKEN_BUDGET)
+              : params.maxTokens ?? 300,
+          },
+        }),
+        signal: options?.signal,
+      }, GENERATION_CONNECT_TIMEOUT_MS)
+      if (!response.ok) throw new Error(await responseError(response))
+      if (!response.body) throw new Error('Ollama returned an empty response stream.')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let streamDone = false
+      while (!streamDone) {
+        const { done, value } = await reader.read()
+        streamDone = done
+        if (streamDone) continue
         if (options?.signal?.aborted) throw options.signal.reason || new Error('AI request cancelled.')
-        const text = chunk.choices[0]?.delta?.content || ''
-        if (text) { fullText += text; callbacks.onText(text) }
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          const text = parseStreamLine(line)
+          if (text) { fullText += text; callbacks.onText(text) }
+        }
       }
+      buffer += decoder.decode()
+      const finalText = parseStreamLine(buffer)
+      if (finalText) { fullText += finalText; callbacks.onText(finalText) }
       callbacks.onDone(fullText)
     } catch (error) {
       const message = options?.signal?.aborted
@@ -136,35 +158,74 @@ export class OllamaProvider implements AIProvider {
 
   async generateShort(params: { system?: string; prompt: string; maxTokens?: number }, options?: AIRequestOptions): Promise<string> {
     await this.requireInstalled(options?.signal)
-    const OpenAIClient = (await import('openai')).default
-    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).origin}/v1`, fetch: ollamaSdkFetch })
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
+    const messages: OllamaMessage[] = []
     if (params.system) messages.push({ role: 'system', content: params.system })
     messages.push({ role: 'user', content: params.prompt })
-    const response = await client.chat.completions.create({ model: this.model, messages, max_tokens: params.maxTokens ?? 60 }, { signal: options?.signal, timeout: 30_000 })
-    return response.choices[0]?.message?.content?.trim() || ''
+    const response = await localFetch(this.baseURL, '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        think: false,
+        stream: false,
+        options: { num_predict: params.maxTokens ?? 60 },
+      }),
+      signal: options?.signal,
+    }, GENERATION_CONNECT_TIMEOUT_MS)
+    if (!response.ok) throw new Error(await responseError(response))
+    const body = await response.json() as { message?: { content?: string }; error?: string }
+    if (body.error) throw new Error(body.error)
+    return body.message?.content?.trim() || ''
   }
 
   private async requireInstalled(signal?: AbortSignal): Promise<void> {
     const health = await OllamaProvider.health(this.baseURL, signal)
     if (!health.healthy) throw new Error(health.error || 'Ollama is unavailable. Start Ollama and try again.')
-    const models = await OllamaProvider.listModels(this.baseURL, signal)
-    if (!models.some((item) => item.name === this.model || item.name.split(':')[0] === this.model)) {
-      throw new Error(`Ollama model "${this.model}" is not installed. Run: ollama pull ${this.model}`)
+    try {
+      await OllamaProvider.inspectModel(this.model, this.baseURL, signal)
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not installed')) {
+        throw new Error(`Ollama model "${this.model}" is not installed. Run: ollama pull ${this.model}`)
+      }
+      throw error
     }
   }
 }
 
-function toOpenAIMessage(message: AIMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {
-  if (message.role === 'assistant') {
-    return { role: 'assistant', content: contentText(message.content) }
+interface OllamaMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  images?: string[]
+}
+
+function toOllamaMessage(message: AIMessage): OllamaMessage {
+  if (typeof message.content === 'string') return { role: message.role, content: message.content }
+  const images = message.content.filter((part) => part.type === 'image').map((part) => part.base64)
+  return {
+    role: message.role,
+    content: contentText(message.content),
+    ...(images.length > 0 ? { images } : {}),
   }
-  if (typeof message.content === 'string') return { role: 'user', content: message.content }
-  return { role: 'user', content: message.content.map((part) => part.type === 'text'
-    ? { type: 'text' as const, text: part.text }
-    : { type: 'image_url' as const, image_url: { url: `data:${part.mediaType};base64,${part.base64}` } }) }
 }
 
 function contentText(content: string | AIContentPart[]): string {
   return typeof content === 'string' ? content : content.filter((part) => part.type === 'text').map((part) => part.text).join('\n')
+}
+
+function parseStreamLine(line: string): string {
+  if (!line.trim()) return ''
+  const chunk = JSON.parse(line) as { message?: { content?: string }; error?: string }
+  if (chunk.error) throw new Error(chunk.error)
+  return chunk.message?.content || ''
+}
+
+async function responseError(response: Response): Promise<string> {
+  const fallback = `Ollama returned HTTP ${response.status}.`
+  try {
+    const body = await response.json() as { error?: string }
+    return body.error || fallback
+  } catch {
+    return fallback
+  }
 }

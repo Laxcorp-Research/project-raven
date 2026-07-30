@@ -504,7 +504,12 @@ export class ClaudeService {
                 })();
               },
             },
-            { signal: requestController.signal },
+            {
+              signal: requestController.signal,
+              ...(provider.name === 'ollama'
+                ? { thinking: getSetting('ollamaThinkingEnabled') === true }
+                : {}),
+            },
           );
         } finally {
           clearTimeout(timeout);

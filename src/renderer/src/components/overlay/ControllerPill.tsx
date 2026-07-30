@@ -15,10 +15,12 @@ interface ControllerPillProps {
   isStarting: boolean
   incognitoMode: boolean
   smartMode?: boolean
+  thinkingEnabled?: boolean
   onToggleRecording: () => void
   onToggleStealth: () => void
   onToggleIncognito: () => void
   onToggleSmartMode?: () => void
+  onToggleThinking?: () => void
   onHide: () => void
   onLogoClick: () => void
   onLogoMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void
@@ -30,10 +32,12 @@ export function ControllerPill({
   isStarting,
   incognitoMode,
   smartMode,
+  thinkingEnabled,
   onToggleRecording,
   onToggleStealth,
   onToggleIncognito,
   onToggleSmartMode,
+  onToggleThinking,
   onHide,
   onLogoClick,
   onLogoMouseDown
@@ -328,6 +332,43 @@ export function ControllerPill({
             </svg>
           )}
           {smartMode ? 'Deep' : 'Fast'}
+        </button>
+        </div>
+      )}
+
+      {/* Ollama thinking toggle: direct responses are best for meetings;
+          reasoning mode gives coding and other complex questions more room. */}
+      {onToggleThinking && (
+        <div
+          onPointerEnter={() => setButtonHovered(true)}
+          onPointerLeave={() => setButtonHovered(false)}
+          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+          onClick={(e) => e.stopPropagation()}
+        >
+        <button
+          type="button"
+          onClick={onToggleThinking}
+          onMouseEnter={(e) => showTooltip(
+            thinkingEnabled
+              ? 'Thinking ON - deeper coding analysis'
+              : 'Thinking OFF - fastest meeting replies',
+            e.currentTarget,
+          )}
+          onMouseLeave={clearTooltipHideTimer}
+          className={`h-6 px-2 flex items-center gap-1 rounded-full text-[11px] font-semibold border transition-all duration-150 ${
+            thinkingEnabled
+              ? 'bg-cyan-400/20 text-cyan-100 border-cyan-300/35'
+              : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/70'
+          }`}
+          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          aria-label={thinkingEnabled ? 'Turn Ollama thinking off' : 'Turn Ollama thinking on'}
+          aria-pressed={thinkingEnabled}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 3.5 3.5c1 0 1.9-.4 2.5-1.1.6.7 1.5 1.1 2.5 1.1A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.4A3.5 3.5 0 0 0 9.5 4.5Z" />
+            <path d="M12 5.6v12.8M8 9.5h1.5A2.5 2.5 0 0 1 12 12M16 14.5h-1.5A2.5 2.5 0 0 0 12 17" />
+          </svg>
+          Think {thinkingEnabled ? 'On' : 'Off'}
         </button>
         </div>
       )}

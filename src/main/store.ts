@@ -60,6 +60,7 @@ export interface LocalSettings {
   aiModel: string;
   openaiApiKey: string;
   ollamaBaseUrl: string;
+  ollamaThinkingEnabled: boolean;
 
   // Active mode
   activeModeId: string | null;
@@ -102,6 +103,7 @@ const STORE_DEFAULTS: LocalSettings = {
   aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
+  ollamaThinkingEnabled: false,
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
@@ -179,6 +181,7 @@ export function getAllSettings(): LocalSettings {
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),
     ollamaBaseUrl: store.get('ollamaBaseUrl'),
+    ollamaThinkingEnabled: store.get('ollamaThinkingEnabled'),
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),

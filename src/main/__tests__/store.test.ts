@@ -66,6 +66,12 @@ describe('store', () => {
         defaults: expect.objectContaining({ stealthEnabled: true }),
       }))
     })
+
+    it('defaults Ollama thinking to fast direct responses', () => {
+      expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
+        defaults: expect.objectContaining({ ollamaThinkingEnabled: false }),
+      }))
+    })
   })
 
   describe('getSetting', () => {

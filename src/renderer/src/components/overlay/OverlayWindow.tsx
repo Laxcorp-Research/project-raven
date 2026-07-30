@@ -124,6 +124,8 @@ export function OverlayWindow() {
   const [isStarting, setIsStarting] = useState(false)
   const [stealthEnabled, setStealthEnabled] = useState(true)
   const [smartMode, setSmartMode] = useState(false)
+  const [ollamaThinkingEnabled, setOllamaThinkingEnabled] = useState(false)
+  const [aiProvider, setAiProvider] = useState('anthropic')
   const [incognitoMode, setIncognitoMode] = useState(false)
   const [isHoveringPanel, setIsHoveringPanel] = useState(false)
   const [isHoveringX, setIsHoveringX] = useState(false)
@@ -175,6 +177,14 @@ export function OverlayWindow() {
 
     window.raven.storeGet('smartMode').then((enabled) => {
       if (typeof enabled === 'boolean') setSmartMode(enabled)
+    }).catch(() => {})
+
+    window.raven.storeGet('ollamaThinkingEnabled').then((enabled) => {
+      if (typeof enabled === 'boolean') setOllamaThinkingEnabled(enabled)
+    }).catch(() => {})
+
+    window.raven.storeGet('aiProvider').then((provider) => {
+      if (typeof provider === 'string') setAiProvider(provider)
     }).catch(() => {})
 
     window.raven.storeGet('incognitoMode').then((enabled) => {
@@ -582,6 +592,16 @@ export function OverlayWindow() {
     try { await window.raven.authUpdateProfile({ preferences: { smartMode: next } }) } catch { /* free mode */ }
   }, [smartMode])
 
+  const handleToggleOllamaThinking = useCallback(async () => {
+    const next = !ollamaThinkingEnabled
+    setOllamaThinkingEnabled(next)
+    try {
+      await window.raven.storeSet('ollamaThinkingEnabled', next)
+    } catch {
+      setOllamaThinkingEnabled(!next)
+    }
+  }, [ollamaThinkingEnabled])
+
   const handleToggleIncognito = useCallback(async () => {
     const next = !incognitoMode
     setIncognitoMode(next)
@@ -840,6 +860,10 @@ export function OverlayWindow() {
           onToggleRecording={handleToggleRecording}
           onToggleStealth={handleToggleStealth}
           onToggleIncognito={handleToggleIncognito}
+          {...(aiProvider === 'ollama' ? {
+            thinkingEnabled: ollamaThinkingEnabled,
+            onToggleThinking: handleToggleOllamaThinking,
+          } : {})}
           {...(isPro ? { smartMode, onToggleSmartMode: handleToggleSmartMode } : {})}
           onHide={handleHide}
           onLogoClick={handleLogoClick}

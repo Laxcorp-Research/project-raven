@@ -115,9 +115,8 @@ describe('AI Pipeline Integration', () => {
     })
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({ version: '0.32.1' }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [{ name: 'qwen2.5-coder:1.5b' }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ capabilities: ['completion'] }), { status: 200 }))
-    mockOpenAICreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Local response' } }] })
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: 'Local response' } }), { status: 200 }))
 
     const provider = await getProviderFromStore()
     const result = await provider.generateShort({ prompt: 'Local only' })
@@ -125,11 +124,8 @@ describe('AI Pipeline Integration', () => {
     expect(result).toBe('Local response')
     expect(provider.name).toBe('ollama')
     expect(mockAnthropicCreate).not.toHaveBeenCalled()
-    expect(mockOpenAIConfigs).toHaveLength(1)
-    expect(mockOpenAIConfigs[0]).toEqual(expect.objectContaining({
-      apiKey: 'ollama',
-      baseURL: expect.stringMatching(/^http:\/\/(127\.0\.0\.1|localhost):11434\/v1$/),
-    }))
+    expect(mockOpenAIConfigs).toHaveLength(0)
+    expect(mockOpenAICreate).not.toHaveBeenCalled()
     for (const call of fetchMock.mock.calls) {
       expect(new URL(String(call[0])).hostname).toBe('127.0.0.1')
     }
