@@ -12,7 +12,7 @@ import rehypeHighlight from 'rehype-highlight'
 import 'katex/dist/katex.min.css'
 import 'highlight.js/styles/github-dark-dimmed.css'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, Wand2, MessageSquareText, RotateCcw, ChevronRight } from 'lucide-react'
+import { Sparkles, Wand2, MessageSquareText, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react'
 import { ControllerPill } from './ControllerPill'
 import { TranscriptTab } from './TranscriptTab'
 import { OverlayNotification, type NotificationData } from './OverlayNotification'
@@ -21,6 +21,7 @@ import { useOverlayResize } from './useOverlayResize'
 import { useOverlayDrag } from './useOverlayDrag'
 import { useMousePassthrough } from './useMousePassthrough'
 import { createLogger } from '../../lib/logger'
+import { buildInterviewPresentation } from '../../lib/interviewPresentation'
 
 const log = createLogger('OverlayWindow')
 
@@ -31,6 +32,7 @@ interface ResponseCard {
   badgeVariant: 'quick' | 'custom' | 'system'
   hasScreenshot: boolean
   screenshotPreviewData?: string
+  interviewMode?: boolean
 }
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
@@ -138,6 +140,7 @@ export function OverlayWindow() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hoveredResponseId, setHoveredResponseId] = useState<string | null>(null)
+  const [expandedSupportIds, setExpandedSupportIds] = useState<Set<string>>(() => new Set())
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [limitInfo, setLimitInfo] = useState<{ type: 'ai' | 'session'; used: number; limit: number; resetAt: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
@@ -235,7 +238,8 @@ export function OverlayWindow() {
                 ? 'custom'
                 : 'quick',
             hasScreenshot: Boolean(data.requestMeta?.includeScreenshot),
-            screenshotPreviewData: data.requestMeta?.screenshotPreviewData
+            screenshotPreviewData: data.requestMeta?.screenshotPreviewData,
+            interviewMode: data.requestMeta?.interviewMode === true
           }
         ])
       } else if (data.type === 'delta') {
@@ -1047,6 +1051,8 @@ export function OverlayWindow() {
               {responses.map((entry, index) => {
                 const isLatest = index === responses.length - 1
                 const isStreaming = isLoadingResponse && isLatest && activeResponseId === entry.id
+                const presentation = entry.interviewMode ? buildInterviewPresentation(entry.content) : null
+                const supportExpanded = expandedSupportIds.has(entry.id)
 
                 return (
                   <motion.div
@@ -1158,16 +1164,53 @@ export function OverlayWindow() {
                       // that for long-form answers and users paste
                       // heading-rich content too - so this override is
                       // defensive, not a stylistic preference.
-                      <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] pr-[18px] overflow-hidden break-words [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:leading-snug [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:leading-snug [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:leading-snug [&_h3]:mt-2 [&_h3]:mb-0.5 [&_h4]:text-[13px] [&_h4]:font-semibold [&_h4]:leading-snug [&_h4]:mt-2 [&_h4]:mb-0.5 [&_h5]:text-[13px] [&_h5]:font-semibold [&_h5]:leading-snug [&_h5]:mt-2 [&_h5]:mb-0.5 [&_h6]:text-[13px] [&_h6]:font-semibold [&_h6]:leading-snug [&_h6]:mt-2 [&_h6]:mb-0.5">
-                        <Markdown
-                          remarkPlugins={[remarkMath]}
-                          rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                          components={{
-                            pre({ children }) {
-                              return <CodeBlock>{children}</CodeBlock>
-                            }
-                          }}
-                        >{entry.content}</Markdown>
+                      <div className="pr-[18px] overflow-hidden break-words">
+                        {presentation ? (
+                          <div className="space-y-2">
+                            <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/[0.07] px-3 py-2.5">
+                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300/80">Say now</div>
+                              <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em]">
+                                <Markdown>{presentation.sayNow}</Markdown>
+                              </div>
+                            </div>
+                            {presentation.supporting && (
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedSupportIds((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(entry.id)) next.delete(entry.id)
+                                    else next.add(entry.id)
+                                    return next
+                                  })}
+                                  className="flex items-center gap-1 rounded-md px-1 py-1 text-[11px] font-medium text-white/45 hover:text-white/75"
+                                  style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                                  aria-expanded={supportExpanded}
+                                >
+                                  {supportExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                  Supporting points
+                                </button>
+                                {supportExpanded && (
+                                  <div className="prose prose-sm prose-light mt-1 max-w-none border-l border-white/10 pl-3 tracking-[-0.01em] [&_h1]:text-[15px] [&_h2]:text-[14px] [&_h3]:text-[13px]">
+                                    <Markdown
+                                      remarkPlugins={[remarkMath]}
+                                      rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                                      components={{ pre({ children }) { return <CodeBlock>{children}</CodeBlock> } }}
+                                    >{presentation.supporting}</Markdown>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="prose prose-sm prose-light max-w-none tracking-[-0.01em] [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:leading-snug [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:leading-snug [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:leading-snug [&_h3]:mt-2 [&_h3]:mb-0.5">
+                            <Markdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                              components={{ pre({ children }) { return <CodeBlock>{children}</CodeBlock> } }}
+                            >{entry.content}</Markdown>
+                          </div>
+                        )}
                       </div>
                     )}
                     {/*

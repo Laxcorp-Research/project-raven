@@ -285,7 +285,7 @@ declare global {
         error?: string;
         warning?: string;
         limitInfo?: { used: number; limit: number; resetAt: string };
-        requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
+        requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string; interviewMode?: boolean };
       }) => void) => () => void;
       syncGetStatus: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number }>;
       syncTrigger: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number; merged: number }>;

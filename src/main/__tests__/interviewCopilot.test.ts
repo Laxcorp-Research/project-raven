@@ -3,7 +3,9 @@ import type { AIProvider } from '../services/ai/types';
 import {
   assessInterviewAnswer,
   buildInterviewContext,
+  buildInterviewKnowledgePrompt,
   classifyInterviewQuestion,
+  classifyInterviewKnowledgeFile,
   extractInterviewMemory,
   generateVerifiedInterviewAnswer,
   isInterviewMode,
@@ -29,6 +31,23 @@ describe('interviewCopilot', () => {
     expect(memory.constraints.join(' ')).toMatch(/two days|only QA/i);
     expect(memory.evidence.join(' ')).toMatch(/traces/i);
     expect(memory.technicalFacts.join(' ')).toMatch(/Playwright/i);
+  });
+
+  it('assigns distinct evidence roles to interview knowledge files', () => {
+    expect(classifyInterviewKnowledgeFile('Taylor Resume.pdf')).toBe('candidate-profile');
+    expect(classifyInterviewKnowledgeFile('STAR Stories.md')).toBe('star-story');
+    expect(classifyInterviewKnowledgeFile('QA Job Description.txt')).toBe('target-role');
+    expect(classifyInterviewKnowledgeFile('Checkout Project.docx')).toBe('project-evidence');
+  });
+
+  it('prevents target-role requirements from becoming candidate claims', () => {
+    const prompt = buildInterviewKnowledgePrompt([
+      { fileName: 'Resume.pdf', chunkText: 'Six years of QA automation.', score: 0.9 },
+      { fileName: 'Job Description.txt', chunkText: 'Requires Kubernetes expertise.', score: 0.8 },
+    ]);
+    expect(prompt).toContain('role="candidate-profile"');
+    expect(prompt).toContain('role="target-role"');
+    expect(prompt).toContain('never as evidence that the candidate has that experience');
   });
 
   it('detects missing debugging evidence and accepts a complete answer', () => {

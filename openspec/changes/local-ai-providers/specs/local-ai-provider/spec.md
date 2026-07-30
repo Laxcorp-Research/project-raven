@@ -39,3 +39,35 @@ When Interview mode uses Ollama, Raven SHALL derive bounded structured memory fr
 #### Scenario: Ordinary meeting mode
 - **WHEN** the active mode is not an interview mode
 - **THEN** Raven preserves the existing streaming response path without interview-specific memory or verification
+
+### Requirement: Two-stage interview presentation
+Raven SHALL present Interview-mode responses as a short immediately speakable answer with optional expandable supporting detail. When local verification needs a repair pass, Raven SHALL expose the initial speakable draft before the repair completes and replace it only when the verified answer improves coverage.
+
+#### Scenario: Candidate needs an immediate response
+- **WHEN** an Interview-mode draft completes
+- **THEN** the overlay shows a compact `Say now` section and keeps the remaining explanation behind a `Supporting points` control
+
+### Requirement: Grounded personal interview knowledge
+Raven SHALL allow existing mode-context uploads to supply a résumé, job description, STAR stories, and project notes. Raven SHALL distinguish candidate claims from target-role requirements by file role, retrieve only bounded relevant chunks, and SHALL NOT convert a job-description requirement into candidate experience.
+
+#### Scenario: Résumé and job description are both relevant
+- **WHEN** an interview question matches uploaded candidate experience and target-role requirements
+- **THEN** Raven grounds the answer in résumé or STAR-story facts while using the job description only to choose emphasis
+
+### Requirement: Transcription-aware interview questions
+Raven SHALL normalize common spoken technical terms, merge fragmented consecutive speaker turns, and select the latest completed interviewer question while excluding an unfinished `(still speaking)` tail from question classification.
+
+#### Scenario: Fragmented technical question
+- **WHEN** final transcript fragments contain a term such as `play right` and the remote speaker asks a question across consecutive entries
+- **THEN** Raven supplies a merged question using the canonical term `Playwright`
+
+#### Scenario: Interviewer is still speaking
+- **WHEN** the newest remote transcript entry is marked `(still speaking)`
+- **THEN** Raven uses it as provisional context but classifies the latest completed question instead
+
+### Requirement: Continuous interview quality evaluation
+Raven SHALL provide deterministic interview evaluation scenarios in the normal test suite and an opt-in live multi-model runner that reports coverage, latency, repair count, forbidden claims, and context retention.
+
+#### Scenario: Pull request validation
+- **WHEN** CI runs the interview quality test
+- **THEN** question classification, transcript stabilization, personal-knowledge boundaries, answer presentation, and quality scoring are validated without requiring Ollama or private meeting data

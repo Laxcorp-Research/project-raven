@@ -72,6 +72,9 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
+      - name: Interview quality gate
+        run: npm run test:interview
+
   check-backend:
     name: Check Backend Exists
     runs-on: ubuntu-latest

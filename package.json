@@ -42,6 +42,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --include 'src/main/__tests__/integration/**'",
+    "test:interview": "vitest run src/main/__tests__/interviewCopilot.test.ts src/main/__tests__/interviewTranscript.test.ts src/main/__tests__/interviewPresentation.test.ts src/main/__tests__/interviewEvaluation.test.ts",
+    "test:interview:live": "node scripts/run-live-interview-eval.mjs",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
     "test:all": "vitest run && npx playwright test --config e2e/playwright.config.ts",
     "preview": "vite preview",

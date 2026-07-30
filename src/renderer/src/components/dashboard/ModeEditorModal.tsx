@@ -34,7 +34,7 @@ const TEMPLATES = [
     systemPrompt: `You are coaching the user through a live job interview. They are the candidate. Your output is what they should say or think, not a description of interview theory.
 
 BEHAVIORAL QUESTIONS:
-- Respond in STAR: Situation (one sentence of context), Task (what was needed), Action (2-3 specific things THEY did - not "the team"), Result (quantified outcome with numbers if at all possible).
+- Respond in STAR: Situation (one sentence of context), Task (what was needed), Action (2-3 specific things THEY did - not "the team"), Result (use exact supplied outcomes or metrics only).
 - Close with one sentence on what they learned or how they'd improve.
 - If <transcript> doesn't give you specific background, provide a clearly labeled fill-in template. Never invent experience, employers, outcomes, or metrics.
 
@@ -266,6 +266,11 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ stage: string; current: number; total: number } | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const selectedIsInterview = Boolean(selectedMode && (
+    selectedMode.id === 'mode-interview'
+    || /\binterview\b/i.test(selectedMode.name)
+    || /they are the candidate|live job interview/i.test(selectedMode.systemPrompt)
+  ))
 
   useEffect(() => {
     if (isOpen) {
@@ -766,6 +771,15 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
 
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="space-y-4">
+                  {selectedIsInterview && (
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-violet-900">Personal interview knowledge</p>
+                      <p className="mt-1 text-xs leading-relaxed text-violet-700">
+                        Upload files with clear names such as <strong>Resume.pdf</strong>, <strong>STAR Stories.md</strong>, <strong>Projects.docx</strong>, and <strong>Job Description.txt</strong>. Raven treats résumé and story files as candidate facts, while job descriptions are used only to choose relevant emphasis.
+                      </p>
+                      <p className="mt-1.5 text-[11px] text-violet-600">With local Ollama, extracted text and embeddings remain on this device.</p>
+                    </div>
+                  )}
                   <label className="block text-sm font-medium text-gray-700">
                     Real-time prompt
                   </label>
@@ -789,7 +803,7 @@ export function ModeEditorModal({ isOpen, onClose }: ModeEditorModalProps) {
                           </svg>
                         </button>
                         <div className="absolute top-full left-0 mt-1 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                          Upload files as context
+                          {selectedIsInterview ? 'Upload résumé, STAR stories, projects, or job description' : 'Upload files as context'}
                         </div>
                       </div>
                       <button

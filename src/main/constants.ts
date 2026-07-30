@@ -61,6 +61,7 @@ export const SUMMARY_MIN_TRANSCRIPT_LENGTH = 20
 
 export const RAG_QUERY_TRANSCRIPT_SLICE = 500
 export const RAG_DEFAULT_TOP_K = 5
+export const INTERVIEW_RAG_TOP_K = 8
 export const RAG_MAX_CONTEXT_TOKENS = 3000
 export const RAG_CHUNK_SIZE = 500
 export const RAG_CHUNK_OVERLAP = 50

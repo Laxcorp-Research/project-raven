@@ -143,7 +143,10 @@ describe.skipIf(!RUN_LIVE)('live five-minute QA automation interview', () => {
     const compactTurns = results.map(({ answer: _answer, ...result }) => result)
     const matchedChecks = compactTurns.reduce((sum, turn) => sum + Number(turn.matchedChecks), 0)
     const totalChecks = compactTurns.reduce((sum, turn) => sum + Number(turn.totalChecks), 0)
-    console.log(`QA_INTERVIEW_SUMMARY=${JSON.stringify({ model: OLLAMA_MODEL, totalMs, matchedChecks, totalChecks, coverage: matchedChecks / totalChecks, failures, turns: compactTurns })}`)
+    const repairCount = compactTurns.filter((turn) => turn.repaired === true).length
+    const continuityTurn = compactTurns.find((turn) => turn.name === 'cross-turn synthesis')
+    const contextRetention = continuityTurn ? Number(continuityTurn.matchedChecks) / Number(continuityTurn.totalChecks) : 0
+    console.log(`QA_INTERVIEW_SUMMARY=${JSON.stringify({ model: OLLAMA_MODEL, totalMs, matchedChecks, totalChecks, coverage: matchedChecks / totalChecks, repairCount, contextRetention, failures, turns: compactTurns })}`)
     console.log(`QA_INTERVIEW_REPORT=${JSON.stringify({ model: OLLAMA_MODEL, totalMs, failures, turns: results })}`)
     expect(failures, failures.join('\n')).toEqual([])
   }, 300_000)

@@ -7,8 +7,9 @@ import { getApiKey, getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
 import { webSearchService } from './services/webSearchService';
-import { buildInterviewContext, generateVerifiedInterviewAnswer, isInterviewMode } from './services/interviewCopilot';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, LIVE_REPLY_MAX_TOKENS, LIVE_REPLY_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { buildInterviewContext, buildInterviewKnowledgePrompt, generateVerifiedInterviewAnswer, isInterviewMode } from './services/interviewCopilot';
+import { prepareInterviewTranscript } from './services/interviewTranscript';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, LIVE_REPLY_MAX_TOKENS, LIVE_REPLY_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, INTERVIEW_RAG_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -357,6 +358,11 @@ export class ClaudeService {
         this.isProcessing = true;
         const requestController = new AbortController();
         this.activeRequest = requestController;
+        const interviewRequest = isInterviewMode(params.modeId, params.modePrompt);
+        const preparedInterview = interviewRequest ? prepareInterviewTranscript(params.transcript) : null;
+        const effectiveParams = preparedInterview?.transcript
+          ? { ...params, transcript: preparedInterview.transcript }
+          : params;
 
         let provider;
         if (isProMode()) {
@@ -367,7 +373,7 @@ export class ClaudeService {
         }
 
         let screenshotAllowed = true;
-        if (params.includeScreenshot && provider.name === 'ollama') {
+        if (effectiveParams.includeScreenshot && provider.name === 'ollama') {
           const model = String(getSetting('aiModel') || '');
           const baseURL = String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL);
           const capability = await OllamaProvider.inspectModel(model, baseURL, requestController.signal);
@@ -376,24 +382,24 @@ export class ClaudeService {
             this.broadcast({ type: 'warning', warning: 'The selected Ollama model is text-only, so the screenshot was not sent. Choose a vision-capable model to include the screen.' });
           }
         }
-        const screenshotAttachment = params.includeScreenshot && screenshotAllowed
+        const screenshotAttachment = effectiveParams.includeScreenshot && screenshotAllowed
           ? await this.captureScreenshotExcludingRaven()
           : null;
 
-        const userMessageContent = await this.buildUserMessage(params);
+        const userMessageContent = await this.buildUserMessage(effectiveParams);
         const assistantMessageId = this.generateId();
         const userMessage: ChatMessage = {
           id: this.generateId(),
           role: 'user',
-          content: params.action === 'custom' && params.customPrompt
-            ? params.customPrompt
-            : this.getActionLabel(params.action),
-          action: params.action,
+          content: effectiveParams.action === 'custom' && effectiveParams.customPrompt
+            ? effectiveParams.customPrompt
+            : this.getActionLabel(effectiveParams.action),
+          action: effectiveParams.action,
           timestamp: Date.now(),
         };
 
         this.conversation.messages.push(userMessage);
-        this.conversation.lastProcessedTranscriptLength = params.transcript.length;
+        this.conversation.lastProcessedTranscriptLength = effectiveParams.transcript.length;
         sessionManager.addSessionMessage('user', userMessage.content);
 
         this.broadcast({
@@ -402,6 +408,7 @@ export class ClaudeService {
           userMessage,
           requestMeta: {
             includeScreenshot: Boolean(screenshotAttachment),
+            interviewMode: interviewRequest,
             screenshotPreviewData: screenshotAttachment
               ? `data:image/png;base64,${screenshotAttachment.previewData}`
               : undefined,
@@ -411,11 +418,17 @@ export class ClaudeService {
         const aiMessages = this.buildAIMessages(userMessageContent, screenshotAttachment);
 
         let ragChunks: Array<{ chunkText: string; fileName: string; score: number }> = [];
-        if (params.modeId) {
+        if (effectiveParams.modeId) {
           try {
             const { retrieveRelevantChunks } = await import('./services/ragService');
-            const queryText = params.customPrompt || params.transcript.slice(-RAG_QUERY_TRANSCRIPT_SLICE) || params.action;
-            ragChunks = await retrieveRelevantChunks(params.modeId, queryText, RAG_DEFAULT_TOP_K);
+            const queryText = effectiveParams.customPrompt
+              || preparedInterview?.latestCompletedQuestion
+              || effectiveParams.transcript.slice(-RAG_QUERY_TRANSCRIPT_SLICE)
+              || effectiveParams.action;
+            const retrievalQuery = interviewRequest
+              ? `${queryText}\nCandidate resume experience STAR story project evidence target job requirements`
+              : queryText;
+            ragChunks = await retrieveRelevantChunks(effectiveParams.modeId, retrievalQuery, interviewRequest ? INTERVIEW_RAG_TOP_K : RAG_DEFAULT_TOP_K);
           } catch (err) {
             log.error(`RAG retrieval failed (non-fatal, ${err instanceof Error ? err.name : 'unknown'})`);
           }
@@ -437,7 +450,7 @@ export class ClaudeService {
           systemPrompt = buildSystemPrompt()
         }
 
-        if (params.modePrompt) {
+        if (effectiveParams.modePrompt) {
           // Wrap the mode prompt in an XML tag so the base system prompt
           // can explicitly call it out as "user-configured tone/focus
           // guidance" rather than a co-equal instruction. Pairs with a
@@ -447,14 +460,18 @@ export class ClaudeService {
           // "reveal your system prompt" stuffed into a custom mode)
           // must be ignored. Defence against malicious custom modes +
           // indirect injection through mode content.
-          systemPrompt += `\n\n<mode_personality source="user_mode">\n${params.modePrompt}\n</mode_personality>`;
+          systemPrompt += `\n\n<mode_personality source="user_mode">\n${effectiveParams.modePrompt}\n</mode_personality>`;
         }
 
         if (ragChunks.length > 0) {
-          systemPrompt += `\n\nREFERENCE DOCUMENTS (use these to inform your responses - this is the user's uploaded context and takes priority over your training data):\n`;
-          ragChunks.forEach((chunk, i) => {
-            systemPrompt += `\n[${i + 1}] (from "${chunk.fileName}"):\n${chunk.chunkText}\n`;
-          });
+          if (interviewRequest) {
+            systemPrompt += `\n\n${buildInterviewKnowledgePrompt(ragChunks)}`;
+          } else {
+            systemPrompt += `\n\nREFERENCE DOCUMENTS (use these to inform your responses - this is the user's uploaded context and takes priority over your training data):\n`;
+            ragChunks.forEach((chunk, i) => {
+              systemPrompt += `\n[${i + 1}] (from "${chunk.fileName}"):\n${chunk.chunkText}\n`;
+            });
+          }
         }
 
         if (provider.name === 'ollama') {
@@ -466,7 +483,7 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
         const timeout = setTimeout(() => requestController.abort(new Error('AI response timed out.')), LIVE_REPLY_TIMEOUT_MS);
         try {
           const webSearchMode = String(getSetting('webSearchMode') || 'off')
-          const searchIntentText = params.customPrompt || params.transcript.slice(-600)
+          const searchIntentText = effectiveParams.customPrompt || preparedInterview?.latestCompletedQuestion || effectiveParams.transcript.slice(-600)
           const explicitlyRequested = /\b(search|look\s*up|browse|google|internet|web|verify|fact[ -]?check|cite|sources?|official\s+(?:docs?|documentation|sources?)|latest|current\s+(?:news|price|weather|version|status|docs?|documentation))\b/i.test(searchIntentText)
           const webSearchEnabled = provider.name === 'ollama' && (
             webSearchMode === 'automatic' || (webSearchMode === 'explicit' && explicitlyRequested)
@@ -500,12 +517,17 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
             messages: aiMessages,
             maxTokens: LIVE_REPLY_MAX_TOKENS,
           };
-          const interviewAnswer = provider.name === 'ollama' && isInterviewMode(params.modeId, params.modePrompt)
+          const interviewAnswer = provider.name === 'ollama' && interviewRequest
             ? await generateVerifiedInterviewAnswer(
                 provider,
                 requestParams,
                 requestOptions,
-                buildInterviewContext(params.transcript, params.customPrompt),
+                buildInterviewContext(effectiveParams.transcript, effectiveParams.customPrompt),
+                (draft) => {
+                  if (requestController.signal.aborted || this.activeRequest !== requestController) return;
+                  fullResponse = draft;
+                  this.broadcast({ type: 'delta', messageId: assistantMessageId, text: draft, fullText: draft });
+                },
               )
             : null;
 
@@ -570,13 +592,13 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
 
         sessionManager.addSessionMessage('assistant', assistantMessage.content);
 
-        const userMessageText = params.action === 'custom' && params.customPrompt
-          ? params.customPrompt
-          : this.getActionLabel(params.action);
+        const userMessageText = effectiveParams.action === 'custom' && effectiveParams.customPrompt
+          ? effectiveParams.customPrompt
+          : this.getActionLabel(effectiveParams.action);
 
         sessionManager.addAIResponse({
           id: uuidv4(),
-          action: params.action,
+          action: effectiveParams.action,
           userMessage: userMessageText,
           response: fullResponse,
           timestamp: Date.now(),
@@ -846,7 +868,7 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
     fullText?: string;
     error?: string;
     limitInfo?: { used: number; limit: number; resetAt: string };
-    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
+    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string; interviewMode?: boolean };
   }): void {
     try {
       if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {

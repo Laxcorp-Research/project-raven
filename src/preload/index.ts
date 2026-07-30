@@ -269,7 +269,7 @@ contextBridge.exposeInMainWorld('raven', {
     error?: string
     warning?: string
     limitInfo?: { used: number; limit: number; resetAt: string }
-    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
+    requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string; interviewMode?: boolean }
   }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as {
       type: 'start' | 'delta' | 'done' | 'error' | 'warning' | 'cleared'
@@ -281,7 +281,7 @@ contextBridge.exposeInMainWorld('raven', {
       error?: string
       warning?: string
       limitInfo?: { used: number; limit: number; resetAt: string }
-      requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
+      requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string; interviewMode?: boolean }
     })
     ipcRenderer.on('claude:response', handler)
     return () => { ipcRenderer.removeListener('claude:response', handler) }

@@ -45,3 +45,11 @@
 - [x] 7.1 Specify structured memory, question templates, and bounded answer repair for local Interview mode
 - [x] 7.2 Implement and unit-test interview memory, classification, coverage verification, and one-pass repair
 - [x] 7.3 Re-run the live QA interview evaluation three times and compare coverage and latency
+
+## 8. Interview Experience
+
+- [x] 8.1 Specify two-stage answers, personal knowledge, transcript-aware detection, and continuous evaluation
+- [x] 8.2 Add an immediate `Say now` answer with expandable supporting detail
+- [x] 8.3 Ground interview answers in typed résumé, STAR-story, project, and job-description context
+- [x] 8.4 Normalize fragmented interview transcripts and ignore unfinished question tails
+- [x] 8.5 Add deterministic CI evaluation and an opt-in repeatable multi-model live runner

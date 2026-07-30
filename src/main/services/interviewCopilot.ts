@@ -1,4 +1,5 @@
 import type { AIProvider, AIRequestOptions } from './ai/types';
+import { prepareInterviewTranscript } from './interviewTranscript';
 
 export type InterviewQuestionType =
   | 'introduction'
@@ -28,6 +29,14 @@ export interface InterviewAssessment {
   missing: string[];
   wordCount: number;
 }
+
+export interface InterviewKnowledgeChunk {
+  chunkText: string;
+  fileName: string;
+  score: number;
+}
+
+export type InterviewKnowledgeRole = 'candidate-profile' | 'star-story' | 'target-role' | 'project-evidence' | 'general';
 
 interface CoverageRequirement {
   label: string;
@@ -78,9 +87,11 @@ export function extractInterviewMemory(transcript: string): InterviewMemory {
 }
 
 export function buildInterviewContext(transcript: string, explicitQuestion?: string): InterviewContext {
-  const question = explicitQuestion?.trim() || latestQuestion(transcript);
+  const prepared = prepareInterviewTranscript(transcript);
+  const stableTranscript = prepared.transcript || transcript;
+  const question = explicitQuestion?.trim() || prepared.latestCompletedQuestion || latestQuestion(stableTranscript);
   const questionType = classifyInterviewQuestion(question);
-  const memory = extractInterviewMemory(transcript);
+  const memory = extractInterviewMemory(stableTranscript);
   const maxWords = questionType === 'coding' ? 280 : questionType === 'test-strategy' ? 220 : 180;
   const memoryText = [
     ...memory.constraints.map((item) => `Constraint: ${item}`),
@@ -103,6 +114,31 @@ ${memoryText || 'No durable interview facts extracted yet.'}
   return context;
 }
 
+export function classifyInterviewKnowledgeFile(fileName: string): InterviewKnowledgeRole {
+  const normalized = fileName.toLowerCase().replace(/[_-]+/g, ' ');
+  if (/\b(?:job description|job posting|role description|requirements|jd)\b/.test(normalized)) return 'target-role';
+  if (/\b(?:star|behavioral|story|stories|achievement)\b/.test(normalized)) return 'star-story';
+  if (/\b(?:resume|résumé|cv|curriculum vitae|candidate profile)\b/.test(normalized)) return 'candidate-profile';
+  if (/\b(?:project|portfolio|case study)\b/.test(normalized)) return 'project-evidence';
+  return 'general';
+}
+
+export function buildInterviewKnowledgePrompt(chunks: InterviewKnowledgeChunk[]): string {
+  if (chunks.length === 0) return '';
+  const evidence = chunks.map((chunk, index) => {
+    const role = classifyInterviewKnowledgeFile(chunk.fileName);
+    return `[${index + 1}] role="${role}" file="${chunk.fileName}"\n${chunk.chunkText}`;
+  }).join('\n\n');
+  return `<interview_knowledge>
+${evidence}
+</interview_knowledge>
+Knowledge boundary rules:
+- candidate-profile, star-story, and project-evidence may support factual claims about the candidate.
+- target-role describes what the employer wants; use it to choose emphasis, never as evidence that the candidate has that experience.
+- general material may provide context but does not establish a candidate claim unless it explicitly describes the candidate.
+- Never invent employers, dates, metrics, ownership, or outcomes. If the needed fact is absent, provide a clearly labeled fill-in phrase instead.`;
+}
+
 export function assessInterviewAnswer(context: InterviewContext, answer: string): InterviewAssessment {
   const requirements = coverageRequirements(context);
   const missing = requirements
@@ -121,6 +157,7 @@ export async function generateVerifiedInterviewAnswer(
   params: { system: string; messages: Parameters<AIProvider['streamResponse']>[0]['messages']; maxTokens?: number },
   options: AIRequestOptions | undefined,
   context: InterviewContext,
+  onDraft?: (draft: string) => void,
 ): Promise<{ text: string; repaired: boolean; assessment: InterviewAssessment }> {
   let draft = '';
   await provider.streamResponse(
@@ -132,6 +169,8 @@ export async function generateVerifiedInterviewAnswer(
     },
     options,
   );
+
+  onDraft?.(draft);
 
   const firstAssessment = assessInterviewAnswer(context, draft);
   if (firstAssessment.missing.length === 0 || context.questionType === 'current-research') {
