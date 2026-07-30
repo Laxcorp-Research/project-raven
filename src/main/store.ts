@@ -83,7 +83,11 @@ const STORE_DEFAULTS: LocalSettings = {
   proOnboardingStep: '',
   dashboardBounds: null,
   overlayBounds: null,
-  stealthEnabled: false,
+  // Protect the overlay from screen-sharing and recording software by
+  // default. Users can still explicitly opt out through the Detectable /
+  // Undetectable control, but a fresh install must not begin in the unsafe
+  // state before they discover that toggle.
+  stealthEnabled: true,
   theme: 'system',
   openOnLogin: false,
   transcriptionLanguage: 'en',

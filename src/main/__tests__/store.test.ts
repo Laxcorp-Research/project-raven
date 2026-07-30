@@ -1,13 +1,15 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-const { mockGet, mockSet, mockClear } = vi.hoisted(() => ({
+const { mockGet, mockSet, mockClear, mockStoreOptions } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockSet: vi.fn(),
   mockClear: vi.fn(),
+  mockStoreOptions: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('electron-store', () => ({
-  default: vi.fn(function () {
+  default: vi.fn(function (options: Record<string, unknown>) {
+    mockStoreOptions.push(options)
     return {
       get: mockGet,
       set: mockSet,
@@ -57,6 +59,12 @@ describe('store', () => {
       const store = getStore()
       expect(store).toBeDefined()
       expect(store.get).toBeDefined()
+    })
+
+    it('protects fresh installs from screen capture by default', () => {
+      expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
+        defaults: expect.objectContaining({ stealthEnabled: true }),
+      }))
     })
   })
 
