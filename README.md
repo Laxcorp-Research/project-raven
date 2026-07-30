@@ -519,10 +519,8 @@ Test-Path src\native\aec\build\Release\raven-aec.node
 **Step 9 — Build the Windows audio capture module**
 
 ```
-cd src\native\windows
-npm install
-npx napi build --platform --release
-cd ..\..\..
+npm install --prefix src\native\windows
+npm run build:windows-audio
 ```
 
 Verify:

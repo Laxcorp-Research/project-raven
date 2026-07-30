@@ -53,6 +53,13 @@ src/native/aec/build/
 src/native/aec/deps/
 src/native/aec/node_modules/
 
+# Native Windows audio build artifacts (rebuild with npm run build:windows-audio)
+src/native/windows/target/
+src/native/windows/index.js
+src/native/windows/index.d.ts
+src/native/windows/*.node
+build/gstreamer-bundle-win/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

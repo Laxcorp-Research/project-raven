@@ -10,13 +10,16 @@ set "GSTREAMER_ROOT=%GSTREAMER_1_0_ROOT_MSVC_X86_64%"
 if "%GSTREAMER_ROOT%"=="" (
     if exist "C:\gstreamer\1.0\msvc_x86_64" (
         set "GSTREAMER_ROOT=C:\gstreamer\1.0\msvc_x86_64"
+    ) else if exist "%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64" (
+        set "GSTREAMER_ROOT=%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64"
+    ) else if exist "%ProgramFiles%\gstreamer\1.0\msvc_x86_64" (
+        set "GSTREAMER_ROOT=%ProgramFiles%\gstreamer\1.0\msvc_x86_64"
     ) else (
         echo ERROR: GStreamer not found.
         echo.
         echo Install GStreamer from https://gstreamer.freedesktop.org/download/
-        echo You need BOTH packages for MSVC x86_64:
-        echo   1. Runtime installer  (gstreamer-1.0-msvc-x86_64-*.msi^)
-        echo   2. Development installer (gstreamer-1.0-devel-msvc-x86_64-*.msi^)
+        echo Select the MSVC x86_64 development components. GStreamer 1.28+
+        echo provides runtime and development files in one combined installer.
         echo.
         echo Choose the "Complete" installation to include all plugins (including webrtcdsp^).
         echo.

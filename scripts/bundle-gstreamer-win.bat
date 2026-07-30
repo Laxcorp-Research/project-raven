@@ -23,6 +23,10 @@ set "GST_ROOT=%GSTREAMER_1_0_ROOT_MSVC_X86_64%"
 if "%GST_ROOT%"=="" (
     if exist "C:\gstreamer\1.0\msvc_x86_64" (
         set "GST_ROOT=C:\gstreamer\1.0\msvc_x86_64"
+    ) else if exist "%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64" (
+        set "GST_ROOT=%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64"
+    ) else if exist "%ProgramFiles%\gstreamer\1.0\msvc_x86_64" (
+        set "GST_ROOT=%ProgramFiles%\gstreamer\1.0\msvc_x86_64"
     ) else (
         echo ERROR: GStreamer not found.
         echo Install from https://gstreamer.freedesktop.org/download/
@@ -57,14 +61,14 @@ for %%P in (
         echo   + %%P
         set /a PLUGIN_COUNT+=1
     ) else (
-        echo   ! MISSING: %%P  (expected at %GST_PLUGIN_DIR%\%%P^)
+        echo   ! MISSING: %%P - expected at %GST_PLUGIN_DIR%\%%P
         set /a PLUGIN_MISSING+=1
     )
 )
 
 if %PLUGIN_MISSING% GTR 0 (
     echo.
-    echo   WARNING: %PLUGIN_MISSING% plugin(s) missing. AEC may not work.
+    echo   WARNING: %PLUGIN_MISSING% plugins missing. AEC may not work.
 )
 
 :: ---- Shared libraries (DLLs from bin\) ----
@@ -87,7 +91,7 @@ for %%L in (
         echo   + %%L
         set /a LIB_COUNT+=1
     ) else (
-        echo   - %%L  (not found, may be optional^)
+        echo   - %%L - not found; may be optional
     )
 )
 
@@ -103,7 +107,7 @@ for %%L in (
         echo   + %%L
         set /a LIB_COUNT+=1
     ) else (
-        echo   - %%L  (not found^)
+        echo   - %%L - not found
     )
 )
 
@@ -119,7 +123,7 @@ for %%L in (
         echo   + %%L
         set /a LIB_COUNT+=1
     ) else (
-        echo   - %%L  (not found, may be optional^)
+        echo   - %%L - not found; may be optional
     )
 )
 
@@ -133,7 +137,7 @@ if exist "%GST_BIN%\ffi-8.dll" (
     echo   + ffi-7.dll
     set /a LIB_COUNT+=1
 ) else (
-    echo   - ffi-*.dll  (not found, may be optional^)
+    echo   - ffi-*.dll - not found; may be optional
 )
 
 :: zlib — try common names
@@ -146,7 +150,7 @@ if exist "%GST_BIN%\z-1.dll" (
     echo   + zlib1.dll
     set /a LIB_COUNT+=1
 ) else (
-    echo   - zlib  (not found, may be optional^)
+    echo   - zlib - not found; may be optional
 )
 
 :: webrtc-audio-processing (needed by webrtcdsp plugin at runtime)
