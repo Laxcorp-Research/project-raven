@@ -21,6 +21,10 @@ Raven SHALL open separate WhisperLiveKit-compatible WebSockets for 16 kHz mono l
 ### Requirement: Bounded reconnect behavior
 Raven SHALL bound queued PCM during reconnect and preserve compatible KeepAlive, Finalize, CloseStream, and final-flush handling.
 
+#### Scenario: Recording stops with uncommitted local speech
+- **WHEN** Raven stops a WhisperLiveKit stream while its latest recognized words are still interim
+- **THEN** Raven waits for the bounded server-side final flush and preserves any remaining interim tail as a final transcript entry
+
 #### Scenario: Extended outage
 - **WHEN** audio continues while a local transcription socket is unavailable
 - **THEN** the queue remains within its configured byte limit and older audio is discarded safely

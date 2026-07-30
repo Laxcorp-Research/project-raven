@@ -101,7 +101,9 @@ export const DEEPGRAM_ENDPOINTING_MS = 300
 export const DEEPGRAM_UTTERANCE_END_MS = 1500
 
 export const TRANSCRIPT_MERGE_WINDOW_MS = 5000
-export const TRANSCRIPT_FLUSH_TIMEOUT_MS = 3000
+// Local Whisper finalization runs inference on the uncommitted tail before the
+// socket closes. CPU inference can exceed Deepgram's normal network flush time.
+export const TRANSCRIPT_FLUSH_TIMEOUT_MS = 20_000
 
 // ── Screenshot ───────────────────────────────────────────────────────
 

@@ -153,6 +153,34 @@ describe('TranscriptionService', () => {
       expect((service as any).micConnection.reconnectAttempts).toBe(0)
       expect((service as any).systemConnection.reconnectAttempts).toBe(0)
     })
+
+    it('preserves an uncommitted WhisperLiveKit interim when the stream closes', async () => {
+      service.setConnectionConfig({
+        provider: 'whisperlivekit',
+        endpoint: 'ws://127.0.0.1:9000/v1/listen',
+      })
+      const state = (service as any).micConnection
+      state.ws = mockWsInstance
+      state.isConnected = true
+      state.currentInterim = 'the final uncommitted words'
+      mockWsInstance.send.mockImplementationOnce(() => {
+        queueMicrotask(() => mockWsInstance.onclose?.({ code: 1000, reason: 'complete' }))
+      })
+
+      await service.stop()
+
+      expect(service.getTranscriptEntries()).toEqual([
+        expect.objectContaining({
+          source: 'mic',
+          text: 'the final uncommitted words',
+          isFinal: true,
+        }),
+      ])
+      expect(sessionManager.addTranscriptEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'the final uncommitted words', isFinal: true }),
+      )
+      expect(state.currentInterim).toBe('')
+    })
   })
 
   describe('getFullTranscript', () => {
@@ -308,6 +336,22 @@ describe('TranscriptionService', () => {
       ;(service as any).handleTranscriptResult(data, 'mic')
       expect(service.getTranscriptEntries()).toHaveLength(1)
       expect(sessionManager.addTranscriptEntry).toHaveBeenCalledTimes(1)
+    })
+
+    it('removes repeated word overlap between adjacent final results', () => {
+      (service as any).handleTranscriptResult({
+        channel: { alternatives: [{ transcript: 'cancellation with an abort controller.' }] },
+        is_final: true,
+      }, 'system')
+      ;(service as any).handleTranscriptResult({
+        channel: { alternatives: [{ transcript: 'controller. Tomorrow we review tests.' }] },
+        is_final: true,
+      }, 'system')
+
+      expect(service.getTranscriptEntries()).toHaveLength(1)
+      expect(service.getTranscriptEntries()[0].text).toBe(
+        'cancellation with an abort controller. Tomorrow we review tests.',
+      )
     })
 
     it('creates separate entry when speaker differs', () => {

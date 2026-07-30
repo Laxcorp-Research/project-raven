@@ -50,6 +50,22 @@ const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 1000;
 const MAX_TRANSCRIPT_ENTRIES = 5000;
 
+function appendWithoutWordOverlap(existing: string, incoming: string): string {
+  const existingWords = existing.trim().split(/\s+/)
+  const incomingWords = incoming.trim().split(/\s+/)
+  const maxOverlap = Math.min(existingWords.length, incomingWords.length)
+  let overlap = 0
+  for (let size = maxOverlap; size > 0; size--) {
+    const suffix = existingWords.slice(-size)
+    const prefix = incomingWords.slice(0, size)
+    if (suffix.every((word, index) => word === prefix[index])) {
+      overlap = size
+      break
+    }
+  }
+  return incomingWords.slice(overlap).join(' ')
+}
+
 export class TranscriptionService {
   private micConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '', sendCount: 0, reconnectAttempts: 0 };
   private systemConnection: ConnectionState = { ws: null, isConnected: false, keepAliveInterval: null, currentInterim: '', sendCount: 0, reconnectAttempts: 0 };
@@ -343,7 +359,13 @@ export class TranscriptionService {
         && (now - lastEntry.timestamp) < TRANSCRIPT_MERGE_WINDOW_MS;
 
       if (shouldMerge && lastEntry) {
-        lastEntry.text = `${lastEntry.text} ${transcript}`;
+        const nonOverlappingText = appendWithoutWordOverlap(lastEntry.text, transcript)
+        if (!nonOverlappingText) {
+          state.currentInterim = '';
+          log.debug(`${source} overlapping final transcript suppressed`);
+          return;
+        }
+        lastEntry.text = `${lastEntry.text} ${nonOverlappingText}`;
         lastEntry.timestamp = now;
       } else {
         if (this.transcriptEntries.length >= MAX_TRANSCRIPT_ENTRIES) {
@@ -446,15 +468,15 @@ export class TranscriptionService {
   async stop(): Promise<void> {
     this.isActive = false;
     await Promise.all([
-      this.stopConnection(this.micConnection),
-      this.stopConnection(this.systemConnection),
+      this.stopConnection(this.micConnection, 'mic'),
+      this.stopConnection(this.systemConnection, 'system'),
     ]);
     this.micConnection.reconnectAttempts = 0;
     this.systemConnection.reconnectAttempts = 0;
     log.info('All connections stopped');
   }
 
-  private async stopConnection(state: ConnectionState): Promise<void> {
+  private async stopConnection(state: ConnectionState, source: AudioSource): Promise<void> {
     this.clearKeepAlive(state);
 
     if (state.ws) {
@@ -487,6 +509,17 @@ export class TranscriptionService {
     }
 
     state.isConnected = false;
+    // WhisperLiveKit 0.2.24 may close before its asynchronously finalized tail
+    // reaches the client. Preserve the latest uncommitted buffer rather than
+    // silently dropping the end of the meeting. A normally delivered final
+    // clears currentInterim first, making this fallback a no-op.
+    if (this.connectionConfig?.provider === 'whisperlivekit' && state.currentInterim) {
+      log.warn(`${source} local finalization ended with an interim; preserving it as final`);
+      this.handleTranscriptResult({
+        channel: { alternatives: [{ transcript: state.currentInterim }] },
+        is_final: true,
+      }, source);
+    }
     state.currentInterim = '';
   }
 

@@ -29,6 +29,18 @@ mkdirSync(runtime, { recursive: true })
 if (!existsSync(python)) run(launcher[0], [...launcher[1], '-m', 'venv', venv])
 run(python, ['-m', 'pip', 'install', '--upgrade', 'pip'])
 run(python, ['-m', 'pip', 'install', '--requirement', join(root, 'requirements-local-stt.txt')])
+
+// WhisperLiveKit 0.2.24 cancels its Deepgram-compatible results consumer as
+// soon as CloseStream starts finalizing the remaining audio. Apply Raven's
+// narrowly scoped compatibility repair after every install/upgrade.
+const moduleProbe = spawnSync(python, [
+  '-c',
+  'from pathlib import Path; import whisperlivekit; print(Path(whisperlivekit.__file__).parent / "deepgram_compat.py")',
+], { cwd: root, encoding: 'utf8', shell: false })
+if (moduleProbe.error || moduleProbe.status !== 0 || !moduleProbe.stdout.trim()) {
+  throw moduleProbe.error || new Error('Could not locate WhisperLiveKit deepgram_compat.py')
+}
+run(process.execPath, [join(root, 'scripts', 'patch-whisperlivekit.mjs'), moduleProbe.stdout.trim()])
 run(wlk, ['check'], { env: { ...process.env, PYTHONUTF8: '1' } })
 
 const modelRoot = join(runtime, 'models')

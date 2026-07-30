@@ -14,7 +14,7 @@ describe('LocalSttProcessManager', () => {
   it('builds only flags confirmed by WhisperLiveKit 0.2.24', () => {
     const manager = new LocalSttProcessManager('C:\\raven')
     expect(manager.buildArguments(45678, { model: 'base.en', language: 'en', device: 'cpu', computeType: 'int8' })).toEqual([
-      'serve', '--host', '127.0.0.1', '--port', '45678', '--backend', 'faster-whisper', '--model', 'base.en', '--lan', 'en', '--pcm-input', '--log-level', 'WARNING',
+      'serve', '--host', '127.0.0.1', '--port', '45678', '--backend-policy', 'localagreement', '--backend', 'faster-whisper', '--model', 'base.en', '--lan', 'en', '--pcm-input', '--log-level', 'WARNING',
     ])
   })
 

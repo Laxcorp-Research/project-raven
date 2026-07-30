@@ -54,7 +54,7 @@ export class LocalSttProcessManager {
     const model = options.model || 'base.en'
     const language = options.language || 'en'
     // These flags are present in WhisperLiveKit 0.2.24 `wlk serve --help`.
-    return ['serve', '--host', '127.0.0.1', '--port', String(port), '--backend', 'faster-whisper', '--model', model, '--lan', language, '--pcm-input', '--log-level', 'WARNING']
+    return ['serve', '--host', '127.0.0.1', '--port', String(port), '--backend-policy', 'localagreement', '--backend', 'faster-whisper', '--model', model, '--lan', language, '--pcm-input', '--log-level', 'WARNING']
   }
 
   async start(options: LocalSttStartOptions = {}): Promise<LocalSttStatus> {
