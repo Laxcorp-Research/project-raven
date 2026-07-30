@@ -38,3 +38,4 @@
 - [x] 6.2 Update README with local-mode setup and limitations
 - [x] 6.3 Run OpenSpec validation and all supported quality gates
 - [x] 6.4 Create focused local commits without pushing or opening a pull request
+- [x] 6.5 Add an opt-in live multi-turn QA interview evaluation for context, correctness, selective search, citations, and latency
