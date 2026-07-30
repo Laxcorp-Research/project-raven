@@ -9,6 +9,10 @@ lerna-debug.log*
 
 # Dependencies
 node_modules
+.raven-runtime/
+*.transcript
+*.pcm
+*.wav
 .npm-cache
 
 # Build output

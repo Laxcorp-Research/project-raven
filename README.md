@@ -84,6 +84,7 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 - **Echo cancellation** — GStreamer pipeline using the WebRTC AEC3 engine (the same echo canceller used in Chrome)
 - **Real-time transcription** — Deepgram Nova-3 over WebSocket with separate connections for mic and system audio
 - **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
+- **Optional local meeting-content mode** — WhisperLiveKit transcription plus Ollama responses, with provider-specific readiness and explicit data-path labels
 - **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
 - **Local-first** — Your API keys and data stay on your machine (SQLite via better-sqlite3)
 - **RAG** — Upload local documents, embedded with `@xenova/transformers`, and reference them in AI context
@@ -95,6 +96,20 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 ## Architecture
 
 ![Architecture](docs/architecture.png)
+
+### Local AI quick start
+
+Local mode extends the existing capture, AEC, transcript/session, and overlay pipeline; it does not rebuild Raven. Install Python 3.12 and Ollama, then run:
+
+```powershell
+npm run local-stt:setup
+# Run the explicit base.en model pull command printed by setup.
+npm run local-stt:check
+```
+
+Start Ollama, install a model with `ollama pull <model>`, then select **WhisperLiveKit** and **Ollama** in Settings → API Keys → Meeting content providers. See [`docs/LOCAL_MODE_SETUP.md`](docs/LOCAL_MODE_SETUP.md), [`docs/LOCAL_AI_ARCHITECTURE.md`](docs/LOCAL_AI_ARCHITECTURE.md), and [`docs/PRIVACY.md`](docs/PRIVACY.md).
+
+Python, WLK/Ollama model weights, CUDA/cuDNN, and Ollama are not bundled. CPU latency depends on the machine. Local meeting-content mode is not a claim that the full Raven application is air-gapped.
 
 ## How It Works
 

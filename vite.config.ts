@@ -2,6 +2,12 @@ import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 
+const mainExternals = new Set([
+  'better-sqlite3', 'assemblyai', 'pdf-parse', '@sentry/electron',
+  '@sentry/electron/main', '@recallai/desktop-sdk', 'onnxruntime-node',
+  'onnxruntime-web', 'sharp', 'posthog-node',
+])
+
 export default defineConfig({
   build: {
     outDir: 'dist/renderer',
@@ -15,17 +21,11 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             rollupOptions: {
-              external: [
-                'better-sqlite3',
-                'assemblyai',
-                'pdf-parse',
-                '@sentry/electron',
-                '@sentry/electron/main',
-                '@recallai/desktop-sdk',
-                'onnxruntime-node',
-                'onnxruntime-web',
-                'sharp',
-              ],
+              // The public repository intentionally omits premium sources.
+              // Preserve their guarded dynamic imports as runtime externals
+              // so the OSS code build can complete and existing try/catch
+              // fallbacks remain responsible for free-mode behavior.
+              external: (id) => mainExternals.has(id) || /(^|\/)\.\.\/pro\//.test(id) || id.includes('/pro/'),
               output: {
                 entryFileNames: 'index.js',
                 banner: `

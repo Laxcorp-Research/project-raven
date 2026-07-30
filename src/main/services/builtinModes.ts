@@ -190,3 +190,12 @@ export function resetBuiltinMode(id: string): boolean {
 export function getBuiltinModeDefaults(id: string): BuiltinModeDefinition | null {
   return BUILTIN_MODES.find((m) => m.id === id) || null;
 }
+
+/**
+ * OSS compatibility hook. Production carries a server-managed v2.1 prompt
+ * migration; the public build has no server prompt source and therefore must
+ * preserve the user's existing General Assistant text unchanged.
+ */
+export function migrateGeneralAssistantPromptV21(): void {
+  log.debug('Server-managed General Assistant prompt migration is not required in OSS mode')
+}
