@@ -191,6 +191,17 @@ describe('store', () => {
   })
 
   describe('hasApiKeys', () => {
+    it('does not require a cloud API key when Ollama is selected', () => {
+      mockGet.mockImplementation((key: string, defaultValue?: unknown) => {
+        if (key === 'mode') return 'free'
+        if (key === 'aiProvider') return 'ollama'
+        if (key === 'transcriptionProvider') return 'whisperlivekit'
+        return defaultValue
+      })
+
+      expect(hasApiKeys()).toBe(true)
+    })
+
     it('returns true when deepgram and anthropic keys exist', () => {
       mockGet.mockImplementation((key: string) => {
         if (key === 'deepgramApiKey') return 'dg-key'

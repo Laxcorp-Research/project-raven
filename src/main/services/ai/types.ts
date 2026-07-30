@@ -1,9 +1,14 @@
-export type AIProviderName = 'anthropic' | 'openai';
+export type AIProviderName = 'anthropic' | 'openai' | 'ollama';
 
 export interface AIProviderConfig {
   provider: AIProviderName;
   model: string;
   apiKey: string;
+  baseURL?: string;
+}
+
+export interface AIRequestOptions {
+  signal?: AbortSignal;
 }
 
 export interface StreamCallbacks {
@@ -28,13 +33,13 @@ export interface AIProvider {
     system: string;
     messages: AIMessage[];
     maxTokens?: number;
-  }, callbacks: StreamCallbacks): Promise<void>;
+  }, callbacks: StreamCallbacks, options?: AIRequestOptions): Promise<void>;
 
   generateShort(params: {
     system?: string;
     prompt: string;
     maxTokens?: number;
-  }): Promise<string>;
+  }, options?: AIRequestOptions): Promise<string>;
 }
 
 // Current model lineup as of 2026-05. Order is "recommended for live use"
@@ -60,9 +65,11 @@ export const PROVIDER_MODELS: Record<AIProviderName, string[]> = {
     'gpt-5.5',
     'gpt-5.2',
   ],
+  ollama: [],
 };
 
 export const DEFAULT_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5.4-mini',
+  ollama: '',
 };

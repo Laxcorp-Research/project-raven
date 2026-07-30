@@ -1,4 +1,4 @@
-import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks } from './types';
+import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks, AIRequestOptions } from './types';
 
 // Models that support adaptive thinking via `thinking: { type: 'adaptive' }`.
 // On these models, manual `thinking: { type: 'enabled', budget_tokens: N }` is
@@ -71,7 +71,8 @@ export class AnthropicProvider implements AIProvider {
 
   async streamResponse(
     params: { system: string; messages: AIMessage[]; maxTokens?: number },
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    options?: AIRequestOptions,
   ): Promise<void> {
     const Anthropic = (await import('@anthropic-ai/sdk')).default;
     const client = new Anthropic({ apiKey: this.apiKey });
@@ -84,13 +85,16 @@ export class AnthropicProvider implements AIProvider {
     let fullText = '';
 
     try {
-      const stream = client.messages.stream({
+      const request = {
         model: this.model,
         max_tokens: this.resolveMaxTokens(params.maxTokens),
         system: params.system,
         messages: anthropicMessages,
         ...this.thinkingParams(),
-      });
+      };
+      const stream = options?.signal
+        ? client.messages.stream(request, { signal: options.signal })
+        : client.messages.stream(request);
 
       stream.on('text', (text: string) => {
         fullText += text;
@@ -117,7 +121,7 @@ export class AnthropicProvider implements AIProvider {
     system?: string;
     prompt: string;
     maxTokens?: number;
-  }): Promise<string> {
+  }, options?: AIRequestOptions): Promise<string> {
     const Anthropic = (await import('@anthropic-ai/sdk')).default;
     const client = new Anthropic({ apiKey: this.apiKey });
 
@@ -129,12 +133,15 @@ export class AnthropicProvider implements AIProvider {
     // thinking here even on thinking-capable models: callers expect a 60-token
     // single-line output and the thinking overhead would dominate. The cap
     // stays at the caller's request (default 60).
-    const response = await client.messages.create({
+    const request = {
       model: this.model,
       max_tokens: params.maxTokens ?? 60,
       ...(params.system ? { system: params.system } : {}),
       messages,
-    });
+    };
+    const response = options?.signal
+      ? await client.messages.create(request, { signal: options.signal })
+      : await client.messages.create(request);
 
     const block = response.content[0];
     return (block.type === 'text' ? block.text : '').trim();

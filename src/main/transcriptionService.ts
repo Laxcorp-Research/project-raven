@@ -15,6 +15,14 @@ const log = createLogger('Transcription');
 
 const DEEPGRAM_WS_BASE = 'wss://api.deepgram.com/v1/listen';
 
+export type TranscriptionProviderName = 'deepgram' | 'whisperlivekit';
+
+export interface TranscriptionConnectionConfig {
+  provider: TranscriptionProviderName;
+  endpoint: string;
+  headers?: Record<string, string>;
+}
+
 type AudioSource = 'mic' | 'system';
 
 interface TranscriptEntry {
@@ -48,8 +56,10 @@ export class TranscriptionService {
   private overlayWindow: BrowserWindow | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private apiKey: string = '';
+  private connectionConfig: TranscriptionConnectionConfig | null = null;
   private transcriptEntries: TranscriptEntry[] = [];
   private isActive = false;
+  private lastFinalBySource = new Map<AudioSource, { text: string; at: number }>();
   // With Deepgram diarize=true, the mic stream may contain multiple
   // speaker IDs when remote voices bleed through the local mic (e.g.,
   // FaceTime audio played through the speaker is picked up by the
@@ -68,8 +78,20 @@ export class TranscriptionService {
     this.apiKey = key;
   }
 
+  setConnectionConfig(config: TranscriptionConnectionConfig | null): void {
+    if (config?.provider === 'whisperlivekit') {
+      const url = new URL(config.endpoint)
+      const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+      if (url.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '::1'].includes(host) || url.pathname !== '/v1/listen') {
+        throw new Error('WhisperLiveKit endpoint must be a loopback ws:// URL ending in /v1/listen.')
+      }
+      if (config.headers && Object.keys(config.headers).length > 0) throw new Error('Local transcription does not accept authorization headers.')
+    }
+    this.connectionConfig = config
+  }
+
   async start(): Promise<{ success: boolean; error?: string }> {
-    if (!this.apiKey) {
+    if ((!this.connectionConfig || this.connectionConfig.provider === 'deepgram') && !this.apiKey) {
       log.error('No Deepgram API key!');
       return { success: false, error: 'No Deepgram API key configured' };
     }
@@ -79,6 +101,7 @@ export class TranscriptionService {
     // Reset diarization state for the new session - last session's
     // "speaker 0" is not the same person as this session's.
     this.localMicSpeakerId = null;
+    this.lastFinalBySource.clear();
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
@@ -110,7 +133,8 @@ export class TranscriptionService {
 
       const transcriptionLanguage = (getSetting('transcriptionLanguage') as string) || 'en';
 
-      const params = new URLSearchParams({
+      const provider = this.connectionConfig?.provider || 'deepgram';
+      const params = new URLSearchParams(provider === 'deepgram' ? {
         model: 'nova-3',
         language: transcriptionLanguage,
         smart_format: 'true',
@@ -128,7 +152,7 @@ export class TranscriptionService {
         encoding: 'linear16',
         endpointing: String(DEEPGRAM_ENDPOINTING_MS),
         utterance_end_ms: String(DEEPGRAM_UTTERANCE_END_MS),
-      });
+      } : { language: transcriptionLanguage });
 
       // Inject keyterms (brand name + user vocabulary) for nova-3's
       // Keyword Prompting feature. Free-tier path talks directly to
@@ -147,12 +171,15 @@ export class TranscriptionService {
       }
       // URLSearchParams repeats a key for each appended value - which is
       // exactly how Deepgram wants `keyterms` passed.
-      for (const term of finalTerms) params.append('keyterms', term);
+      if (provider === 'deepgram') {
+        for (const term of finalTerms) params.append('keyterms', term);
+      }
 
-      const url = `${DEEPGRAM_WS_BASE}?${params.toString()}`;
+      const base = this.connectionConfig?.endpoint || DEEPGRAM_WS_BASE;
+      const url = `${base}?${params.toString()}`;
 
       state.ws = new WebSocketModule(url, {
-        headers: { Authorization: `Token ${this.apiKey}` },
+        headers: this.connectionConfig?.headers || (provider === 'deepgram' ? { Authorization: `Token ${this.apiKey}` } : undefined),
       }) as WebSocket;
 
       return new Promise((resolve) => {
@@ -184,8 +211,6 @@ export class TranscriptionService {
         state.ws!.onmessage = (event: { data: unknown }) => {
           try {
             const data = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
-            
-            log.debug(`${source} received:`, JSON.stringify(data).slice(0, 200));
             
             this.handleTranscriptResult(data, source);
           } catch (err) {
@@ -277,7 +302,7 @@ export class TranscriptionService {
       return;
     }
 
-    log.debug(`${source} transcript: "${transcript}" (final: ${data.is_final})`);
+    log.debug(`${source} transcript event (final=${Boolean(data.is_final)}, chars=${transcript.length})`);
 
     const isFinal = !!data.is_final;
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
@@ -298,13 +323,19 @@ export class TranscriptionService {
           log.info(`Mic stream: registered speaker_id ${firstWordSpeaker} as local user`);
         } else if (firstWordSpeaker !== this.localMicSpeakerId) {
           speaker = 'them';
-          log.debug(`Mic stream: speaker_id ${firstWordSpeaker} != local (${this.localMicSpeakerId}), tagging as 'them'`);
+        log.debug(`Mic stream: non-local speaker id detected; tagging as them`);
         }
       }
     }
 
     if (isFinal) {
       const now = Date.now();
+      const previousFinal = this.lastFinalBySource.get(source);
+      if (previousFinal && previousFinal.text === transcript && now - previousFinal.at < 2_000) {
+        log.debug(`${source} duplicate final transcript suppressed (chars=${transcript.length})`);
+        return;
+      }
+      this.lastFinalBySource.set(source, { text: transcript, at: now });
 
       const lastEntry = this.transcriptEntries[this.transcriptEntries.length - 1];
       const shouldMerge = lastEntry
@@ -404,9 +435,7 @@ export class TranscriptionService {
     try {
       state.sendCount = (state.sendCount || 0) + 1;
       if (state.sendCount <= 5 || state.sendCount % 200 === 0) {
-        const samples = new Int16Array(buf.buffer, buf.byteOffset, Math.min(10, buf.byteLength / 2));
-        const maxVal = samples.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-        log.debug(`${source} send #${state.sendCount}: ${buf.byteLength} bytes, first10max=${maxVal}, first5=[${Array.from(samples).slice(0, 5)}]`);
+        log.debug(`${source} send #${state.sendCount}: ${buf.byteLength} bytes`);
       }
       state.ws.send(buf);
     } catch (err) {
@@ -508,6 +537,7 @@ export class TranscriptionService {
     this.transcriptEntries = [];
     this.micConnection.currentInterim = '';
     this.systemConnection.currentInterim = '';
+    this.lastFinalBySource.clear();
   }
 
   private broadcastTranscript(data: {

@@ -15,6 +15,7 @@ import { setProcessedAudioCallback, setCaptureExitCallback, startCapture, stopCa
 import { updateTrayRecordingState } from './trayManager'
 import { checkPermissionsForRecording, requestMicrophoneAccess, getPermissionStatus, openMicrophonePreferences } from './permissions'
 import { createLogger } from './logger'
+import { localSttProcessManager } from './services/localStt/localSttProcessManager'
 
 const log = createLogger('Audio')
 
@@ -228,8 +229,25 @@ export class AudioManager {
           this.startSessionTimer(sessionCheck.sessionMaxSeconds)
         }
       } else {
-        const deepgramKey = getSetting('deepgramApiKey')
-        if (deepgramKey) {
+        const transcriptionProvider = getSetting('transcriptionProvider') || 'deepgram'
+        if (transcriptionProvider === 'whisperlivekit') {
+          const status = await localSttProcessManager.start({
+            model: String(getSetting('localSttModel') || 'base.en'),
+            language: String(getSetting('transcriptionLanguage') || 'en'),
+            device: (getSetting('localSttDevice') || 'cpu') as 'cpu' | 'cuda' | 'auto',
+            computeType: String(getSetting('localSttComputeType') || 'int8'),
+          })
+          const endpoint = localSttProcessManager.getWebSocketEndpoint()
+          if (status.state !== 'ready' || !endpoint) return { success: false, error: status.error || 'Local transcription is not ready.' }
+          this.transcriptionService.setConnectionConfig({ provider: 'whisperlivekit', endpoint })
+          this.transcriptionService.clearTranscript()
+          this.activeProvider = this.transcriptionService
+          const result = await this.transcriptionService.start()
+          if (!result.success) return { success: false, error: result.error || 'Local transcription failed to start.' }
+        } else {
+          const deepgramKey = getSetting('deepgramApiKey')
+          if (!deepgramKey) return { success: false, error: 'No Deepgram API key configured.' }
+          this.transcriptionService.setConnectionConfig({ provider: 'deepgram', endpoint: 'wss://api.deepgram.com/v1/listen', headers: { Authorization: `Token ${deepgramKey}` } })
           this.transcriptionService.setApiKey(deepgramKey)
           this.transcriptionService.clearTranscript()
           this.activeProvider = this.transcriptionService
@@ -237,8 +255,6 @@ export class AudioManager {
           if (!result.success) {
             log.error('Transcription failed to start:', result.error)
           }
-        } else {
-          log.warn('No Deepgram API key - transcription disabled')
         }
 
         const captureStarted = startCapture()
@@ -388,6 +404,9 @@ export class AudioManager {
 
     if (this.activeProvider) {
       await this.activeProvider.stop()
+    }
+    if (!isProMode() && getSetting('transcriptionProvider') === 'whisperlivekit' && getSetting('stopLocalSttOnSessionEnd') !== false) {
+      await localSttProcessManager.stop()
     }
 
     const session = sessionManager.endSession()
@@ -895,7 +914,10 @@ export class AudioManager {
   }
 
   async shutdown(): Promise<void> {
-    if (!this.isRecording) return
+    if (!this.isRecording) {
+      await localSttProcessManager.stop()
+      return
+    }
 
     log.info('Shutdown: stopping active recording...')
     this.clearSessionTimer()
@@ -920,6 +942,7 @@ export class AudioManager {
     this.usingRecall = false
     this.isRecording = false
     this.recordingStartTime = null
+    await localSttProcessManager.stop()
   }
 }
 

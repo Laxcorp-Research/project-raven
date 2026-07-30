@@ -16,14 +16,14 @@ vi.mock('../store', () => ({
   getSetting: mockGetSetting,
 }))
 
-vi.mock('../logger', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
+const mockLogger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
 }))
+
+vi.mock('../logger', () => ({ createLogger: () => mockLogger }))
 
 const mockWsInstance = vi.hoisted(() => ({
   onopen: null as ((ev?: unknown) => void) | null,
@@ -272,6 +272,18 @@ describe('TranscriptionService', () => {
       expect(entries[0].isFinal).toBe(true)
     })
 
+    it('does not write transcript content to operational logs', () => {
+      const secret = 'confidential acquisition price 42 million'
+      ;(service as any).handleTranscriptResult({
+        channel: { alternatives: [{ transcript: secret }] },
+        is_final: true,
+      }, 'mic')
+
+      for (const logger of Object.values(mockLogger)) {
+        expect(logger.mock.calls.flat().join(' ')).not.toContain(secret)
+      }
+    })
+
     it('merges consecutive same-speaker entries within 5s', () => {
       const first = {
         channel: { alternatives: [{ transcript: 'Part one' }] },
@@ -288,6 +300,14 @@ describe('TranscriptionService', () => {
       const entries = service.getTranscriptEntries()
       expect(entries).toHaveLength(1)
       expect(entries[0].text).toBe('Part one part two')
+    })
+
+    it('suppresses duplicate final results from the same stream', () => {
+      const data = { channel: { alternatives: [{ transcript: 'Same final' }] }, is_final: true }
+      ;(service as any).handleTranscriptResult(data, 'mic')
+      ;(service as any).handleTranscriptResult(data, 'mic')
+      expect(service.getTranscriptEntries()).toHaveLength(1)
+      expect(sessionManager.addTranscriptEntry).toHaveBeenCalledTimes(1)
     })
 
     it('creates separate entry when speaker differs', () => {

@@ -1,6 +1,7 @@
 import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
+import { DEFAULT_OLLAMA_URL, OllamaProvider } from './ollamaProvider';
 import { createLogger } from '../../logger';
 
 const log = createLogger('AI');
@@ -9,7 +10,7 @@ let cachedProvider: AIProvider | null = null;
 let cachedConfigKey = '';
 
 function configKey(config: AIProviderConfig): string {
-  return `${config.provider}:${config.model}:${config.apiKey}`;
+  return `${config.provider}:${config.model}:${config.apiKey}:${config.baseURL || ''}`;
 }
 
 export function getProvider(config: AIProviderConfig): AIProvider {
@@ -24,6 +25,9 @@ export function getProvider(config: AIProviderConfig): AIProvider {
       break;
     case 'openai':
       cachedProvider = new OpenAIProvider(config.apiKey, config.model);
+      break;
+    case 'ollama':
+      cachedProvider = new OllamaProvider(config.model, config.baseURL || DEFAULT_OLLAMA_URL);
       break;
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
@@ -42,6 +46,7 @@ export function clearProviderCache(): void {
 const FAST_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5.4-mini',
+  ollama: '',
 };
 
 // Deep-mode models used by the Pro path when the user toggles "Smart
@@ -59,6 +64,7 @@ const FAST_MODELS: Record<AIProviderName, string> = {
 const DEEP_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-5',
+  ollama: '',
 };
 
 /** Open-source mode: reads user's own API keys from local store. */
@@ -68,15 +74,15 @@ export async function getProviderFromStore(): Promise<AIProvider> {
   const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
   const model = (getSetting('aiModel') || 'claude-haiku-4-5') as string;
 
-  const apiKey = provider === 'openai'
-    ? getApiKey('openaiApiKey')
-    : getApiKey('anthropicApiKey');
+  const apiKey = provider === 'ollama' ? '' : provider === 'openai'
+    ? getApiKey('openaiApiKey') : getApiKey('anthropicApiKey');
 
-  if (!apiKey) {
+  if (provider !== 'ollama' && !apiKey) {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
   }
 
-  return getProvider({ provider, model, apiKey });
+  const baseURL = provider === 'ollama' ? String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL) : undefined;
+  return getProvider({ provider, model, apiKey, baseURL });
 }
 
 /** Open-source mode: fast model with user's own keys. */
@@ -84,17 +90,17 @@ export async function getFastProvider(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
   const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
-  const model = FAST_MODELS[provider];
+  const model = provider === 'ollama' ? String(getSetting('aiModel') || '') : FAST_MODELS[provider];
 
-  const apiKey = provider === 'openai'
-    ? getApiKey('openaiApiKey')
-    : getApiKey('anthropicApiKey');
+  const apiKey = provider === 'ollama' ? '' : provider === 'openai'
+    ? getApiKey('openaiApiKey') : getApiKey('anthropicApiKey');
 
-  if (!apiKey) {
+  if (provider !== 'ollama' && !apiKey) {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
   }
 
-  return getProvider({ provider, model, apiKey });
+  const baseURL = provider === 'ollama' ? String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL) : undefined;
+  return getProvider({ provider, model, apiKey, baseURL });
 }
 
 let cachedProProvider: AIProvider | null = null;

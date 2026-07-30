@@ -33,6 +33,7 @@ vi.mock('../systemAudioNative', () => ({
 const mockTranscriptionService = vi.hoisted(() => ({
   setWindows: vi.fn(),
   setApiKey: vi.fn(),
+  setConnectionConfig: vi.fn(),
   start: vi.fn().mockResolvedValue({ success: true }),
   stop: vi.fn().mockResolvedValue(undefined),
   clearTranscript: vi.fn(),
@@ -102,7 +103,7 @@ describe('AudioManager', () => {
     Object.keys(mockIpcHandlers).forEach((k) => delete mockIpcHandlers[k])
     Object.keys(mockIpcOnHandlers).forEach((k) => delete mockIpcOnHandlers[k])
 
-    mockGetSetting.mockReturnValue('')
+    mockGetSetting.mockImplementation((key: string) => key === 'deepgramApiKey' ? 'dg-default-key' : '')
     mockIsProMode.mockReturnValue(false)
     mockStartCapture.mockReturnValue(true)
     mockGetPermissionStatus.mockReturnValue({ microphone: 'granted', screen: 'granted', accessibility: 'granted' })
@@ -167,14 +168,14 @@ describe('AudioManager', () => {
       expect(mockStartCapture).toHaveBeenCalled()
     })
 
-    it('starts recording without Deepgram key (transcription disabled)', async () => {
+    it('blocks recording without the selected Deepgram key', async () => {
       mockGetSetting.mockReturnValue('')
 
       const handler = mockIpcHandlers['audio:start-recording']
       const result = await handler({})
 
-      expect(result).toEqual({ success: true })
-      expect(manager.getIsRecording()).toBe(true)
+      expect(result).toEqual({ success: false, error: 'No Deepgram API key configured.' })
+      expect(manager.getIsRecording()).toBe(false)
       expect(mockTranscriptionService.setApiKey).not.toHaveBeenCalled()
     })
 

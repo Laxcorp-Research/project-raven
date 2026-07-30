@@ -48,10 +48,18 @@ export interface LocalSettings {
   // user's additions only (not the brand term itself).
   vocabulary: string;
 
+  // Transcription provider (default keeps existing users on Deepgram)
+  transcriptionProvider: 'deepgram' | 'whisperlivekit';
+  localSttModel: string;
+  localSttDevice: 'cpu' | 'cuda' | 'auto';
+  localSttComputeType: string;
+  stopLocalSttOnSessionEnd: boolean;
+
   // AI Provider
-  aiProvider: 'anthropic' | 'openai';
+  aiProvider: 'anthropic' | 'openai' | 'ollama';
   aiModel: string;
   openaiApiKey: string;
+  ollamaBaseUrl: string;
 
   // Active mode
   activeModeId: string | null;
@@ -81,9 +89,15 @@ const STORE_DEFAULTS: LocalSettings = {
   transcriptionLanguage: 'en',
   outputLanguage: 'en',
   vocabulary: '',
+  transcriptionProvider: 'deepgram',
+  localSttModel: 'base.en',
+  localSttDevice: 'cpu',
+  localSttComputeType: 'int8',
+  stopLocalSttOnSessionEnd: true,
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
+  ollamaBaseUrl: 'http://127.0.0.1:11434',
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
@@ -152,9 +166,15 @@ export function getAllSettings(): LocalSettings {
     transcriptionLanguage: store.get('transcriptionLanguage'),
     outputLanguage: store.get('outputLanguage'),
     vocabulary: store.get('vocabulary'),
+    transcriptionProvider: store.get('transcriptionProvider'),
+    localSttModel: store.get('localSttModel'),
+    localSttDevice: store.get('localSttDevice'),
+    localSttComputeType: store.get('localSttComputeType'),
+    stopLocalSttOnSessionEnd: store.get('stopLocalSttOnSessionEnd'),
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),
+    ollamaBaseUrl: store.get('ollamaBaseUrl'),
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
@@ -232,9 +252,9 @@ export function saveApiKeys(deepgramKey: string, anthropicKey: string, openaiKey
 }
 
 export function hasApiKeys(): boolean {
-  const hasDeepgram = !!getApiKey('deepgramApiKey');
+  const hasDeepgram = store.get('transcriptionProvider') === 'whisperlivekit' || !!getApiKey('deepgramApiKey');
   const provider = store.get('aiProvider') || 'anthropic';
-  const hasAiKey = provider === 'openai'
+  const hasAiKey = provider === 'ollama' ? true : provider === 'openai'
     ? !!getApiKey('openaiApiKey')
     : !!getApiKey('anthropicApiKey');
   return hasDeepgram && hasAiKey;

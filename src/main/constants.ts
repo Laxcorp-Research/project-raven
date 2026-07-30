@@ -47,7 +47,15 @@ export const STREAM_MAX_TOKENS = 16384
 // fail rather than wait forever.
 export const AI_STREAM_TIMEOUT_MS = 180_000
 
-export const SUMMARY_MAX_TOKENS = 2000
+// Provider-independent output and cancellation budgets. Live suggestions
+// must stay responsive; longer limits are reserved for explicit offline work.
+export const LIVE_REPLY_MAX_TOKENS = 300
+export const LIVE_REPLY_TIMEOUT_MS = 30_000
+export const SUMMARY_TIMEOUT_MS = 90_000
+export const DEEP_ANALYSIS_MAX_TOKENS = 4_000
+export const DEEP_ANALYSIS_TIMEOUT_MS = 180_000
+
+export const SUMMARY_MAX_TOKENS = 1_500
 export const SUMMARY_TRANSCRIPT_SLICE = 8000
 export const SUMMARY_MIN_TRANSCRIPT_LENGTH = 20
 

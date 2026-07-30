@@ -425,7 +425,7 @@ class SessionManager {
     // handful of rows on boot. Each iteration closes one session,
     // so the next getInProgressSession call returns the next oldest
     // or null.
-    while (true) {
+    for (;;) {
       const inProgress = databaseService.getInProgressSession();
       if (!inProgress) break;
 

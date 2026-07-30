@@ -1,4 +1,4 @@
-import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks } from './types';
+import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks, AIRequestOptions } from './types';
 import type OpenAI from 'openai';
 
 export class OpenAIProvider implements AIProvider {
@@ -13,7 +13,8 @@ export class OpenAIProvider implements AIProvider {
 
   async streamResponse(
     params: { system: string; messages: AIMessage[]; maxTokens?: number },
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    options?: AIRequestOptions,
   ): Promise<void> {
     const OpenAI = (await import('openai')).default;
     const client = new OpenAI({ apiKey: this.apiKey });
@@ -51,12 +52,15 @@ export class OpenAIProvider implements AIProvider {
     let fullText = '';
 
     try {
-      const stream = await client.chat.completions.create({
+      const request = {
         model: this.model,
         max_tokens: params.maxTokens ?? 1024,
         messages: openaiMessages,
-        stream: true,
-      });
+        stream: true as const,
+      };
+      const stream = options?.signal
+        ? await client.chat.completions.create(request, { signal: options.signal })
+        : await client.chat.completions.create(request);
 
       for await (const chunk of stream) {
         const text = chunk.choices[0]?.delta?.content || '';
@@ -84,7 +88,7 @@ export class OpenAIProvider implements AIProvider {
     system?: string;
     prompt: string;
     maxTokens?: number;
-  }): Promise<string> {
+  }, options?: AIRequestOptions): Promise<string> {
     const OpenAI = (await import('openai')).default;
     const client = new OpenAI({ apiKey: this.apiKey });
 
@@ -94,11 +98,14 @@ export class OpenAIProvider implements AIProvider {
     }
     messages.push({ role: 'user', content: params.prompt });
 
-    const response = await client.chat.completions.create({
+    const request = {
       model: this.model,
       max_tokens: params.maxTokens ?? 60,
       messages,
-    });
+    };
+    const response = options?.signal
+      ? await client.chat.completions.create(request, { signal: options.signal })
+      : await client.chat.completions.create(request);
 
     return response.choices[0]?.message?.content?.trim() || '';
   }

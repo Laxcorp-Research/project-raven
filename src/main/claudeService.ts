@@ -2,10 +2,11 @@ import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
 import { getProviderFromStore, getProProvider, getProFastProvider } from './services/ai/providerFactory';
+import { DEFAULT_OLLAMA_URL, OllamaProvider } from './services/ai/ollamaProvider';
 import { getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, LIVE_REPLY_MAX_TOKENS, LIVE_REPLY_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -294,7 +295,7 @@ Title:`;
 
     return title.length > TITLE_TRUNCATE_AT ? title.slice(0, TITLE_TRUNCATED_LENGTH) + '...' : title;
   } catch (error) {
-    log.error('Title generation failed:', error);
+    log.error(`Title generation failed (${error instanceof Error ? error.name : 'unknown'})`);
     throw error;
   }
 }
@@ -303,6 +304,7 @@ export class ClaudeService {
   private overlayWindow: BrowserWindow | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private isProcessing = false;
+  private activeRequest: AbortController | null = null;
   private conversation: ConversationState = {
     messages: [],
     lastProcessedTranscriptLength: 0,
@@ -330,6 +332,12 @@ export class ClaudeService {
   }
 
   private registerIpcHandlers(): void {
+    ipcMain.handle('claude:cancel-response', async () => {
+      const cancelled = Boolean(this.activeRequest)
+      this.activeRequest?.abort(new Error('AI request cancelled by user.'))
+      return { success: true, cancelled }
+    })
+
     ipcMain.handle('claude:get-response', async (_event, params: {
       transcript: string;
       action: string;
@@ -345,6 +353,8 @@ export class ClaudeService {
         }
 
         this.isProcessing = true;
+        const requestController = new AbortController();
+        this.activeRequest = requestController;
 
         let provider;
         if (isProMode()) {
@@ -354,7 +364,17 @@ export class ClaudeService {
           provider = await getProviderFromStore();
         }
 
-        const screenshotAttachment = params.includeScreenshot
+        let screenshotAllowed = true;
+        if (params.includeScreenshot && provider.name === 'ollama') {
+          const model = String(getSetting('aiModel') || '');
+          const baseURL = String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL);
+          const capability = await OllamaProvider.inspectModel(model, baseURL, requestController.signal);
+          screenshotAllowed = capability.supportsVision;
+          if (!screenshotAllowed) {
+            this.broadcast({ type: 'warning', warning: 'The selected Ollama model is text-only, so the screenshot was not sent. Choose a vision-capable model to include the screen.' });
+          }
+        }
+        const screenshotAttachment = params.includeScreenshot && screenshotAllowed
           ? await this.captureScreenshotExcludingRaven()
           : null;
 
@@ -395,7 +415,7 @@ export class ClaudeService {
             const queryText = params.customPrompt || params.transcript.slice(-RAG_QUERY_TRANSCRIPT_SLICE) || params.action;
             ragChunks = await retrieveRelevantChunks(params.modeId, queryText, RAG_DEFAULT_TOP_K);
           } catch (err) {
-            log.error('RAG retrieval failed (non-fatal):', err);
+            log.error(`RAG retrieval failed (non-fatal, ${err instanceof Error ? err.name : 'unknown'})`);
           }
         }
 
@@ -435,18 +455,17 @@ export class ClaudeService {
           });
         }
 
-        const streamTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), AI_STREAM_TIMEOUT_MS)
-        );
-        await Promise.race([
-          provider.streamResponse(
+        const timeout = setTimeout(() => requestController.abort(new Error('AI response timed out.')), LIVE_REPLY_TIMEOUT_MS);
+        try {
+          await provider.streamResponse(
             {
               system: systemPrompt,
               messages: aiMessages,
-              maxTokens: STREAM_MAX_TOKENS,
+              maxTokens: LIVE_REPLY_MAX_TOKENS,
             },
             {
               onText: (text) => {
+                if (requestController.signal.aborted || this.activeRequest !== requestController) return;
                 fullResponse += text;
                 this.broadcast({
                   type: 'delta',
@@ -459,8 +478,8 @@ export class ClaudeService {
                 // handled below after await
               },
               onError: (errorMsg) => {
+                if (requestController.signal.aborted || this.activeRequest !== requestController) return;
                 streamHadError = true;
-                this.isProcessing = false;
                 this.broadcastError(errorMsg);
                 // Server-attributed product event. Categorise
                 // the error into a small set of reasons so the
@@ -484,13 +503,17 @@ export class ClaudeService {
                   } catch { /* OSS / module unavailable */ }
                 })();
               },
-            }
-          ),
-          streamTimeout,
-        ]);
+            },
+            { signal: requestController.signal },
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        if (requestController.signal.aborted || this.activeRequest !== requestController) return;
 
         if (streamHadError) {
-          this.isProcessing = false;
+          this.finishRequest(requestController);
           return;
         }
 
@@ -527,10 +550,15 @@ export class ClaudeService {
           assistantMessage,
         });
 
-        this.isProcessing = false;
+        this.finishRequest(requestController);
 
       } catch (error: unknown) {
-        this.isProcessing = false;
+        const requestController = this.activeRequest;
+        if (requestController?.signal.aborted) {
+          this.finishRequest(requestController);
+          return;
+        }
+        if (requestController) this.finishRequest(requestController);
 
         // Check for usage limit error from the backend proxy
         if (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'LIMIT_REACHED') {
@@ -559,7 +587,7 @@ export class ClaudeService {
         }
 
         const msg = error instanceof Error ? error.message : String(error);
-        log.error('Error:', error);
+        log.error(`AI request failed (${error instanceof Error ? error.name : 'unknown'})`);
         this.broadcastError(msg || 'Failed to get AI response.');
       }
     });
@@ -576,6 +604,17 @@ export class ClaudeService {
       this.broadcast({ type: 'cleared' });
       return { success: true };
     });
+  }
+
+  cancelActiveRequest(): void {
+    this.activeRequest?.abort(new Error('AI request cancelled during shutdown.'))
+    if (this.activeRequest) this.finishRequest(this.activeRequest)
+  }
+
+  private finishRequest(controller: AbortController): void {
+    if (this.activeRequest !== controller) return
+    this.activeRequest = null
+    this.isProcessing = false
   }
 
   private windowTranscript(transcript: string): string {
@@ -740,7 +779,7 @@ export class ClaudeService {
         previewData: source.thumbnail.resize({ width: SCREENSHOT_PREVIEW_WIDTH }).toPNG().toString('base64'),
       };
     } catch (error) {
-      log.error('Failed to capture screenshot:', error);
+      log.error(`Failed to capture screenshot (${error instanceof Error ? error.name : 'unknown'})`);
       return null;
     } finally {
       for (const win of appWindows) {
@@ -775,7 +814,7 @@ export class ClaudeService {
         this.overlayWindow.webContents.send('claude:response', data);
       }
     } catch (err) {
-      log.error('Broadcast error:', err);
+      log.error(`Broadcast error (${err instanceof Error ? err.name : 'unknown'})`);
     }
   }
 

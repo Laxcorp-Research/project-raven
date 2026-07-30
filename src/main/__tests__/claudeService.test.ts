@@ -355,6 +355,13 @@ describe('Provider routing based on mode', () => {
     return entry[1] as (...args: unknown[]) => Promise<void>;
   }
 
+  function getCancelHandler(): (...args: unknown[]) => Promise<{ success: boolean; cancelled: boolean }> {
+    const calls = vi.mocked(ipcMain.handle).mock.calls;
+    const entry = calls.find(([channel]) => channel === 'claude:cancel-response');
+    if (!entry) throw new Error('claude:cancel-response handler not registered');
+    return entry[1] as (...args: unknown[]) => Promise<{ success: boolean; cancelled: boolean }>;
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getProviderFromStore).mockResolvedValue(mockProvider as any);
@@ -410,6 +417,25 @@ describe('Provider routing based on mode', () => {
 
     expect(getProProvider).toHaveBeenCalled();
     expect(getProFastProvider).not.toHaveBeenCalled();
+  });
+
+  it('cancels the active request and propagates AbortSignal to the provider', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    let observedSignal: AbortSignal | undefined;
+    mockProvider.streamResponse.mockImplementationOnce(async (_params, _callbacks, options) => {
+      observedSignal = options?.signal;
+      await new Promise<void>((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
+      });
+    });
+
+    const responsePromise = getResponseHandler()({}, { transcript: 'test', action: 'assist' });
+    await vi.waitFor(() => expect(observedSignal).toBeDefined());
+    const result = await getCancelHandler()({});
+    await responsePromise;
+
+    expect(result).toEqual({ success: true, cancelled: true });
+    expect(observedSignal?.aborted).toBe(true);
   });
 });
 
