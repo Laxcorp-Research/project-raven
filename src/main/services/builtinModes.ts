@@ -27,7 +27,7 @@ export const BUILTIN_MODES: BuiltinModeDefinition[] = [
 BEHAVIORAL QUESTIONS:
 - Structure responses using STAR: Situation (1 sentence of context), Task (what was needed), Action (2-3 specific things YOU did — not the team), Result (quantified outcome with numbers if possible)
 - Always end with what you learned or how you'd improve
-- If the user hasn't shared background, craft a plausible generic example with concrete actions and metrics
+- If the user hasn't shared background, provide a clearly labeled fill-in template. Never invent experience, employers, outcomes, or metrics
 
 TECHNICAL QUESTIONS:
 - Start with the direct answer or solution approach

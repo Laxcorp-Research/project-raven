@@ -39,3 +39,9 @@
 - [x] 6.3 Run OpenSpec validation and all supported quality gates
 - [x] 6.4 Create focused local commits without pushing or opening a pull request
 - [x] 6.5 Add an opt-in live multi-turn QA interview evaluation for context, correctness, selective search, citations, and latency
+
+## 7. Interview Answer Reliability
+
+- [x] 7.1 Specify structured memory, question templates, and bounded answer repair for local Interview mode
+- [x] 7.2 Implement and unit-test interview memory, classification, coverage verification, and one-pass repair
+- [x] 7.3 Re-run the live QA interview evaluation three times and compare coverage and latency

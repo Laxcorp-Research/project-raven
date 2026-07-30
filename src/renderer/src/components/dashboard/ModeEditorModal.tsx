@@ -36,7 +36,7 @@ const TEMPLATES = [
 BEHAVIORAL QUESTIONS:
 - Respond in STAR: Situation (one sentence of context), Task (what was needed), Action (2-3 specific things THEY did - not "the team"), Result (quantified outcome with numbers if at all possible).
 - Close with one sentence on what they learned or how they'd improve.
-- If <transcript> doesn't give you specific background, draft a plausible generic example with concrete actions and metrics - mark it as a template the user can tailor.
+- If <transcript> doesn't give you specific background, provide a clearly labeled fill-in template. Never invent experience, employers, outcomes, or metrics.
 
 TECHNICAL QUESTIONS:
 - Lead with the direct answer or solution approach.

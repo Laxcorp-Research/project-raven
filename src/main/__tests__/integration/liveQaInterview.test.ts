@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { OllamaProvider } from '../../services/ai/ollamaProvider'
 import { webSearchService } from '../../services/webSearchService'
+import { buildInterviewContext, generateVerifiedInterviewAnswer } from '../../services/interviewCopilot'
 
 const RUN_LIVE = process.env.RUN_LIVE_QA_INTERVIEW === '1'
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
@@ -89,14 +90,10 @@ describe.skipIf(!RUN_LIVE)('live five-minute QA automation interview', () => {
       let sourceCount = 0
       const turnStarted = Date.now()
 
-      await provider.streamResponse({
+      const generated = await generateVerifiedInterviewAnswer(provider, {
         system: `You are Raven helping a candidate during a live QA Automation Engineer interview. Answer with the exact technically accurate words the candidate can say next. Preserve facts and constraints from the cumulative transcript; never invent employers, outcomes, or metrics. Lead with the answer and stay concise. For concurrency and state questions, verify ownership, isolation, copying, transfer, and true sharing instead of assuming.`,
         messages: [{ role: 'user', content: `<transcript>\n${transcript.join('\n')}\n</transcript>\n\nGive the candidate's next answer.` }],
         maxTokens: 400,
-      }, {
-        onText: (text) => { answer += text },
-        onDone: () => {},
-        onError: (error) => { throw new Error(error) },
       }, {
         thinking: turn.thinking === true,
         webSearch: {
@@ -108,7 +105,8 @@ describe.skipIf(!RUN_LIVE)('live five-minute QA automation interview', () => {
           },
           onSearch: (count) => { sourceCount = count },
         },
-      })
+      }, buildInterviewContext(transcript.join('\n'), turn.interviewer))
+      answer = generated.text
 
       const elapsedMs = Date.now() - turnStarted
       const wordCount = answer.trim().split(/\s+/).filter(Boolean).length
@@ -122,12 +120,30 @@ describe.skipIf(!RUN_LIVE)('live five-minute QA automation interview', () => {
       if (!turn.thinking && elapsedMs > 15_000) failures.push(`${turn.name}: fast turn took ${elapsedMs}ms`)
       if (turn.thinking && elapsedMs > 35_000) failures.push(`${turn.name}: thinking turn took ${elapsedMs}ms`)
 
-      results.push({ name: turn.name, elapsedMs, wordCount, searchInvocations, sourceCount, answer })
+      results.push({
+        name: turn.name,
+        elapsedMs,
+        wordCount,
+        questionType: buildInterviewContext(transcript.join('\n'), turn.interviewer).questionType,
+        repaired: generated.repaired,
+        verifierMissing: generated.assessment.missing,
+        searchInvocations,
+        sourceCount,
+        matchedChecks: turn.expected.length - missing.length,
+        totalChecks: turn.expected.length,
+        missing,
+        forbidden,
+        answer,
+      })
       transcript.push(`Candidate: ${answer}`)
     }
 
     const totalMs = Date.now() - started
     if (totalMs > 120_000) failures.push(`total latency ${totalMs}ms exceeds 120000ms`)
+    const compactTurns = results.map(({ answer: _answer, ...result }) => result)
+    const matchedChecks = compactTurns.reduce((sum, turn) => sum + Number(turn.matchedChecks), 0)
+    const totalChecks = compactTurns.reduce((sum, turn) => sum + Number(turn.totalChecks), 0)
+    console.log(`QA_INTERVIEW_SUMMARY=${JSON.stringify({ model: OLLAMA_MODEL, totalMs, matchedChecks, totalChecks, coverage: matchedChecks / totalChecks, failures, turns: compactTurns })}`)
     console.log(`QA_INTERVIEW_REPORT=${JSON.stringify({ model: OLLAMA_MODEL, totalMs, failures, turns: results })}`)
     expect(failures, failures.join('\n')).toEqual([])
   }, 300_000)

@@ -7,6 +7,7 @@ import { getApiKey, getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
 import { webSearchService } from './services/webSearchService';
+import { buildInterviewContext, generateVerifiedInterviewAnswer, isInterviewMode } from './services/interviewCopilot';
 import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, LIVE_REPLY_MAX_TOKENS, LIVE_REPLY_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
@@ -471,77 +472,79 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
             webSearchMode === 'automatic' || (webSearchMode === 'explicit' && explicitlyRequested)
           )
           const webSearchBackend = (getSetting('webSearchBackend') || 'brave') as 'brave' | 'searxng'
-          await provider.streamResponse(
-            {
-              system: systemPrompt,
-              messages: aiMessages,
-              maxTokens: LIVE_REPLY_MAX_TOKENS,
-            },
-            {
-              onText: (text) => {
-                if (requestController.signal.aborted || this.activeRequest !== requestController) return;
-                fullResponse += text;
-                this.broadcast({
-                  type: 'delta',
-                  messageId: assistantMessageId,
-                  text,
-                  fullText: fullResponse,
-                });
+          const requestOptions = {
+            signal: requestController.signal,
+            ...(provider.name === 'ollama'
+              ? {
+                  thinking: getSetting('ollamaThinkingEnabled') === true,
+                  ...(webSearchEnabled ? {
+                    webSearch: {
+                      force: explicitlyRequested,
+                      fallbackQuery: searchIntentText.slice(-300),
+                      search: (query: string, signal?: AbortSignal) => webSearchService.search({
+                        backend: webSearchBackend,
+                        braveApiKey: getApiKey('braveSearchApiKey'),
+                        searxngBaseUrl: String(getSetting('searxngBaseUrl') || 'http://127.0.0.1:8080'),
+                      }, query, signal),
+                      onSearch: (resultCount: number) => this.broadcast({
+                        type: 'warning',
+                        warning: `Web search returned ${resultCount} source${resultCount === 1 ? '' : 's'}.`,
+                      }),
+                    },
+                  } : {}),
+                }
+              : {}),
+          };
+          const requestParams = {
+            system: systemPrompt,
+            messages: aiMessages,
+            maxTokens: LIVE_REPLY_MAX_TOKENS,
+          };
+          const interviewAnswer = provider.name === 'ollama' && isInterviewMode(params.modeId, params.modePrompt)
+            ? await generateVerifiedInterviewAnswer(
+                provider,
+                requestParams,
+                requestOptions,
+                buildInterviewContext(params.transcript, params.customPrompt),
+              )
+            : null;
+
+          if (interviewAnswer) {
+            fullResponse = interviewAnswer.text;
+            this.broadcast({ type: 'delta', messageId: assistantMessageId, text: fullResponse, fullText: fullResponse });
+          } else {
+            await provider.streamResponse(
+              requestParams,
+              {
+                onText: (text) => {
+                  if (requestController.signal.aborted || this.activeRequest !== requestController) return;
+                  fullResponse += text;
+                  this.broadcast({ type: 'delta', messageId: assistantMessageId, text, fullText: fullResponse });
+                },
+                onDone: () => {},
+                onError: (errorMsg) => {
+                  if (requestController.signal.aborted || this.activeRequest !== requestController) return;
+                  streamHadError = true;
+                  this.broadcastError(errorMsg);
+                  void (async () => {
+                    try {
+                      const { trackEvent } = await import('./services/clientEvents');
+                      const lower = (errorMsg || '').toLowerCase();
+                      let reason = 'other';
+                      if (lower.includes('rate') && lower.includes('limit')) reason = 'rate_limited';
+                      else if (lower.includes('timeout') || lower.includes('timed out')) reason = 'timeout';
+                      else if (lower.includes('network') || lower.includes('fetch') || lower.includes('connection')) reason = 'network';
+                      else if (lower.includes('auth') || lower.includes('401') || lower.includes('403')) reason = 'auth';
+                      else if (lower.includes('429')) reason = 'rate_limited';
+                      else if (lower.includes('5')) reason = 'upstream_5xx';
+                      trackEvent('ai_request_failed', { metadata: { reason } });
+                    } catch { /* OSS / module unavailable */ }
+                  })();
+                },
               },
-              onDone: () => {
-                // handled below after await
-              },
-              onError: (errorMsg) => {
-                if (requestController.signal.aborted || this.activeRequest !== requestController) return;
-                streamHadError = true;
-                this.broadcastError(errorMsg);
-                // Server-attributed product event. Categorise
-                // the error into a small set of reasons so the
-                // admin dashboard can aggregate ("how many
-                // users hit rate limits today?") without
-                // having to text-parse arbitrary upstream
-                // strings. Anything that doesn't match a known
-                // shape falls into 'other'.
-                void (async () => {
-                  try {
-                    const { trackEvent } = await import('./services/clientEvents');
-                    const lower = (errorMsg || '').toLowerCase();
-                    let reason = 'other';
-                    if (lower.includes('rate') && lower.includes('limit')) reason = 'rate_limited';
-                    else if (lower.includes('timeout') || lower.includes('timed out')) reason = 'timeout';
-                    else if (lower.includes('network') || lower.includes('fetch') || lower.includes('connection')) reason = 'network';
-                    else if (lower.includes('auth') || lower.includes('401') || lower.includes('403')) reason = 'auth';
-                    else if (lower.includes('429')) reason = 'rate_limited';
-                    else if (lower.includes('5')) reason = 'upstream_5xx';
-                    trackEvent('ai_request_failed', { metadata: { reason } });
-                  } catch { /* OSS / module unavailable */ }
-                })();
-              },
-            },
-            {
-              signal: requestController.signal,
-              ...(provider.name === 'ollama'
-                ? {
-                    thinking: getSetting('ollamaThinkingEnabled') === true,
-                    ...(webSearchEnabled ? {
-                      webSearch: {
-                        force: explicitlyRequested,
-                        fallbackQuery: searchIntentText.slice(-300),
-                        search: (query: string, signal?: AbortSignal) => webSearchService.search({
-                          backend: webSearchBackend,
-                          braveApiKey: getApiKey('braveSearchApiKey'),
-                          searxngBaseUrl: String(getSetting('searxngBaseUrl') || 'http://127.0.0.1:8080'),
-                        }, query, signal),
-                        onSearch: (resultCount: number) => this.broadcast({
-                          type: 'warning',
-                          warning: `Web search returned ${resultCount} source${resultCount === 1 ? '' : 's'}.`,
-                        }),
-                      },
-                    } : {}),
-                  }
-                : {}),
-            },
-          );
+              requestOptions,
+            );
+          }
         } finally {
           clearTimeout(timeout);
         }
