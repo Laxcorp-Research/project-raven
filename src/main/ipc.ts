@@ -25,6 +25,9 @@ import {
 } from './windowManager'
 import { createLogger } from './logger'
 import { cooldownHandle } from './ipcThrottle'
+import { DEFAULT_OLLAMA_URL, OllamaProvider, validateOllamaUrl } from './services/ai/ollamaProvider'
+import { localSttProcessManager } from './services/localStt/localSttProcessManager'
+import { describeDataPath, evaluateProviderReadiness } from './services/providerReadiness'
 
 const ipcLog = createLogger('IPC')
 
@@ -115,6 +118,41 @@ export function registerIpcHandlers(): void {
 
   safeHandle('store:has-api-keys', () => {
     return hasApiKeys()
+  })
+
+  safeHandle('providers:readiness', async () => {
+    const readiness = await evaluateProviderReadiness(localSttProcessManager)
+    return { ...readiness, summary: describeDataPath(readiness) }
+  })
+
+  cooldownHandle('ollama:health', 500, async (baseURL?: string) => {
+    const url = validateOllamaUrl(baseURL || String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL)).toString()
+    return OllamaProvider.health(url)
+  })
+
+  cooldownHandle('ollama:list-models', 500, async (baseURL?: string) => {
+    const url = validateOllamaUrl(baseURL || String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL)).toString()
+    return OllamaProvider.listModels(url)
+  })
+
+  cooldownHandle('ollama:inspect-model', 500, async (model: string, baseURL?: string) => {
+    assertString(model, 'model', 200)
+    const url = validateOllamaUrl(baseURL || String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL)).toString()
+    return OllamaProvider.inspectModel(model, url)
+  })
+
+  safeHandle('local-stt:status', () => localSttProcessManager.getStatus())
+  safeHandle('local-stt:start', async () => localSttProcessManager.start({
+    model: String(getSetting('localSttModel') || 'base.en'),
+    language: String(getSetting('transcriptionLanguage') || 'en'),
+    device: (getSetting('localSttDevice') || 'cpu') as 'cpu' | 'cuda' | 'auto',
+    computeType: String(getSetting('localSttComputeType') || 'int8'),
+  }))
+  safeHandle('local-stt:stop', async () => { await localSttProcessManager.stop(); return localSttProcessManager.getStatus() })
+  safeHandle('local-stt:health', async () => ({ healthy: await localSttProcessManager.health(), status: localSttProcessManager.getStatus() }))
+  safeHandle('local-stt:open-setup', async () => {
+    await shell.openPath(join(app.getAppPath(), 'docs', 'LOCAL_MODE_SETUP.md'))
+    return true
   })
 
   safeHandle('store:clear-api-keys', () => {

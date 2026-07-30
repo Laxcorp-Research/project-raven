@@ -55,6 +55,8 @@ export function ChatTab() {
         setIsLoading(false);
         setStreamingMessage('');
         setStreamingMessageId(null);
+      } else if (data.type === 'warning') {
+        setError(data.warning || 'The selected model cannot use the requested screen context.');
       } else if (data.type === 'cleared') {
         setMessages([]);
         setStreamingMessage('');
@@ -116,6 +118,11 @@ export function ChatTab() {
           <div className="max-w-[85%] rounded-2xl rounded-bl-md px-4 py-2.5 bg-white/10 text-white/90">
             <div className="flex items-center gap-1.5 mb-1.5">
               <span className="text-xs font-medium text-cyan-400">Raven</span>
+              <button
+                type="button"
+                onClick={() => { void window.raven.claudeCancelResponse(); setIsLoading(false); setStreamingMessage(''); }}
+                className="ml-auto text-[10px] text-white/50 hover:text-white"
+              >Cancel</button>
             </div>
             {isLoading && !streamingMessage ? (
               <div className="flex items-center gap-2 text-white/50 text-sm py-1">

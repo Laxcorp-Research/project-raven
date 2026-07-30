@@ -479,6 +479,8 @@ export function OverlayWindow() {
         setIsStarting(false)
       }
     }
+  // pushNotification is declared later in the component and reads refs only.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording])
 
   useEffect(() => {

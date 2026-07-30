@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAppMode } from '../../../hooks/useAppMode'
 import { createLogger } from '../../../lib/logger'
+import { LocalProvidersPanel } from './LocalProvidersPanel'
 
 const log = createLogger('Settings:ApiKeys')
 
@@ -205,6 +206,7 @@ export function ApiKeysTab() {
 
   return (
     <div className="space-y-6 max-w-lg">
+      <LocalProvidersPanel />
       <p className="text-sm text-gray-500">
         Configure your API keys for transcription and AI services. Keys are stored locally and encrypted.
       </p>

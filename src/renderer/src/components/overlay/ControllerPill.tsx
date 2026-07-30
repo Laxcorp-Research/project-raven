@@ -1,5 +1,6 @@
 import {
   useLayoutEffect,
+  useEffect,
   useState,
   useRef,
   type CSSProperties,
@@ -44,6 +45,20 @@ export function ControllerPill({
   const pillRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [providerStatus, setProviderStatus] = useState<{ stt: boolean; llm: boolean; local: boolean }>({ stt: false, llm: false, local: false })
+
+  useEffect(() => {
+    let mounted = true
+    const refresh = async () => {
+      try {
+        const value = await window.raven.providersReadiness()
+        if (mounted) setProviderStatus({ stt: value.transcriptionReady, llm: value.aiReady, local: !value.dataPath.audioLeavesDevice && !value.dataPath.transcriptLeavesDevice })
+      } catch { /* status remains unavailable */ }
+    }
+    void refresh()
+    const timer = setInterval(refresh, 10_000)
+    return () => { mounted = false; clearInterval(timer) }
+  }, [isRecording])
 
   const showPillHover = pillHovered && !buttonHovered
   const pillBg = showPillHover
@@ -198,6 +213,14 @@ export function ControllerPill({
           </svg>
         )}
       </button>
+      </div>
+
+      <div className="flex items-center gap-1 text-[8px] font-semibold tracking-wide text-white/70 select-none" aria-label="Provider status">
+        <span className={isRecording ? 'text-green-300' : ''}>MIC</span>
+        <span className={isRecording ? 'text-green-300' : ''}>SYSTEM</span>
+        <span className={providerStatus.stt ? 'text-green-300' : 'text-amber-300'}>STT</span>
+        <span className={providerStatus.llm ? 'text-green-300' : 'text-amber-300'}>LLM</span>
+        <span className={providerStatus.local ? 'text-blue-300' : 'text-amber-300'}>{providerStatus.local ? 'LOCAL' : 'CLOUD'}</span>
       </div>
 
       <span className="text-white/35 text-sm leading-none select-none">|</span>

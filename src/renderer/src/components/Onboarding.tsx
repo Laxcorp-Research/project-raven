@@ -23,7 +23,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   useEffect(() => {
     void window.raven.trackClientEvent('onboarding_started')
     // intentionally empty deps - fire once per mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
@@ -40,6 +39,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
   const [showAiKey, setShowAiKey] = useState(false)
   const [screenNeedsRestart, setScreenNeedsRestart] = useState(false)
+  const [localConfigured, setLocalConfigured] = useState(false)
 
   const aiKey = aiProvider === 'anthropic' ? anthropicKey : openaiKey
 
@@ -47,6 +47,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const handleNext = async () => {
     if (step === 2) {
+      if (localConfigured) {
+        setValidating(true)
+        const readiness = await window.raven.providersReadiness()
+        setValidating(false)
+        if (!readiness.canStartSession) { setError(readiness.errors.join(' ')); return }
+        setFadeKey((k) => k + 1)
+        setStep(3)
+        return
+      }
       if (!deepgramKey.trim() || !aiKey.trim()) {
         setError('Both API keys are required.')
         setDeepgramInvalid(!deepgramKey.trim())
@@ -171,6 +180,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setError(null)
 
     try {
+      if (localConfigured) {
+        const readiness = await window.raven.providersReadiness()
+        if (!readiness.canStartSession) throw new Error(readiness.errors.join(' '))
+        await window.raven.storeSet('onboardingComplete', true)
+        onComplete()
+        return
+      }
       await window.raven.apiKeysSave(
         deepgramKey.trim(),
         aiProvider === 'anthropic' ? anthropicKey.trim() : '',
@@ -270,6 +286,26 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <p className="text-xs text-gray-500">
                     Stored locally and encrypted. Never leave your machine.
                   </p>
+                </div>
+
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                  <p className="text-sm font-medium text-blue-900">Use local meeting-content mode</p>
+                  <p className="mt-1 text-xs text-blue-700">WhisperLiveKit + Ollama. No API keys required; both services and model weights must already be installed.</p>
+                  <button
+                    onClick={async () => {
+                      setValidating(true); setError(null)
+                      try {
+                        const stt = await window.raven.localSttStart()
+                        if (stt.state !== 'ready') throw new Error(stt.error || 'WhisperLiveKit is not ready. Open the setup guide from Settings.')
+                        const models = await window.raven.ollamaListModels()
+                        if (!models.length) throw new Error('Ollama has no installed model. Run `ollama pull <model>`.')
+                        await window.raven.storeSaveMany({ transcriptionProvider: 'whisperlivekit', aiProvider: 'ollama', aiModel: models[0].name })
+                        setLocalConfigured(true)
+                      } catch (localError) { setError(localError instanceof Error ? localError.message : 'Local services are not ready.') }
+                      setValidating(false)
+                    }}
+                    className="mt-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white"
+                  >{localConfigured ? 'Local services ready ✓' : 'Check local services'}</button>
                 </div>
 
                 <div className="space-y-4">
@@ -464,7 +500,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </button>
                   <button
                     onClick={handleNext}
-                    disabled={!deepgramKey.trim() || !aiKey.trim() || validating}
+                    disabled={(!localConfigured && (!deepgramKey.trim() || !aiKey.trim())) || validating}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium shadow-sm transition-all"
                   >
                     {validating ? (

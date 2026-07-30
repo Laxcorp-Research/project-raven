@@ -76,9 +76,12 @@ import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus } from './permissions'
 import { createLogger } from './logger'
 import { isProMode } from './store'
+import { localSttProcessManager } from './services/localStt/localSttProcessManager'
+import { evaluateProviderReadiness } from './services/providerReadiness'
 
 const log = createLogger('Raven')
 const ipcLog = createLogger('IPC')
+let activeClaudeService: ClaudeService | null = null
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function safeHandle(channel: string, handler: (...args: any[]) => any): void {
@@ -415,6 +418,7 @@ function boot(): void {
   const dashboard = createDashboardWindow(preloadPath, rendererURL)
   const overlay = createOverlayWindow(preloadPath, rendererURL)
   const claudeService = new ClaudeService(overlay)
+  activeClaudeService = claudeService
   claudeService.setWindows(dashboard, overlay)
 
   sessionManager.setWindows(dashboard, overlay)
@@ -427,14 +431,15 @@ function boot(): void {
     ? (getSetting('proOnboardingComplete') || getSetting('onboardingComplete'))
     : getSetting('onboardingComplete')
 
+  const usesLocalProvider = !isPro && (getSetting('transcriptionProvider') === 'whisperlivekit' || getSetting('aiProvider') === 'ollama')
   const isFullyReady = isPro
     ? !!onboardingDone && !!getSetting('auth_tokens')
-    : !!onboardingDone && hasApiKeys()
+    : !!onboardingDone && !usesLocalProvider && hasApiKeys()
   const shouldEnableOverlay = isFullyReady
 
-  if (shouldEnableOverlay) {
+  const enableReadyOverlay = () => {
     setOverlayEnabled(true)
-    dashboard.on('ready-to-show', () => {
+    const revealOverlay = () => {
       setTimeout(() => {
         // Windows: show via showOverlayWindow (showInactive) so the
         // now-focusable overlay doesn't steal focus on launch and arms
@@ -442,7 +447,9 @@ function boot(): void {
         if (process.platform === 'win32') showOverlayWindow()
         else overlay.show()
       }, OVERLAY_SHOW_DELAY_MS)
-    })
+    }
+    if (dashboard.webContents.isLoading()) dashboard.once('ready-to-show', revealOverlay)
+    else revealOverlay()
 
     const stealthEnabled = getSetting('stealthEnabled')
     if (stealthEnabled) {
@@ -453,19 +460,38 @@ function boot(): void {
     warnIfProAccessibilityLimited(overlay, dashboard)
   }
 
+  if (shouldEnableOverlay) enableReadyOverlay()
+
+  if (onboardingDone && usesLocalProvider) {
+    void (async () => {
+      if (getSetting('transcriptionProvider') === 'whisperlivekit') {
+        await localSttProcessManager.start({
+          model: String(getSetting('localSttModel') || 'base.en'),
+          language: String(getSetting('transcriptionLanguage') || 'en'),
+          device: (getSetting('localSttDevice') || 'cpu') as 'cpu' | 'cuda' | 'auto',
+        })
+      }
+      const readiness = await evaluateProviderReadiness(localSttProcessManager)
+      if (readiness.canStartSession) enableReadyOverlay()
+      else log.warn(`Provider readiness failed (${readiness.errors.length} issue(s)); overlay remains disabled`)
+    })()
+  }
+
   ipcMain.on('onboarding:completed', async () => {
     log.info('Onboarding completed - showing overlay')
     await createDefaultMode()
+    if (!isProMode()) {
+      const readiness = await evaluateProviderReadiness(localSttProcessManager)
+      if (!readiness.canStartSession) {
+        log.warn(`Onboarding readiness failed (${readiness.errors.length} issue(s))`)
+        return
+      }
+    }
     const stealthPref = getSetting('stealthEnabled')
     if (stealthPref) {
       setStealthMode(true)
     }
-    setOverlayEnabled(true)
-    // Windows: showInactive (focusable overlay must not steal focus on show).
-    if (process.platform === 'win32') showOverlayWindow()
-    else overlay.show()
-    registerGlobalHotkeys(dashboard, overlay)
-    warnIfProAccessibilityLimited(overlay, dashboard)
+    enableReadyOverlay()
     setTrayOnboarding(false)
   })
 
@@ -1212,6 +1238,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  activeClaudeService?.cancelActiveRequest()
   destroyTray()
   stopAutoUpdater()
   void shutdownAnalytics()

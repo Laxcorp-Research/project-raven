@@ -66,6 +66,15 @@ declare global {
       storeSaveMany: (settings: Record<string, unknown>) => Promise<boolean>;
       apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) => Promise<boolean>;
       apiKeysHas: () => Promise<boolean>;
+      providersReadiness: () => Promise<ProviderReadiness & { summary: string }>;
+      ollamaHealth: (baseURL?: string) => Promise<{ healthy: boolean; version?: string; error?: string }>;
+      ollamaListModels: (baseURL?: string) => Promise<Array<{ name: string; size?: number; modifiedAt?: string; capabilities: string[]; supportsVision: boolean }>>;
+      ollamaInspectModel: (model: string, baseURL?: string) => Promise<{ capabilities: string[]; supportsVision: boolean }>;
+      localSttStatus: () => Promise<LocalSttStatus>;
+      localSttStart: () => Promise<LocalSttStatus>;
+      localSttStop: () => Promise<LocalSttStatus>;
+      localSttHealth: () => Promise<{ healthy: boolean; status: LocalSttStatus }>;
+      localSttOpenSetup: () => Promise<boolean>;
       apiKeysClear: () => Promise<boolean>;
       planIsFree: () => Promise<boolean>;
       planIsPro: () => Promise<boolean>;
@@ -259,15 +268,17 @@ declare global {
         includeScreenshot?: boolean;
       }) => Promise<void>;
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
+      claudeCancelResponse: () => Promise<{ success: boolean; cancelled: boolean }>;
       claudeClearHistory: () => Promise<{ success: boolean }>;
       onClaudeResponse: (callback: (data: {
-        type: 'start' | 'delta' | 'done' | 'error' | 'cleared';
+        type: 'start' | 'delta' | 'done' | 'error' | 'warning' | 'cleared';
         userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number };
         assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number };
         messageId?: string;
         text?: string;
         fullText?: string;
         error?: string;
+        warning?: string;
         limitInfo?: { used: number; limit: number; resetAt: string };
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;

@@ -9,6 +9,15 @@ contextBridge.exposeInMainWorld('raven', {
   apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) =>
     ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey),
   apiKeysHas: () => ipcRenderer.invoke('store:has-api-keys'),
+  providersReadiness: () => ipcRenderer.invoke('providers:readiness'),
+  ollamaHealth: (baseURL?: string) => ipcRenderer.invoke('ollama:health', baseURL),
+  ollamaListModels: (baseURL?: string) => ipcRenderer.invoke('ollama:list-models', baseURL),
+  ollamaInspectModel: (model: string, baseURL?: string) => ipcRenderer.invoke('ollama:inspect-model', model, baseURL),
+  localSttStatus: () => ipcRenderer.invoke('local-stt:status'),
+  localSttStart: () => ipcRenderer.invoke('local-stt:start'),
+  localSttStop: () => ipcRenderer.invoke('local-stt:stop'),
+  localSttHealth: () => ipcRenderer.invoke('local-stt:health'),
+  localSttOpenSetup: () => ipcRenderer.invoke('local-stt:open-setup'),
   apiKeysClear: () => ipcRenderer.invoke('store:clear-api-keys'),
   planIsFree: () => ipcRenderer.invoke('store:is-free-mode'),
   planIsPro: () => ipcRenderer.invoke('store:is-pro-mode'),
@@ -243,26 +252,29 @@ contextBridge.exposeInMainWorld('raven', {
   }) =>
     ipcRenderer.invoke('claude:get-response', params),
   claudeGetHistory: () => ipcRenderer.invoke('claude:get-history'),
+  claudeCancelResponse: () => ipcRenderer.invoke('claude:cancel-response'),
   claudeClearHistory: () => ipcRenderer.invoke('claude:clear-history'),
   onClaudeResponse: (callback: (data: {
-    type: 'start' | 'delta' | 'done' | 'error' | 'cleared'
+    type: 'start' | 'delta' | 'done' | 'error' | 'warning' | 'cleared'
     userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number }
     assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number }
     messageId?: string
     text?: string
     fullText?: string
     error?: string
+    warning?: string
     limitInfo?: { used: number; limit: number; resetAt: string }
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
   }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as {
-      type: 'start' | 'delta' | 'done' | 'error' | 'cleared'
+      type: 'start' | 'delta' | 'done' | 'error' | 'warning' | 'cleared'
       userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number }
       assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number }
       messageId?: string
       text?: string
       fullText?: string
       error?: string
+      warning?: string
       limitInfo?: { used: number; limit: number; resetAt: string }
       requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string }
     })

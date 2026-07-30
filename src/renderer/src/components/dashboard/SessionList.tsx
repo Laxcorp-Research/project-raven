@@ -155,6 +155,8 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
       refreshSyncStatus()
     })
     return () => unsubscribe()
+  // Both helpers are component-local and intentionally refreshed when plan mode changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPro])
 
   async function refreshSyncStatus() {
