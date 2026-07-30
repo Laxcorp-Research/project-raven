@@ -11,6 +11,13 @@ export interface AIRequestOptions {
   signal?: AbortSignal;
   /** Ollama-only: allow the model to emit internal reasoning before answering. */
   thinking?: boolean;
+  /** Ollama-only controlled tool; the callback executes in Electron main. */
+  webSearch?: {
+    force: boolean;
+    fallbackQuery: string;
+    search: (query: string, signal?: AbortSignal) => Promise<Array<{ title: string; url: string; snippet: string }>>;
+    onSearch?: (resultCount: number) => void;
+  };
 }
 
 export interface StreamCallbacks {

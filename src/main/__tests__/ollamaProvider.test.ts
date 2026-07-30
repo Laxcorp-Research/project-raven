@@ -100,6 +100,54 @@ describe('OllamaProvider', () => {
     expect(body).toEqual(expect.objectContaining({ think: false, stream: false }))
   })
 
+  it('executes the controlled web-search tool and grounds the streamed answer', async () => {
+    vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        message: { tool_calls: [{ function: { name: 'web_search', arguments: { query: 'current Raven release' } } }] },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(
+        '{"message":{"content":"Grounded [source](https://example.com)"},"done":true}\n',
+        { status: 200 },
+      ))
+    const search = vi.fn().mockResolvedValue([
+      { title: 'Source', url: 'https://example.com', snippet: 'Current information' },
+    ])
+    const onText = vi.fn(); const onSearch = vi.fn()
+
+    await new OllamaProvider('qwen:latest').streamResponse(
+      { system: 'system', messages: [{ role: 'user', content: 'look this up' }] },
+      { onText, onDone: vi.fn(), onError: vi.fn() },
+      { webSearch: { force: true, fallbackQuery: 'look this up', search, onSearch } },
+    )
+
+    expect(search).toHaveBeenCalledWith('current Raven release', undefined)
+    expect(onSearch).toHaveBeenCalledWith(1)
+    const decisionBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(decisionBody.tools[0].function.name).toBe('web_search')
+    const answerBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(answerBody.tools).toBeUndefined()
+    expect(answerBody.messages.at(-1).content).toContain('https://example.com')
+    expect(answerBody.messages.at(-1).content).toContain('untrusted data')
+    expect(onText).toHaveBeenCalledWith('Grounded [source](https://example.com)')
+  })
+
+  it('uses the explicit request as a fallback query when the model omits a tool call', async () => {
+    vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: 'No tool' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"message":{"content":"answer"},"done":true}\n', { status: 200 }))
+    const search = vi.fn().mockResolvedValue([])
+    await new OllamaProvider('qwen:latest').streamResponse(
+      { system: 'system', messages: [{ role: 'user', content: 'search now' }] },
+      { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      { webSearch: { force: true, fallbackQuery: 'search now', search } },
+    )
+    expect(search).toHaveBeenCalledWith('search now', undefined)
+  })
+
   it('rejects a missing configured model', async () => {
     vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
     vi.spyOn(OllamaProvider, 'inspectModel').mockRejectedValue(new Error('Ollama model "missing" is not installed.'))

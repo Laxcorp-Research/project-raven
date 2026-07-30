@@ -1,5 +1,6 @@
 import { getApiKey, getSetting } from '../store'
 import { DEFAULT_OLLAMA_URL, OllamaProvider } from './ai/ollamaProvider'
+import { validateSearxngUrl } from './webSearchService'
 
 export interface ProviderReadiness {
   audioReady: boolean
@@ -11,6 +12,7 @@ export interface ProviderReadiness {
   dataPath: {
     audioLeavesDevice: boolean
     transcriptLeavesDevice: boolean
+    searchQueriesLeaveDevice: boolean
     providers: string[]
   }
 }
@@ -22,6 +24,7 @@ export interface LocalSttReadinessSource {
 export async function evaluateProviderReadiness(localStt?: LocalSttReadinessSource): Promise<ProviderReadiness> {
   const transcriptionProvider = getSetting('transcriptionProvider') || 'deepgram'
   const aiProvider = getSetting('aiProvider') || 'anthropic'
+  const webSearchMode = getSetting('webSearchMode') || 'off'
   const errors: string[] = []
   const warnings: string[] = []
   let transcriptionReady = false
@@ -49,6 +52,16 @@ export async function evaluateProviderReadiness(localStt?: LocalSttReadinessSour
       const selected = models.find((item) => item.name === model)
       if (selected && !selected.supportsVision) warnings.push('Selected Ollama model is text-only; screenshots will not be sent.')
     }
+    if (webSearchMode !== 'off') {
+      const backend = getSetting('webSearchBackend') || 'brave'
+      if (backend === 'brave' && !getApiKey('braveSearchApiKey')) {
+        warnings.push('Web search is enabled, but the Brave Search API key is missing.')
+      }
+      if (backend === 'searxng') {
+        try { validateSearxngUrl(String(getSetting('searxngBaseUrl') || '')) }
+        catch { warnings.push('Web search is enabled, but the SearXNG loopback URL is invalid.') }
+      }
+    }
   } else {
     aiReady = aiProvider === 'openai' ? Boolean(getApiKey('openaiApiKey')) : Boolean(getApiKey('anthropicApiKey'))
     if (!aiReady) errors.push(`Add an ${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API key.`)
@@ -56,7 +69,9 @@ export async function evaluateProviderReadiness(localStt?: LocalSttReadinessSour
 
   const audioLeavesDevice = transcriptionProvider === 'deepgram'
   const transcriptLeavesDevice = aiProvider !== 'ollama'
+  const searchQueriesLeaveDevice = aiProvider === 'ollama' && webSearchMode !== 'off'
   const providers = [transcriptionProvider === 'deepgram' ? 'Deepgram' : 'WhisperLiveKit', aiProvider === 'ollama' ? 'Ollama' : aiProvider === 'openai' ? 'OpenAI' : 'Anthropic']
+  if (searchQueriesLeaveDevice) providers.push(getSetting('webSearchBackend') === 'searxng' ? 'SearXNG' : 'Brave Search')
   return {
     audioReady: true,
     transcriptionReady,
@@ -64,12 +79,15 @@ export async function evaluateProviderReadiness(localStt?: LocalSttReadinessSour
     canStartSession: transcriptionReady && aiReady,
     errors,
     warnings,
-    dataPath: { audioLeavesDevice, transcriptLeavesDevice, providers },
+    dataPath: { audioLeavesDevice, transcriptLeavesDevice, searchQueriesLeaveDevice, providers },
   }
 }
 
 export function describeDataPath(readiness: ProviderReadiness): string {
-  const { audioLeavesDevice, transcriptLeavesDevice } = readiness.dataPath
+  const { audioLeavesDevice, transcriptLeavesDevice, searchQueriesLeaveDevice } = readiness.dataPath
+  if (!audioLeavesDevice && !transcriptLeavesDevice && searchQueriesLeaveDevice) {
+    return `Meeting audio and transcript stay on this computer. Permitted search queries use ${readiness.dataPath.providers[2]}.`
+  }
   if (!audioLeavesDevice && !transcriptLeavesDevice) return 'Meeting content stays on this computer.'
   if (!audioLeavesDevice && transcriptLeavesDevice) return `Audio transcription is local. Transcript will be sent to ${readiness.dataPath.providers[1]}.`
   if (audioLeavesDevice && !transcriptLeavesDevice) return 'Audio will be sent to Deepgram. AI response is generated locally.'

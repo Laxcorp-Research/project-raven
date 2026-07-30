@@ -17,6 +17,7 @@ interface ProviderReadiness {
   dataPath: {
     audioLeavesDevice: boolean;
     transcriptLeavesDevice: boolean;
+    searchQueriesLeaveDevice: boolean;
     providers: string[];
   };
 }

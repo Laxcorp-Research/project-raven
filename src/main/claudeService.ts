@@ -3,9 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
 import { getProviderFromStore, getProProvider, getProFastProvider } from './services/ai/providerFactory';
 import { DEFAULT_OLLAMA_URL, OllamaProvider } from './services/ai/ollamaProvider';
-import { getSetting, isProMode } from './store';
+import { getApiKey, getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
 import { createLogger } from './logger';
+import { webSearchService } from './services/webSearchService';
 import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, LIVE_REPLY_MAX_TOKENS, LIVE_REPLY_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
@@ -457,6 +458,13 @@ export class ClaudeService {
 
         const timeout = setTimeout(() => requestController.abort(new Error('AI response timed out.')), LIVE_REPLY_TIMEOUT_MS);
         try {
+          const webSearchMode = String(getSetting('webSearchMode') || 'off')
+          const searchIntentText = params.customPrompt || params.transcript.slice(-600)
+          const explicitlyRequested = /\b(search|look\s*up|browse|google|internet|web|latest|current\s+(?:news|price|weather|version|status))\b/i.test(searchIntentText)
+          const webSearchEnabled = provider.name === 'ollama' && (
+            webSearchMode === 'automatic' || (webSearchMode === 'explicit' && explicitlyRequested)
+          )
+          const webSearchBackend = (getSetting('webSearchBackend') || 'brave') as 'brave' | 'searxng'
           await provider.streamResponse(
             {
               system: systemPrompt,
@@ -507,7 +515,24 @@ export class ClaudeService {
             {
               signal: requestController.signal,
               ...(provider.name === 'ollama'
-                ? { thinking: getSetting('ollamaThinkingEnabled') === true }
+                ? {
+                    thinking: getSetting('ollamaThinkingEnabled') === true,
+                    ...(webSearchEnabled ? {
+                      webSearch: {
+                        force: webSearchMode === 'explicit',
+                        fallbackQuery: searchIntentText.slice(-300),
+                        search: (query: string, signal?: AbortSignal) => webSearchService.search({
+                          backend: webSearchBackend,
+                          braveApiKey: getApiKey('braveSearchApiKey'),
+                          searxngBaseUrl: String(getSetting('searxngBaseUrl') || 'http://127.0.0.1:8080'),
+                        }, query, signal),
+                        onSearch: (resultCount: number) => this.broadcast({
+                          type: 'warning',
+                          warning: `Web search returned ${resultCount} source${resultCount === 1 ? '' : 's'}.`,
+                        }),
+                      },
+                    } : {}),
+                  }
                 : {}),
             },
           );

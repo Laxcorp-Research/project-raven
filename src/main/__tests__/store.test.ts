@@ -73,6 +73,12 @@ describe('store', () => {
       }))
     })
 
+    it('defaults web search to off', () => {
+      expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
+        defaults: expect.objectContaining({ webSearchMode: 'off', webSearchBackend: 'brave' }),
+      }))
+    })
+
     it('defaults recording endpoints to their Windows role defaults', () => {
       expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
         defaults: expect.objectContaining({
@@ -223,6 +229,15 @@ describe('store', () => {
       })
 
       expect(hasApiKeys()).toBe(true)
+    })
+
+    it('protects the Brave Search API key with safeStorage', () => {
+      mockIsEncryptionAvailable.mockReturnValue(true)
+
+      saveSetting('braveSearchApiKey', 'brave-key-123')
+
+      expect(mockEncryptString).toHaveBeenCalledWith('brave-key-123')
+      expect(mockSet).toHaveBeenCalledWith('braveSearchApiKey', expect.any(String))
     })
 
     it('returns true when deepgram and anthropic keys exist', () => {

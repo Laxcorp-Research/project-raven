@@ -6,6 +6,7 @@ Raven currently requires cloud transcription and cloud AI credentials, which pre
 
 - Add Ollama as an AI provider with loopback-only URL validation, health/model/capability discovery, streaming, timeouts, and cancellation.
 - Add a managed, repository-local WhisperLiveKit 0.2.24 runtime and connect Raven's separate mic/system PCM streams to its Deepgram-compatible WebSockets.
+- Add opt-in Brave Search and loopback SearXNG tools for Ollama, disabled by default with explicit privacy controls.
 - Replace API-key-only session gating with provider-specific readiness and explicit data-path reporting.
 - Extend typed main/preload/renderer IPC, settings, onboarding, and compact overlay status without exposing local service URLs to the renderer.
 - Abort timed-out, cancelled, and shutdown AI requests and suppress late callbacks/history writes.

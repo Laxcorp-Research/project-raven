@@ -2,6 +2,7 @@ import { app, ipcMain, shell, screen, BrowserWindow } from 'electron'
 import {
   getAllSettings,
   getSetting,
+  getApiKey,
   saveSetting,
   saveSettings,
   saveApiKeys,
@@ -28,6 +29,7 @@ import { cooldownHandle } from './ipcThrottle'
 import { DEFAULT_OLLAMA_URL, OllamaProvider, validateOllamaUrl } from './services/ai/ollamaProvider'
 import { localSttProcessManager } from './services/localStt/localSttProcessManager'
 import { describeDataPath, evaluateProviderReadiness } from './services/providerReadiness'
+import { validateSearxngUrl, webSearchService } from './services/webSearchService'
 
 const ipcLog = createLogger('IPC')
 
@@ -80,7 +82,7 @@ export function registerIpcHandlers(): void {
     return getSetting(key)
   })
 
-  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'apiKeysConfigured']
+  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'braveSearchApiKey', 'apiKeysConfigured']
 
   safeHandle(
     'store:set',
@@ -139,6 +141,24 @@ export function registerIpcHandlers(): void {
     assertString(model, 'model', 200)
     const url = validateOllamaUrl(baseURL || String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL)).toString()
     return OllamaProvider.inspectModel(model, url)
+  })
+
+  safeHandle('web-search:status', () => ({ hasBraveKey: Boolean(getApiKey('braveSearchApiKey')) }))
+  safeHandle('web-search:save-brave-key', (key: string) => {
+    assertString(key, 'key', 500)
+    saveSetting('braveSearchApiKey', key.trim())
+    return true
+  })
+  cooldownHandle('web-search:test', 1000, async (backend: 'brave' | 'searxng', searxngBaseUrl?: string) => {
+    if (!['brave', 'searxng'].includes(backend)) throw new Error('Invalid web search backend.')
+    if (searxngBaseUrl !== undefined) assertString(searxngBaseUrl, 'searxngBaseUrl', 500)
+    if (backend === 'searxng') validateSearxngUrl(searxngBaseUrl || String(getSetting('searxngBaseUrl')))
+    const results = await webSearchService.search({
+      backend,
+      braveApiKey: getApiKey('braveSearchApiKey'),
+      searxngBaseUrl: searxngBaseUrl || String(getSetting('searxngBaseUrl')),
+    }, 'Raven meeting assistant', AbortSignal.timeout(12_000))
+    return { healthy: true, resultCount: results.length }
   })
 
   safeHandle('local-stt:status', () => localSttProcessManager.getStatus())

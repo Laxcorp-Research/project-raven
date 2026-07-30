@@ -70,6 +70,9 @@ declare global {
       ollamaHealth: (baseURL?: string) => Promise<{ healthy: boolean; version?: string; error?: string }>;
       ollamaListModels: (baseURL?: string) => Promise<Array<{ name: string; size?: number; modifiedAt?: string; capabilities: string[]; supportsVision: boolean }>>;
       ollamaInspectModel: (model: string, baseURL?: string) => Promise<{ capabilities: string[]; supportsVision: boolean }>;
+      webSearchStatus: () => Promise<{ hasBraveKey: boolean }>;
+      webSearchSaveBraveKey: (key: string) => Promise<boolean>;
+      webSearchTest: (backend: 'brave' | 'searxng', searxngBaseUrl?: string) => Promise<{ healthy: boolean; resultCount: number } | null>;
       localSttStatus: () => Promise<LocalSttStatus>;
       localSttStart: () => Promise<LocalSttStatus>;
       localSttStop: () => Promise<LocalSttStatus>;

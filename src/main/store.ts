@@ -65,6 +65,10 @@ export interface LocalSettings {
   openaiApiKey: string;
   ollamaBaseUrl: string;
   ollamaThinkingEnabled: boolean;
+  webSearchMode: 'off' | 'explicit' | 'automatic';
+  webSearchBackend: 'brave' | 'searxng';
+  braveSearchApiKey: string;
+  searxngBaseUrl: string;
 
   // Active mode
   activeModeId: string | null;
@@ -112,6 +116,10 @@ const STORE_DEFAULTS: LocalSettings = {
   openaiApiKey: '',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   ollamaThinkingEnabled: false,
+  webSearchMode: 'off',
+  webSearchBackend: 'brave',
+  braveSearchApiKey: '',
+  searxngBaseUrl: 'http://127.0.0.1:8080',
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
@@ -194,6 +202,10 @@ export function getAllSettings(): LocalSettings {
     openaiApiKey: store.get('openaiApiKey'),
     ollamaBaseUrl: store.get('ollamaBaseUrl'),
     ollamaThinkingEnabled: store.get('ollamaThinkingEnabled'),
+    webSearchMode: store.get('webSearchMode'),
+    webSearchBackend: store.get('webSearchBackend'),
+    braveSearchApiKey: '',
+    searxngBaseUrl: store.get('searxngBaseUrl'),
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
@@ -232,7 +244,7 @@ export function saveSettings(settings: Partial<LocalSettings>): void {
 
 // ---- Secure storage helpers for API keys ----
 
-const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey'] as const;
+const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'braveSearchApiKey'] as const;
 
 function encryptValue(value: string): string {
   if (!value) return '';
@@ -283,6 +295,7 @@ export function clearApiKeys(): void {
   store.set('deepgramApiKey', '');
   store.set('anthropicApiKey', '');
   store.set('openaiApiKey', '');
+  store.set('braveSearchApiKey', '');
   store.set('apiKeysConfigured', false);
 }
 

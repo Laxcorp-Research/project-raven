@@ -284,6 +284,17 @@ export function OverlayWindow() {
         }
         setActiveResponseId(null)
         activeResponseIdRef.current = null
+      } else if (data.type === 'warning' && data.warning) {
+        setResponses((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            content: data.warning || 'Request warning',
+            action: 'Notice',
+            badgeVariant: 'system',
+            hasScreenshot: false,
+          },
+        ])
       } else if (data.type === 'cleared') {
         requestInFlightRef.current = false
         setResponses([])
