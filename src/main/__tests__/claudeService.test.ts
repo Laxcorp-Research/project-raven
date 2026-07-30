@@ -484,6 +484,33 @@ describe('Provider routing based on mode', () => {
     expect(JSON.stringify(request.messages)).not.toContain('image_url');
     expect(JSON.stringify(request.messages)).not.toContain('base64');
   });
+
+  it('adds local answer guidance and forces verification requests through automatic search', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'aiModel') return 'qwen3.6:35b';
+      if (key === 'ollamaBaseUrl') return 'http://127.0.0.1:11434';
+      if (key === 'webSearchMode') return 'automatic';
+      if (key === 'webSearchBackend') return 'searxng';
+      if (key === 'searxngBaseUrl') return 'http://127.0.0.1:8080';
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+    const localProvider = { ...mockProvider, name: 'ollama' as const, streamResponse: vi.fn().mockResolvedValue(undefined) };
+    vi.mocked(getProviderFromStore).mockResolvedValue(localProvider as any);
+
+    await getResponseHandler()({}, {
+      transcript: 'We are choosing a Node.js concurrency model.',
+      action: 'custom',
+      customPrompt: 'Verify this against current official documentation and cite sources.',
+    });
+
+    const [request, , options] = localProvider.streamResponse.mock.calls[0];
+    expect(request.system).toContain('<local_live_answer_guidance>');
+    expect(request.system).toContain('verify ownership semantics');
+    expect(request.system).toContain('separate V8 isolates/heaps');
+    expect(options.webSearch.force).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

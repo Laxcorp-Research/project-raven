@@ -456,11 +456,17 @@ export class ClaudeService {
           });
         }
 
+        if (provider.name === 'ollama') {
+          systemPrompt += `\n\n<local_live_answer_guidance>
+Lead with the answer and keep a live response focused, normally 120-220 words unless the user explicitly asks for depth. Use every material transcript constraint, but do not repeat the transcript. For technical claims, distinguish copied, transferred, and truly shared state; distinguish a component's direct capability from a design that coordinates multiple components. In concurrency designs, do not assume components in one process share execution contexts, heaps, event loops, objects, or handles; verify ownership semantics and identify which component owns network listeners and dispatches work. Node.js worker_threads specifically use separate V8 isolates/heaps; only explicitly shared memory such as SharedArrayBuffer is concurrently shared. Omit details you cannot support.
+</local_live_answer_guidance>`
+        }
+
         const timeout = setTimeout(() => requestController.abort(new Error('AI response timed out.')), LIVE_REPLY_TIMEOUT_MS);
         try {
           const webSearchMode = String(getSetting('webSearchMode') || 'off')
           const searchIntentText = params.customPrompt || params.transcript.slice(-600)
-          const explicitlyRequested = /\b(search|look\s*up|browse|google|internet|web|latest|current\s+(?:news|price|weather|version|status))\b/i.test(searchIntentText)
+          const explicitlyRequested = /\b(search|look\s*up|browse|google|internet|web|verify|fact[ -]?check|cite|sources?|official\s+(?:docs?|documentation|sources?)|latest|current\s+(?:news|price|weather|version|status|docs?|documentation))\b/i.test(searchIntentText)
           const webSearchEnabled = provider.name === 'ollama' && (
             webSearchMode === 'automatic' || (webSearchMode === 'explicit' && explicitlyRequested)
           )
@@ -519,7 +525,7 @@ export class ClaudeService {
                     thinking: getSetting('ollamaThinkingEnabled') === true,
                     ...(webSearchEnabled ? {
                       webSearch: {
-                        force: webSearchMode === 'explicit',
+                        force: explicitlyRequested,
                         fallbackQuery: searchIntentText.slice(-300),
                         search: (query: string, signal?: AbortSignal) => webSearchService.search({
                           backend: webSearchBackend,

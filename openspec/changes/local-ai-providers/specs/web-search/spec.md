@@ -23,8 +23,29 @@ Raven SHALL support Brave Search over its fixed HTTPS endpoint and SearXNG only 
 - **THEN** Raven rejects the URL before sending a request
 
 ### Requirement: Grounded local answers
-Raven SHALL pass sanitized search titles, snippets, and URLs to Ollama as untrusted evidence and instruct the model to cite the sources as Markdown links.
+Raven SHALL pass sanitized search titles, snippets, and URLs to Ollama as untrusted evidence and instruct the model to answer concisely, reconcile meeting constraints, prefer primary or official evidence, omit unsupported implementation details, and cite only supporting sources as Markdown links.
+
+Raven SHALL reserve enough local generation budget for a concise grounded answer so tool-assisted responses are not clipped at the ordinary live-reply limit.
 
 #### Scenario: Tool-assisted answer
 - **WHEN** Ollama requests web search and results are returned
 - **THEN** Raven completes the response locally using the evidence and displays source links in the answer
+
+### Requirement: Selective automatic search
+Raven SHALL limit automatic mode to one concise search query and instruct Ollama not to search for timeless concepts, ordinary coding/debugging questions, math, or facts it can answer confidently from supplied context.
+
+#### Scenario: Timeless coding question
+- **WHEN** automatic mode is enabled and the user asks an ordinary coding question that does not require current information
+- **THEN** Ollama is instructed to answer locally without invoking web search
+
+#### Scenario: Current technical question
+- **WHEN** automatic mode is enabled and a technical answer depends on information that may have changed
+- **THEN** Ollama may issue one concise query that prefers the relevant primary or official source
+
+#### Scenario: Verification or citation request
+- **WHEN** the user asks Raven to verify a claim against current documentation or provide official web citations
+- **THEN** Raven permits one search even when the underlying technical concept is otherwise timeless and, if the tool-selection pass omits a query, locally compresses the request into a short search query before contacting the backend
+
+#### Scenario: Verification search has no results
+- **WHEN** an explicit verification query returns no evidence
+- **THEN** Raven may retry once without a restrictive site filter and, if evidence is still empty, instructs the model to disclose that verification failed instead of inventing sources or verified facts

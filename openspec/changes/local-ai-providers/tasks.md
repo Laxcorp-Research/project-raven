@@ -29,6 +29,7 @@
 - [x] 5.1 Redact meeting content from operational logs
 - [x] 5.2 Add Ollama, local STT, transcription, readiness, migration, privacy, and cancellation unit tests
 - [x] 5.3 Add opt-in Brave/SearXNG web-search tooling, privacy settings, grounding, and mocked tests
+- [x] 5.4 Tighten automatic search selection, primary-source grounding, concise local answers, and single-query limits
 - [x] 5.3 Add a mocked dual-PCM-to-overlay integration test
 
 ## 6. Documentation and Validation

@@ -105,7 +105,10 @@ describe('OllamaProvider', () => {
     vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        message: { tool_calls: [{ function: { name: 'web_search', arguments: { query: 'current Raven release' } } }] },
+        message: { tool_calls: [
+          { function: { name: 'web_search', arguments: { query: 'current Raven release' } } },
+          { function: { name: 'web_search', arguments: { query: 'duplicate unnecessary query' } } },
+        ] },
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(
         '{"message":{"content":"Grounded [source](https://example.com)"},"done":true}\n',
@@ -126,10 +129,21 @@ describe('OllamaProvider', () => {
     expect(onSearch).toHaveBeenCalledWith(1)
     const decisionBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
     expect(decisionBody.tools[0].function.name).toBe('web_search')
+    expect(decisionBody.messages.at(-1).content).toContain('Do not search for timeless concepts')
+    expect(decisionBody.messages.at(-1).content).toContain('verify a claim against current documentation')
+    expect(decisionBody.messages.at(-1).content).toContain('primary or official sources')
+    expect(search).toHaveBeenCalledTimes(1)
     const answerBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
     expect(answerBody.tools).toBeUndefined()
+    expect(answerBody.options.num_predict).toBe(600)
     expect(answerBody.messages.at(-1).content).toContain('https://example.com')
     expect(answerBody.messages.at(-1).content).toContain('untrusted data')
+    expect(answerBody.messages.at(-1).content).toContain('no more than 180 words')
+    expect(answerBody.messages.at(-1).content).toContain('copied, transferred, and genuinely shared state')
+    expect(answerBody.messages.at(-1).content).toContain('Cite only URLs present in the evidence')
+    expect(answerBody.messages.at(-1).content).toContain('identify which component owns network listeners')
+    expect(answerBody.messages.at(-1).content).toContain('separate V8 isolates/heaps')
+    expect(answerBody.messages.at(-1).content).toContain('[Source](https://example.com)')
     expect(onText).toHaveBeenCalledWith('Grounded [source](https://example.com)')
   })
 
@@ -138,6 +152,7 @@ describe('OllamaProvider', () => {
     vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: 'No tool' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: 'query: site:nodejs.org worker_threads SharedArrayBuffer' } }), { status: 200 }))
       .mockResolvedValueOnce(new Response('{"message":{"content":"answer"},"done":true}\n', { status: 200 }))
     const search = vi.fn().mockResolvedValue([])
     await new OllamaProvider('qwen:latest').streamResponse(
@@ -145,7 +160,26 @@ describe('OllamaProvider', () => {
       { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
       { webSearch: { force: true, fallbackQuery: 'search now', search } },
     )
-    expect(search).toHaveBeenCalledWith('search now', undefined)
+    expect(search).toHaveBeenCalledWith('site:nodejs.org worker_threads SharedArrayBuffer', undefined)
+    expect(search).toHaveBeenCalledWith('worker_threads SharedArrayBuffer', undefined)
+    expect(search).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails closed when a forced verification search returns no evidence', async () => {
+    vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { tool_calls: [{ function: { name: 'web_search', arguments: { query: 'current facts' } } }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"message":{"content":"cautious"},"done":true}\n', { status: 200 }))
+    const search = vi.fn().mockResolvedValue([])
+    await new OllamaProvider('qwen:latest').streamResponse(
+      { system: 'system', messages: [{ role: 'user', content: 'verify this' }] },
+      { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      { webSearch: { force: true, fallbackQuery: 'verify this', search } },
+    )
+    const answerBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(answerBody.messages.at(-1).content).toContain('verification failed')
+    expect(answerBody.messages.at(-1).content).toContain('Do not invent or cite sources')
   })
 
   it('rejects a missing configured model', async () => {
