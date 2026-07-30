@@ -7,8 +7,7 @@
  * - Validation error messages for invalid keys
  * - Successful completion transitions to dashboard
  *
- * Prerequisites: `npm run build` must have been run.
- * Note: Uses the built app from dist-electron/.
+ * Prerequisites: `npm run build:code` must have been run.
  */
 import { test, expect } from './fixtures/electronApp'
 
@@ -73,5 +72,18 @@ test.describe('Onboarding Flow', () => {
         expect(errorOrSameStep).toBeTruthy()
       }
     }
+  })
+
+  test('local services complete the API-key step without cloud credentials', async ({ dashboardPage }) => {
+    const page = dashboardPage
+    await page.getByRole('button', { name: 'Get Started' }).click()
+    await expect(page.getByRole('heading', { name: 'API Keys' })).toBeVisible()
+
+    const localCheck = page.getByRole('button', { name: 'Check local services' })
+    await localCheck.click()
+    await expect(page.getByRole('button', { name: 'Local services ready ✓' })).toBeVisible({ timeout: 55_000 })
+
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.getByText('Permissions', { exact: true })).toBeVisible()
   })
 })

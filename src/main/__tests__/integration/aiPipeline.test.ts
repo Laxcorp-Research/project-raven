@@ -6,10 +6,11 @@
  */
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-const { mockStoreGet, mockAnthropicCreate, mockOpenAICreate } = vi.hoisted(() => ({
+const { mockStoreGet, mockAnthropicCreate, mockOpenAICreate, mockOpenAIConfigs } = vi.hoisted(() => ({
   mockStoreGet: vi.fn(),
   mockAnthropicCreate: vi.fn(),
   mockOpenAICreate: vi.fn(),
+  mockOpenAIConfigs: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('../../store', () => ({
@@ -27,7 +28,8 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }))
 
 vi.mock('openai', () => ({
-  default: vi.fn(function () {
+  default: vi.fn(function (config: Record<string, unknown>) {
+    mockOpenAIConfigs.push(config)
     return {
       chat: {
         completions: { create: mockOpenAICreate },
@@ -49,6 +51,8 @@ import { clearProviderCache, getProviderFromStore } from '../../services/ai/prov
 
 describe('AI Pipeline Integration', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
+    mockOpenAIConfigs.length = 0
     clearProviderCache()
   })
 
@@ -97,6 +101,39 @@ describe('AI Pipeline Integration', () => {
 
     expect(result).toBe('OpenAI integration response')
     expect(provider.name).toBe('openai')
+  })
+
+  it('uses only the loopback Ollama client for a local-local selection', async () => {
+    mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+      const data: Record<string, unknown> = {
+        transcriptionProvider: 'whisperlivekit',
+        aiProvider: 'ollama',
+        aiModel: 'qwen2.5-coder:1.5b',
+        ollamaBaseUrl: 'http://127.0.0.1:11434',
+      }
+      return data[key] ?? defaultVal
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: '0.32.1' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [{ name: 'qwen2.5-coder:1.5b' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ capabilities: ['completion'] }), { status: 200 }))
+    mockOpenAICreate.mockResolvedValueOnce({ choices: [{ message: { content: 'Local response' } }] })
+
+    const provider = await getProviderFromStore()
+    const result = await provider.generateShort({ prompt: 'Local only' })
+
+    expect(result).toBe('Local response')
+    expect(provider.name).toBe('ollama')
+    expect(mockAnthropicCreate).not.toHaveBeenCalled()
+    expect(mockOpenAIConfigs).toHaveLength(1)
+    expect(mockOpenAIConfigs[0]).toEqual(expect.objectContaining({
+      apiKey: 'ollama',
+      baseURL: expect.stringMatching(/^http:\/\/(127\.0\.0\.1|localhost):11434\/v1$/),
+    }))
+    for (const call of fetchMock.mock.calls) {
+      expect(new URL(String(call[0])).hostname).toBe('127.0.0.1')
+    }
+    fetchMock.mockRestore()
   })
 
   it('switching provider in store after cache clear uses new provider', async () => {

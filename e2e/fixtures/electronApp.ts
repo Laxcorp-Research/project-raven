@@ -1,7 +1,7 @@
 /**
  * Shared Electron app fixture for E2E tests.
  *
- * Launches the Electron app from the compiled output (dist-electron/).
+ * Launches the Electron app from the compiled Vite output (dist/).
  * Tests must run `npm run build` first or use the dev server.
  *
  * The fixture provides:
@@ -12,6 +12,7 @@ import { test as base, type ElectronApplication, type Page } from '@playwright/t
 import { _electron as electron } from '@playwright/test'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -19,7 +20,7 @@ const __dirname = path.dirname(__filename)
 
 // Resolve paths relative to project root
 const projectRoot = path.resolve(__dirname, '..', '..')
-const mainEntry = path.join(projectRoot, 'dist-electron', 'main', 'index.js')
+const mainEntry = path.join(projectRoot, 'dist', 'main', 'index.js')
 
 export const test = base.extend<{
   electronApp: ElectronApplication
@@ -37,8 +38,9 @@ export const test = base.extend<{
       )
     }
 
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'raven-e2e-'))
     const app = await electron.launch({
-      args: [mainEntry],
+      args: [mainEntry, `--user-data-dir=${userDataDir}`],
       env: {
         ...process.env,
         NODE_ENV: 'test',
@@ -47,13 +49,33 @@ export const test = base.extend<{
       },
     })
 
-    await use(app)
-    await app.close()
+    try {
+      await use(app)
+    } finally {
+      await app.close()
+      fs.rmSync(userDataDir, { recursive: true, force: true })
+    }
   },
 
   dashboardPage: async ({ electronApp }, use) => {
-    // Wait for the first window to open (dashboard)
-    const page = await electronApp.firstWindow()
+    // Raven may create the compact overlay before the dashboard. Select the
+    // widest renderer instead of relying on Electron window creation order.
+    await electronApp.firstWindow()
+    let page: Page | undefined
+    for (let attempt = 0; attempt < 20 && !page; attempt++) {
+      for (const candidate of electronApp.windows()) {
+        const body = await candidate.locator('body').innerText().catch(() => '')
+        if (/Get Started|API Keys|Recent Sessions|Settings/i.test(body)) {
+          page = candidate
+          break
+        }
+      }
+      if (!page) await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    page ??= electronApp.windows().sort((left, right) =>
+      (right.viewportSize()?.width ?? 0) - (left.viewportSize()?.width ?? 0)
+    )[0]
+    if (!page) throw new Error('Raven dashboard window was not created.')
     // Wait for the renderer to be ready
     await page.waitForLoadState('domcontentloaded')
     await use(page)

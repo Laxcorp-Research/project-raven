@@ -31,5 +31,5 @@ if (portArg) {
     process.exit(3)
   }
 } else {
-  console.log('Runtime and model checks passed. Use `-- --port=<port>` to verify a running server health endpoint.')
+  console.log('Runtime and model checks passed. Use `node scripts/check-local-stt.mjs --port=<port>` to verify a running server health endpoint.')
 }

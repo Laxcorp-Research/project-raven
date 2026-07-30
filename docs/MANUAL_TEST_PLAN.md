@@ -1,5 +1,7 @@
 # Manual local-mode test plan
 
+The latest machine-specific execution record is in `docs/LOCAL_VALIDATION_RESULTS.md`.
+
 Automated mocks do not validate real WASAPI hardware, meeting applications, GPU acceleration, screen sharing, recording, or content protection. Record every result and failure evidence.
 
 ## Environment record

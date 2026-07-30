@@ -110,7 +110,7 @@ export class OllamaProvider implements AIProvider {
   ): Promise<void> {
     await this.requireInstalled(options?.signal)
     const OpenAIClient = (await import('openai')).default
-    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).toString()}/v1`, fetch: ollamaSdkFetch })
+    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).origin}/v1`, fetch: ollamaSdkFetch })
     let fullText = ''
     try {
       const stream = await client.chat.completions.create({
@@ -137,7 +137,7 @@ export class OllamaProvider implements AIProvider {
   async generateShort(params: { system?: string; prompt: string; maxTokens?: number }, options?: AIRequestOptions): Promise<string> {
     await this.requireInstalled(options?.signal)
     const OpenAIClient = (await import('openai')).default
-    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).toString()}/v1`, fetch: ollamaSdkFetch })
+    const client = new OpenAIClient({ apiKey: 'ollama', baseURL: `${validateOllamaUrl(this.baseURL).origin}/v1`, fetch: ollamaSdkFetch })
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
     if (params.system) messages.push({ role: 'system', content: params.system })
     messages.push({ role: 'user', content: params.prompt })

@@ -43,7 +43,8 @@ vi.mock('../logger', () => ({
 import { ClaudeService, generateSessionTitle } from '../claudeService';
 import { getProviderFromStore, getFastProvider, getProProvider, getProFastProvider, getProSystemProvider } from '../services/ai/providerFactory';
 import { isProMode, getSetting } from '../store';
-import { ipcMain } from 'electron';
+import { desktopCapturer, ipcMain } from 'electron';
+import { OllamaProvider } from '../services/ai/ollamaProvider';
 
 describe('ClaudeService', () => {
   let service: ClaudeService;
@@ -436,6 +437,52 @@ describe('Provider routing based on mode', () => {
 
     expect(result).toEqual({ success: true, cancelled: true });
     expect(observedSignal?.aborted).toBe(true);
+  });
+
+  it('aborts the underlying provider stream when the live timeout expires', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(isProMode).mockReturnValue(false);
+      let observedSignal: AbortSignal | undefined;
+      mockProvider.streamResponse.mockImplementationOnce(async (_params, _callbacks, options) => {
+        observedSignal = options?.signal;
+        await new Promise<void>((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
+        });
+      });
+
+      const responsePromise = getResponseHandler()({}, { transcript: 'test', action: 'assist' });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(observedSignal).toBeDefined();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await responsePromise;
+
+      expect(observedSignal?.aborted).toBe(true);
+      expect(observedSignal?.reason).toBeInstanceOf(Error);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not capture or attach a screenshot for a text-only Ollama model', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'aiModel') return 'qwen2.5-coder:1.5b';
+      if (key === 'ollamaBaseUrl') return 'http://127.0.0.1:11434';
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+    const localProvider = { ...mockProvider, name: 'ollama' as const, streamResponse: vi.fn().mockResolvedValue(undefined) };
+    vi.mocked(getProviderFromStore).mockResolvedValue(localProvider as any);
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['completion'], supportsVision: false });
+
+    await getResponseHandler()({}, { transcript: 'test', action: 'assist', includeScreenshot: true });
+
+    expect(desktopCapturer.getSources).not.toHaveBeenCalled();
+    const request = localProvider.streamResponse.mock.calls[0][0];
+    expect(JSON.stringify(request.messages)).not.toContain('image_url');
+    expect(JSON.stringify(request.messages)).not.toContain('base64');
   });
 });
 
