@@ -24,3 +24,18 @@ Raven SHALL bound queued PCM during reconnect and preserve compatible KeepAlive,
 #### Scenario: Extended outage
 - **WHEN** audio continues while a local transcription socket is unavailable
 - **THEN** the queue remains within its configured byte limit and older audio is discarded safely
+
+### Requirement: Selectable Windows recording endpoints
+Raven SHALL enumerate active Windows microphone and playback endpoints, let the user persist each endpoint or follow the appropriate Windows default, and use those selections for microphone and WASAPI loopback capture.
+
+#### Scenario: Selected video output is captured
+- **WHEN** the user selects the playback endpoint used by a background video and starts a recording
+- **THEN** Raven opens loopback capture on that endpoint and sends its non-silent PCM to the system transcription stream
+
+#### Scenario: Selected microphone is captured
+- **WHEN** the user selects an active recording input and starts a recording
+- **THEN** Raven captures microphone PCM from that endpoint and maps its transcription to `you`
+
+#### Scenario: Saved endpoint is unavailable
+- **WHEN** a saved input or output endpoint is disconnected or no longer active
+- **THEN** Raven falls back to the corresponding current Windows default instead of failing the recording

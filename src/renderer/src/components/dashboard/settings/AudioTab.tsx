@@ -3,6 +3,12 @@ import { createLogger } from '../../../lib/logger'
 
 const log = createLogger('Settings:Audio')
 
+interface NativeAudioDevice {
+  id: string
+  name: string
+  isDefault: boolean
+}
+
 export function AudioTab() {
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([])
   const [selectedMic, setSelectedMic] = useState<string>('')
@@ -11,6 +17,10 @@ export function AudioTab() {
   const [testTimeRemaining, setTestTimeRemaining] = useState(10)
   const [testTranscript, setTestTranscript] = useState('')
   const [captureSystemAudio, setCaptureSystemAudio] = useState(true)
+  const [recordingInputs, setRecordingInputs] = useState<NativeAudioDevice[]>([])
+  const [recordingOutputs, setRecordingOutputs] = useState<NativeAudioDevice[]>([])
+  const [recordingInputId, setRecordingInputId] = useState('')
+  const [recordingOutputId, setRecordingOutputId] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
   const barsRef = useRef<HTMLDivElement[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -43,6 +53,28 @@ export function AudioTab() {
       }
     }
     void loadMicrophones()
+
+    async function loadRecordingDevices() {
+      try {
+        const [inputs, outputs, savedInput, savedOutput] = await Promise.all([
+          window.raven.systemAudioListInputDevices(),
+          window.raven.systemAudioListOutputDevices(),
+          window.raven.storeGet('audioInputDeviceId'),
+          window.raven.storeGet('audioOutputDeviceId'),
+        ])
+        setRecordingInputs(inputs)
+        setRecordingOutputs(outputs)
+        if (typeof savedInput === 'string' && inputs.some((device) => device.id === savedInput)) {
+          setRecordingInputId(savedInput)
+        }
+        if (typeof savedOutput === 'string' && outputs.some((device) => device.id === savedOutput)) {
+          setRecordingOutputId(savedOutput)
+        }
+      } catch (error) {
+        log.error('Failed to load recording devices:', error)
+      }
+    }
+    void loadRecordingDevices()
 
     return () => {
       stopMicTest()
@@ -77,6 +109,16 @@ export function AudioTab() {
     setCaptureSystemAudio(newValue)
     await window.raven.storeSet('captureSystemAudio', newValue)
     try { await window.raven.authUpdateProfile({ preferences: { captureSystemAudio: newValue } }) } catch { /* free mode */ }
+  }
+
+  const handleRecordingInputChange = async (deviceId: string) => {
+    setRecordingInputId(deviceId)
+    await window.raven.storeSet('audioInputDeviceId', deviceId)
+  }
+
+  const handleRecordingOutputChange = async (deviceId: string) => {
+    setRecordingOutputId(deviceId)
+    await window.raven.storeSet('audioOutputDeviceId', deviceId)
   }
 
   const startMicTest = async (deviceId?: string) => {
@@ -255,13 +297,73 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
   return (
     <div className="space-y-6 max-w-xl">
       <p className="text-sm text-gray-500">
-        Test your audio input and transcription before you hop into a call.
+        Choose what Raven records, then test your microphone and transcription before a call.
       </p>
+
+      {(recordingInputs.length > 0 || recordingOutputs.length > 0) && (
+        <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Recording sources</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              These Windows devices are used for normal meeting recordings.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="recording-input-device" className="block text-sm font-medium text-gray-700">
+              Input microphone
+            </label>
+            <select
+              id="recording-input-device"
+              value={recordingInputId}
+              onChange={(event) => { void handleRecordingInputChange(event.target.value) }}
+              className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            >
+              <option value="">
+                Windows default{recordingInputs.find((device) => device.isDefault)?.name
+                  ? ` — ${recordingInputs.find((device) => device.isDefault)?.name}`
+                  : ''}
+              </option>
+              {recordingInputs.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name}{device.isDefault ? ' (current default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="recording-output-device" className="block text-sm font-medium text-gray-700">
+              Output audio to transcribe
+            </label>
+            <select
+              id="recording-output-device"
+              value={recordingOutputId}
+              onChange={(event) => { void handleRecordingOutputChange(event.target.value) }}
+              className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            >
+              <option value="">
+                Windows default{recordingOutputs.find((device) => device.isDefault)?.name
+                  ? ` — ${recordingOutputs.find((device) => device.isDefault)?.name}`
+                  : ''}
+              </option>
+              {recordingOutputs.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name}{device.isDefault ? ' (current default)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400">
+              Pick the speakers or headset used by Zoom, your browser, or video player.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Microphone Selection */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
-          Microphone source
+          Microphone test source
         </label>
         <div className="relative" ref={dropdownRef}>
           <button

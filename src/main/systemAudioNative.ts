@@ -406,9 +406,11 @@ interface WindowsAudioModule {
   hasPermission: () => boolean
   requestPermission: () => boolean
   isCapturing: () => boolean
-  startSystemAudioCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void) => boolean
+  listOutputDevices: () => Array<{ id: string; name: string; isDefault: boolean }>
+  listInputDevices: () => Array<{ id: string; name: string; isDefault: boolean }>
+  startSystemAudioCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void, deviceId?: string) => boolean
   stopSystemAudioCapture: () => boolean
-  startMicCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void) => boolean
+  startMicCapture: (callback: (chunk: { data: Buffer; timestamp: number }) => void, deviceId?: string) => boolean
   stopMicCapture: () => boolean
 }
 
@@ -470,13 +472,13 @@ function loadWindowsModule(): WindowsAudioModule | null {
  * Start native audio capture + AEC pipeline.
  * Called directly by AudioManager - no renderer round-trip needed.
  */
-export function startCapture(): boolean {
+export function startCapture(outputDeviceId?: string, inputDeviceId?: string): boolean {
   systemChunkCount = 0
   micChunkCount = 0
   aecBypassed = false
   initAec()
   if (isMac) return startMacCapture()
-  if (isWindows) return startWindowsCapture()
+  if (isWindows) return startWindowsCapture(outputDeviceId, inputDeviceId)
   return false
 }
 
@@ -536,6 +538,9 @@ export function registerSystemAudioHandlers(): void {
     if (isWindows) return !!loadWindowsModule()?.requestPermission()
     return false
   })
+
+  ipcMain.handle('system-audio:list-output-devices', () => listOutputDevices())
+  ipcMain.handle('system-audio:list-input-devices', () => listInputDevices())
 
   ipcMain.handle('system-audio:start', () => startCapture())
   ipcMain.handle('system-audio:stop', () => stopCapture())
@@ -663,17 +668,37 @@ function stopMacCapture(): boolean {
   return true
 }
 
-function startWindowsCapture(): boolean {
+export function listOutputDevices(): Array<{ id: string; name: string; isDefault: boolean }> {
+  if (!isWindows) return []
+  try {
+    return loadWindowsModule()?.listOutputDevices() || []
+  } catch (error) {
+    log.error('Failed to enumerate Windows playback devices:', error)
+    return []
+  }
+}
+
+export function listInputDevices(): Array<{ id: string; name: string; isDefault: boolean }> {
+  if (!isWindows) return []
+  try {
+    return loadWindowsModule()?.listInputDevices() || []
+  } catch (error) {
+    log.error('Failed to enumerate Windows recording devices:', error)
+    return []
+  }
+}
+
+function startWindowsCapture(outputDeviceId?: string, inputDeviceId?: string): boolean {
   const mod = loadWindowsModule()
   if (!mod) return false
 
   const systemStarted = mod.startSystemAudioCapture((chunk) => {
     handleSystemChunk(chunk.data)
-  })
+  }, outputDeviceId)
 
   const micStarted = mod.startMicCapture((chunk) => {
     handleMicChunk(chunk.data)
-  })
+  }, inputDeviceId)
 
   log.info(`Windows capture started - system: ${systemStarted}, mic: ${micStarted}`)
   return systemStarted

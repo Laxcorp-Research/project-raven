@@ -47,9 +47,11 @@ interface WindowsAudioModule {
   hasPermission: () => boolean;
   requestPermission: () => boolean;
   isCapturing: () => boolean;
-  startSystemAudioCapture: (cb: (chunk: { data: Buffer; timestamp: number }) => void) => boolean;
+  listOutputDevices: () => Array<{ id: string; name: string; isDefault: boolean }>;
+  listInputDevices: () => Array<{ id: string; name: string; isDefault: boolean }>;
+  startSystemAudioCapture: (cb: (chunk: { data: Buffer; timestamp: number }) => void, deviceId?: string) => boolean;
   stopSystemAudioCapture: () => boolean;
-  startMicCapture: (cb: (chunk: { data: Buffer; timestamp: number }) => void) => boolean;
+  startMicCapture: (cb: (chunk: { data: Buffer; timestamp: number }) => void, deviceId?: string) => boolean;
   stopMicCapture: () => boolean;
 }
 
@@ -70,17 +72,34 @@ describe('Windows native audio module (W4)', () => {
     expect(existsSync(MODULE_PATH)).toBe(true);
   });
 
-  itOnWindows('exports the eight functions the systemAudioNative.ts loader expects', () => {
+  itOnWindows('exports the device and capture functions systemAudioNative.ts expects', () => {
     const m = require_(MODULE_PATH) as WindowsAudioModule;
 
     expect(typeof m.isSystemAudioAvailable).toBe('function');
     expect(typeof m.hasPermission).toBe('function');
     expect(typeof m.requestPermission).toBe('function');
     expect(typeof m.isCapturing).toBe('function');
+    expect(typeof m.listOutputDevices).toBe('function');
+    expect(typeof m.listInputDevices).toBe('function');
     expect(typeof m.startSystemAudioCapture).toBe('function');
     expect(typeof m.stopSystemAudioCapture).toBe('function');
     expect(typeof m.startMicCapture).toBe('function');
     expect(typeof m.stopMicCapture).toBe('function');
+  });
+
+  itOnWindows('enumerates typed active input and output devices', () => {
+    const m = require_(MODULE_PATH) as WindowsAudioModule;
+    for (const devices of [m.listInputDevices(), m.listOutputDevices()]) {
+      expect(devices.length).toBeGreaterThan(0);
+      expect(devices).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.any(String),
+          name: expect.any(String),
+          isDefault: expect.any(Boolean),
+        }),
+      ]));
+      expect(devices.filter((device) => device.isDefault)).toHaveLength(1);
+    }
   });
 
   itOnWindows('synchronous trivial functions return their initial values without throwing (proves WASAPI link is healthy)', () => {

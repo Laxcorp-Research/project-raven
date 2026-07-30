@@ -54,6 +54,10 @@ export interface LocalSettings {
   localSttDevice: 'cpu' | 'cuda' | 'auto';
   localSttComputeType: string;
   stopLocalSttOnSessionEnd: boolean;
+  selectedMicrophone: string;
+  captureSystemAudio: boolean;
+  audioOutputDeviceId: string;
+  audioInputDeviceId: string;
 
   // AI Provider
   aiProvider: 'anthropic' | 'openai' | 'ollama';
@@ -99,6 +103,10 @@ const STORE_DEFAULTS: LocalSettings = {
   localSttDevice: 'cpu',
   localSttComputeType: 'int8',
   stopLocalSttOnSessionEnd: true,
+  selectedMicrophone: '',
+  captureSystemAudio: true,
+  audioOutputDeviceId: '',
+  audioInputDeviceId: '',
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
   openaiApiKey: '',
@@ -177,6 +185,10 @@ export function getAllSettings(): LocalSettings {
     localSttDevice: store.get('localSttDevice'),
     localSttComputeType: store.get('localSttComputeType'),
     stopLocalSttOnSessionEnd: store.get('stopLocalSttOnSessionEnd'),
+    selectedMicrophone: store.get('selectedMicrophone'),
+    captureSystemAudio: store.get('captureSystemAudio'),
+    audioOutputDeviceId: store.get('audioOutputDeviceId'),
+    audioInputDeviceId: store.get('audioInputDeviceId'),
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
     openaiApiKey: store.get('openaiApiKey'),

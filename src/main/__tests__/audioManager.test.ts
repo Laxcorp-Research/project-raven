@@ -168,6 +168,20 @@ describe('AudioManager', () => {
       expect(mockStartCapture).toHaveBeenCalled()
     })
 
+    it('passes the persisted input and output endpoints to native capture', async () => {
+      mockGetSetting.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-test-key'
+        if (key === 'audioInputDeviceId') return 'input-endpoint'
+        if (key === 'audioOutputDeviceId') return 'output-endpoint'
+        return ''
+      })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      await handler({})
+
+      expect(mockStartCapture).toHaveBeenCalledWith('output-endpoint', 'input-endpoint')
+    })
+
     it('blocks recording without the selected Deepgram key', async () => {
       mockGetSetting.mockReturnValue('')
 

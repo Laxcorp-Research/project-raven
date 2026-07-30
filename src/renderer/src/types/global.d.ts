@@ -173,6 +173,8 @@ declare global {
       systemAudioIsAvailable: () => Promise<boolean>;
       systemAudioHasPermission: () => Promise<boolean>;
       systemAudioRequestPermission: () => Promise<boolean>;
+      systemAudioListOutputDevices: () => Promise<Array<{ id: string; name: string; isDefault: boolean }>>;
+      systemAudioListInputDevices: () => Promise<Array<{ id: string; name: string; isDefault: boolean }>>;
       sessions: {
         create: (session: Omit<Session, 'createdAt'>) => Promise<Session>;
         update: (id: string, updates: Partial<Session>) => Promise<boolean>;

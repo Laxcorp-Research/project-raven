@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld('raven', {
   systemAudioIsAvailable: () => ipcRenderer.invoke('system-audio:is-available'),
   systemAudioHasPermission: () => ipcRenderer.invoke('system-audio:has-permission'),
   systemAudioRequestPermission: () => ipcRenderer.invoke('system-audio:request-permission'),
+  systemAudioListOutputDevices: () => ipcRenderer.invoke('system-audio:list-output-devices'),
+  systemAudioListInputDevices: () => ipcRenderer.invoke('system-audio:list-input-devices'),
   sessions: {
     create: (session: unknown) => ipcRenderer.invoke('sessions:create', session),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('sessions:update', id, updates),

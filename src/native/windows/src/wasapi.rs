@@ -7,8 +7,9 @@ use rubato::{
 };
 use windows::{
     core::*,
+    Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
     Win32::Media::Audio::*,
-    Win32::System::Com::*,
+    Win32::System::Com::{StructuredStorage::PropVariantClear, *},
 };
 
 use crate::AudioChunk;
@@ -17,6 +18,12 @@ const TARGET_SAMPLE_RATE: u32 = 16000;
 const BUFFER_DURATION_MS: u32 = 20;
 const RESAMPLE_CHUNK_SIZE: usize = 1024;
 const SILENT_FLAG: u32 = 0x2;
+
+pub struct OutputDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
 
 struct ComGuard;
 
@@ -98,7 +105,73 @@ fn timestamp_now() -> f64 {
         * 1000.0
 }
 
-pub fn capture_loop<F>(stop_flag: Arc<AtomicBool>, callback: F) -> Result<()>
+pub fn list_output_devices() -> Result<Vec<OutputDevice>> {
+    list_audio_devices(eRender, eMultimedia)
+}
+
+pub fn list_input_devices() -> Result<Vec<OutputDevice>> {
+    list_audio_devices(eCapture, eCommunications)
+}
+
+fn list_audio_devices(data_flow: EDataFlow, role: ERole) -> Result<Vec<OutputDevice>> {
+    unsafe {
+        CoInitializeEx(None, COINIT_MULTITHREADED)?;
+        let _com_guard = ComGuard;
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let default_device = enumerator.GetDefaultAudioEndpoint(data_flow, role)?;
+        let default_id = device_id(&default_device)?;
+        let collection = enumerator.EnumAudioEndpoints(data_flow, DEVICE_STATE_ACTIVE)?;
+        let count = collection.GetCount()?;
+        let mut devices = Vec::with_capacity(count as usize);
+
+        for index in 0..count {
+            let device = collection.Item(index)?;
+            let id = device_id(&device)?;
+            let name = device_name(&device).unwrap_or_else(|_| "Unknown playback device".to_string());
+            devices.push(OutputDevice {
+                is_default: id == default_id,
+                id,
+                name,
+            });
+        }
+
+        Ok(devices)
+    }
+}
+
+unsafe fn device_id(device: &IMMDevice) -> Result<String> {
+    let value = device.GetId()?;
+    let id = value.to_string()?;
+    CoTaskMemFree(Some(value.0.cast()));
+    Ok(id)
+}
+
+unsafe fn device_name(device: &IMMDevice) -> Result<String> {
+    let store = device.OpenPropertyStore(STGM_READ)?;
+    let mut value = store.GetValue(&PKEY_Device_FriendlyName)?;
+    let name = value.Anonymous.Anonymous.Anonymous.pwszVal.to_string()?;
+    PropVariantClear(&mut value)?;
+    Ok(name)
+}
+
+unsafe fn selected_audio_device(
+    enumerator: &IMMDeviceEnumerator,
+    device_id: Option<&str>,
+    data_flow: EDataFlow,
+    role: ERole,
+) -> Result<IMMDevice> {
+    if let Some(id) = device_id.filter(|id| !id.trim().is_empty()) {
+        let wide: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
+        if let Ok(device) = enumerator.GetDevice(PCWSTR(wide.as_ptr())) {
+            return Ok(device);
+        }
+        eprintln!("[WASAPI] Selected audio device is unavailable; using Windows default");
+    }
+    enumerator.GetDefaultAudioEndpoint(data_flow, role)
+}
+
+pub fn capture_loop<F>(stop_flag: Arc<AtomicBool>, device_id: Option<String>, callback: F) -> Result<()>
 where
     F: Fn(AudioChunk) + Send + 'static,
 {
@@ -109,7 +182,7 @@ where
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let device = selected_audio_device(&enumerator, device_id.as_deref(), eRender, eMultimedia)?;
 
         let audio_client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 
@@ -228,7 +301,7 @@ where
 
 /// Capture microphone input from the default recording device.
 /// Same pipeline as capture_loop but uses eCapture (input) instead of eRender (loopback).
-pub fn mic_capture_loop<F>(stop_flag: Arc<AtomicBool>, callback: F) -> Result<()>
+pub fn mic_capture_loop<F>(stop_flag: Arc<AtomicBool>, device_id: Option<String>, callback: F) -> Result<()>
 where
     F: Fn(AudioChunk) + Send + 'static,
 {
@@ -239,7 +312,7 @@ where
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-        let device = enumerator.GetDefaultAudioEndpoint(eCapture, eConsole)?;
+        let device = selected_audio_device(&enumerator, device_id.as_deref(), eCapture, eCommunications)?;
 
         let audio_client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 

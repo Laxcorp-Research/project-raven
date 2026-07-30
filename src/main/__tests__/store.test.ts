@@ -72,6 +72,15 @@ describe('store', () => {
         defaults: expect.objectContaining({ ollamaThinkingEnabled: false }),
       }))
     })
+
+    it('defaults recording endpoints to their Windows role defaults', () => {
+      expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
+        defaults: expect.objectContaining({
+          audioInputDeviceId: '',
+          audioOutputDeviceId: '',
+        }),
+      }))
+    })
   })
 
   describe('getSetting', () => {

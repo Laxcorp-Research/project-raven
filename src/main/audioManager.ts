@@ -215,7 +215,10 @@ export class AudioManager {
         } else {
           // Fall back to native capture + AssemblyAI/Deepgram
           this.usingRecall = false
-          const captureStarted = startCapture()
+          const captureStarted = startCapture(
+            String(getSetting('audioOutputDeviceId') || '') || undefined,
+            String(getSetting('audioInputDeviceId') || '') || undefined,
+          )
           if (!captureStarted) {
             log.error('Native audio capture failed to start')
             void trackRecordingFailed('native_capture_failed_to_start_pro')
@@ -257,7 +260,10 @@ export class AudioManager {
           }
         }
 
-        const captureStarted = startCapture()
+        const captureStarted = startCapture(
+          String(getSetting('audioOutputDeviceId') || '') || undefined,
+          String(getSetting('audioInputDeviceId') || '') || undefined,
+        )
         if (!captureStarted) {
           log.error('Native audio capture failed to start')
           void trackRecordingFailed('native_capture_failed_to_start')

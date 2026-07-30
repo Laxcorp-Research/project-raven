@@ -4,8 +4,8 @@ Native Windows audio capture module built with Rust and [NAPI-RS](https://napi.r
 
 ## How It Works
 
-- **System audio**: WASAPI loopback capture on the default render device - captures everything playing through speakers/headphones
-- **Microphone**: Standard WASAPI capture on the default recording device
+- **System audio**: WASAPI loopback capture on a selected render device, falling back to the Windows multimedia default
+- **Microphone**: Standard WASAPI capture on a selected recording device, falling back to the Windows communications default
 - Both streams are resampled to 16 kHz mono Int16 PCM (matching Deepgram's expected format) using the `rubato` crate
 - Audio chunks are delivered to Node.js via NAPI threadsafe callbacks
 
@@ -59,9 +59,11 @@ The TypeScript layer (`src/main/systemAudioNative.ts`) looks for it at this path
 | `hasPermission()` | Returns `true` (no permissions needed on Windows) |
 | `requestPermission()` | Returns `true` (no-op on Windows) |
 | `isCapturing()` | Whether system audio loopback is currently active |
-| `startSystemAudioCapture(callback)` | Start capturing system audio; callback receives `{ data: Buffer, timestamp: number }` |
+| `listOutputDevices()` | List active playback endpoints with IDs, names, and multimedia-default status |
+| `listInputDevices()` | List active recording endpoints with IDs, names, and communications-default status |
+| `startSystemAudioCapture(callback, deviceId?)` | Start capturing the selected system output; callback receives `{ data: Buffer, timestamp: number }` |
 | `stopSystemAudioCapture()` | Stop the system audio capture thread |
-| `startMicCapture(callback)` | Start capturing microphone audio; callback receives `{ data: Buffer, timestamp: number }` |
+| `startMicCapture(callback, deviceId?)` | Start capturing the selected microphone; callback receives `{ data: Buffer, timestamp: number }` |
 | `stopMicCapture()` | Stop the microphone capture thread |
 
 ## Dependencies
@@ -72,6 +74,6 @@ The TypeScript layer (`src/main/systemAudioNative.ts`) looks for it at this path
 
 ## Troubleshooting
 
-- **No audio captured**: Ensure the default audio devices are set correctly in Windows Sound Settings
+- **No audio captured**: Select the same output device used by the meeting or video application in Raven Audio Settings
 - **Build errors about Windows SDK**: Install the Windows SDK via Visual Studio Installer
 - **`AUDCLNT_E_DEVICE_INVALIDATED`**: The audio device was disconnected; restart the capture

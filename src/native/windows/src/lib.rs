@@ -26,6 +26,13 @@ static STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 static MIC_CAPTURING: AtomicBool = AtomicBool::new(false);
 static MIC_STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
+#[napi(object)]
+pub struct AudioOutputDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
 #[napi]
 pub fn is_system_audio_available() -> bool {
     true
@@ -47,7 +54,29 @@ pub fn is_capturing() -> bool {
 }
 
 #[napi]
-pub fn start_system_audio_capture(callback: JsFunction) -> Result<bool> {
+pub fn list_output_devices() -> Result<Vec<AudioOutputDevice>> {
+    wasapi::list_output_devices().map(|devices| {
+        devices.into_iter().map(|device| AudioOutputDevice {
+            id: device.id,
+            name: device.name,
+            is_default: device.is_default,
+        }).collect()
+    }).map_err(|error| Error::from_reason(format!("Unable to enumerate playback devices: {error}")))
+}
+
+#[napi]
+pub fn list_input_devices() -> Result<Vec<AudioOutputDevice>> {
+    wasapi::list_input_devices().map(|devices| {
+        devices.into_iter().map(|device| AudioOutputDevice {
+            id: device.id,
+            name: device.name,
+            is_default: device.is_default,
+        }).collect()
+    }).map_err(|error| Error::from_reason(format!("Unable to enumerate recording devices: {error}")))
+}
+
+#[napi]
+pub fn start_system_audio_capture(callback: JsFunction, device_id: Option<String>) -> Result<bool> {
     eprintln!("[WASAPI] start_system_audio_capture called");
     if CAPTURING.load(Ordering::SeqCst) {
         return Ok(false);
@@ -73,7 +102,7 @@ pub fn start_system_audio_capture(callback: JsFunction) -> Result<bool> {
     thread::spawn(move || {
         eprintln!("[WASAPI] System capture thread started");
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            wasapi::capture_loop(stop_flag, move |chunk| {
+            wasapi::capture_loop(stop_flag, device_id, move |chunk| {
                 tsfn.call(chunk, ThreadsafeFunctionCallMode::NonBlocking);
             })
         }));
@@ -99,7 +128,7 @@ pub fn stop_system_audio_capture() -> bool {
 }
 
 #[napi]
-pub fn start_mic_capture(callback: JsFunction) -> Result<bool> {
+pub fn start_mic_capture(callback: JsFunction, device_id: Option<String>) -> Result<bool> {
     eprintln!("[WASAPI-Mic] start_mic_capture called");
     if MIC_CAPTURING.load(Ordering::SeqCst) {
         return Ok(false);
@@ -125,7 +154,7 @@ pub fn start_mic_capture(callback: JsFunction) -> Result<bool> {
     thread::spawn(move || {
         eprintln!("[WASAPI-Mic] Mic capture thread started");
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            wasapi::mic_capture_loop(stop_flag, move |chunk| {
+            wasapi::mic_capture_loop(stop_flag, device_id, move |chunk| {
                 tsfn.call(chunk, ThreadsafeFunctionCallMode::NonBlocking);
             })
         }));
