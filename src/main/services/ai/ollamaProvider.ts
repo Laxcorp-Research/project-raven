@@ -3,6 +3,7 @@ import type { AIContentPart, AIMessage, AIProvider, AIRequestOptions, StreamCall
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434'
 const CONNECT_TIMEOUT_MS = 5_000
 const GENERATION_CONNECT_TIMEOUT_MS = 30_000
+const MODEL_KEEP_ALIVE = '30m'
 // Reasoning tokens count toward num_predict. Smaller limits can be exhausted
 // before a thinking model emits any user-visible answer.
 const THINKING_TOKEN_BUDGET = 4_096
@@ -110,6 +111,17 @@ export class OllamaProvider implements AIProvider {
     return { capabilities, supportsVision: capabilities.includes('vision') }
   }
 
+  static async preload(model: string, baseURL = DEFAULT_OLLAMA_URL, signal?: AbortSignal): Promise<void> {
+    if (!model.trim()) throw new Error('Select an installed Ollama model.')
+    const response = await localFetch(baseURL, '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model, messages: [], stream: false, keep_alive: MODEL_KEEP_ALIVE }),
+      signal,
+    }, GENERATION_CONNECT_TIMEOUT_MS)
+    if (!response.ok) throw new Error(await responseError(response))
+  }
+
   async streamResponse(
     params: { system: string; messages: AIMessage[]; maxTokens?: number },
     callbacks: StreamCallbacks,
@@ -124,7 +136,7 @@ export class OllamaProvider implements AIProvider {
         ...params.messages.map(toOllamaMessage),
       ]
       const messages = options?.webSearch
-        ? await this.resolveWebSearch(baseMessages, params.maxTokens, thinking, options)
+        ? await this.resolveWebSearch(baseMessages, params.maxTokens, options)
         : baseMessages
       const response = await localFetch(this.baseURL, '/api/chat', {
         method: 'POST',
@@ -134,6 +146,7 @@ export class OllamaProvider implements AIProvider {
           messages,
           think: thinking,
           stream: true,
+          keep_alive: MODEL_KEEP_ALIVE,
           options: {
             num_predict: thinking
               ? Math.max(params.maxTokens ?? 300, THINKING_TOKEN_BUDGET)
@@ -169,9 +182,12 @@ export class OllamaProvider implements AIProvider {
       if (finalText) { fullText += finalText; callbacks.onText(finalText) }
       callbacks.onDone(fullText)
     } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Ollama request failed.'
       const message = options?.signal?.aborted
         ? 'AI request cancelled.'
-        : error instanceof Error ? `Ollama error: ${error.message}` : 'Ollama request failed.'
+        : /^(?:Web search|Free local search|Managed local search|The custom local SearXNG)/i.test(detail)
+          ? detail
+          : `Ollama error: ${detail}`
       callbacks.onError(message)
       throw error
     }
@@ -180,7 +196,6 @@ export class OllamaProvider implements AIProvider {
   private async resolveWebSearch(
     messages: OllamaMessage[],
     maxTokens: number | undefined,
-    thinking: boolean,
     options: AIRequestOptions,
   ): Promise<OllamaMessage[]> {
     const tool = options.webSearch
@@ -195,9 +210,14 @@ export class OllamaProvider implements AIProvider {
           { role: 'system', content: WEB_SEARCH_DECISION_PROMPT },
         ],
         tools: [WEB_SEARCH_TOOL],
-        think: thinking,
+        // Tool selection is a short routing decision, not part of the answer.
+        // Never spend the user's optional reasoning budget here: thinking models
+        // can otherwise consume thousands of hidden tokens before Raven even
+        // starts the user-visible response.
+        think: false,
         stream: false,
-        options: { num_predict: thinking ? THINKING_TOKEN_BUDGET : Math.min(maxTokens ?? 300, 300) },
+        keep_alive: MODEL_KEEP_ALIVE,
+        options: { num_predict: Math.min(maxTokens ?? 300, 300) },
       }),
       signal: options.signal,
     }, GENERATION_CONNECT_TIMEOUT_MS)
@@ -246,6 +266,7 @@ export class OllamaProvider implements AIProvider {
         ],
         think: false,
         stream: false,
+        keep_alive: MODEL_KEEP_ALIVE,
         options: { num_predict: 60 },
       }),
       signal,
@@ -269,6 +290,7 @@ export class OllamaProvider implements AIProvider {
         messages,
         think: false,
         stream: false,
+        keep_alive: MODEL_KEEP_ALIVE,
         options: { num_predict: params.maxTokens ?? 60 },
       }),
       signal: options?.signal,

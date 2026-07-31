@@ -18,6 +18,10 @@ Raven SHALL stream Ollama output through the existing response callbacks and SHA
 - **WHEN** a user cancels an active Ollama response
 - **THEN** the provider request stops and no late text or completed response is stored
 
+#### Scenario: Meeting-ready model warm-up
+- **WHEN** provider readiness confirms that the selected Ollama model is installed
+- **THEN** Raven preloads that model with an empty loopback request and keeps it resident long enough to avoid ordinary meeting pauses causing a cold first answer
+
 ### Requirement: Vision-aware screenshots
 Raven MUST NOT send screenshot content to a selected Ollama model unless model inspection reports vision capability.
 

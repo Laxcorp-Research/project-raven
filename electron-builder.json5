@@ -19,7 +19,10 @@
   ],
   "files": [
     "dist",
-    "dist-electron"
+    "dist-electron",
+    "scripts/local-search-runtime.mjs",
+    "scripts/patch-searxng-windows.mjs",
+    "scripts/setup-local-search.mjs"
   ],
   "mac": {
     "icon": "build/icon.icns",

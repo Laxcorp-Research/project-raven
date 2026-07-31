@@ -71,6 +71,7 @@ import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from '.
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
 import { initClientEvents, shutdownClientEvents } from './services/clientEvents'
+import { localSearchProcessManager } from './services/localSearch/localSearchProcessManager'
 import { inflightHandle, cooldownHandle } from './ipcThrottle'
 import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus } from './permissions'
@@ -1243,6 +1244,7 @@ app.on('before-quit', () => {
   stopAutoUpdater()
   void shutdownAnalytics()
   void shutdownClientEvents()
+  void localSearchProcessManager.stop().catch((err) => log.warn('Local search shutdown error (non-fatal):', err))
 
   // Stop active recording: kills audiocapture child process, closes Deepgram WebSockets, saves session
   audioManager.shutdown().catch((err) => {

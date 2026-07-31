@@ -34,6 +34,7 @@ export interface LocalSettings {
   // Window state
   dashboardBounds: { x: number; y: number; width: number; height: number } | null;
   overlayBounds: { x: number; y: number; width: number; height: number } | null;
+  overlaySplitRatio: number;
 
   // Preferences
   stealthEnabled: boolean;
@@ -65,6 +66,7 @@ export interface LocalSettings {
   openaiApiKey: string;
   ollamaBaseUrl: string;
   ollamaThinkingEnabled: boolean;
+  interviewComplexModel: string;
   webSearchMode: 'off' | 'explicit' | 'automatic';
   webSearchBackend: 'brave' | 'searxng';
   braveSearchApiKey: string;
@@ -92,6 +94,7 @@ const STORE_DEFAULTS: LocalSettings = {
   proOnboardingStep: '',
   dashboardBounds: null,
   overlayBounds: null,
+  overlaySplitRatio: 0.45,
   // Protect the overlay from screen-sharing and recording software by
   // default. Users can still explicitly opt out through the Detectable /
   // Undetectable control, but a fresh install must not begin in the unsafe
@@ -116,8 +119,9 @@ const STORE_DEFAULTS: LocalSettings = {
   openaiApiKey: '',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   ollamaThinkingEnabled: false,
+  interviewComplexModel: 'qwen3.6:35b',
   webSearchMode: 'off',
-  webSearchBackend: 'brave',
+  webSearchBackend: 'searxng',
   braveSearchApiKey: '',
   searxngBaseUrl: 'http://127.0.0.1:8080',
   activeModeId: null,
@@ -182,6 +186,7 @@ export function getAllSettings(): LocalSettings {
     onboardingComplete: store.get('onboardingComplete'),
     dashboardBounds: store.get('dashboardBounds'),
     overlayBounds: store.get('overlayBounds'),
+    overlaySplitRatio: store.get('overlaySplitRatio'),
     stealthEnabled: store.get('stealthEnabled'),
     theme: store.get('theme'),
     openOnLogin: store.get('openOnLogin'),
@@ -202,6 +207,7 @@ export function getAllSettings(): LocalSettings {
     openaiApiKey: store.get('openaiApiKey'),
     ollamaBaseUrl: store.get('ollamaBaseUrl'),
     ollamaThinkingEnabled: store.get('ollamaThinkingEnabled'),
+    interviewComplexModel: store.get('interviewComplexModel'),
     webSearchMode: store.get('webSearchMode'),
     webSearchBackend: store.get('webSearchBackend'),
     braveSearchApiKey: '',

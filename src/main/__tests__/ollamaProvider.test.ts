@@ -58,8 +58,16 @@ describe('OllamaProvider', () => {
     expect(onDone).toHaveBeenCalledWith('hello')
     const [, request] = fetchMock.mock.calls[0]
     const body = JSON.parse(String(request?.body))
-    expect(body).toEqual(expect.objectContaining({ think: false, stream: true, options: { num_predict: 300 } }))
+    expect(body).toEqual(expect.objectContaining({ think: false, stream: true, keep_alive: '30m', options: { num_predict: 300 } }))
     expect(request).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+  })
+
+  it('preloads the selected model without prompt or meeting content', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ done: true }), { status: 200 }))
+    await OllamaProvider.preload('qwen3.6:35b')
+    const [, request] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String(request?.body))
+    expect(body).toEqual({ model: 'qwen3.6:35b', messages: [], stream: false, keep_alive: '30m' })
   })
 
   it('enables thinking, expands its token budget, and sends images in native format', async () => {
@@ -147,6 +155,29 @@ describe('OllamaProvider', () => {
     expect(onText).toHaveBeenCalledWith('Grounded [source](https://example.com)')
   })
 
+  it('keeps web-search routing in direct mode when answer thinking is enabled', async () => {
+    vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['thinking', 'tools'], supportsVision: false })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { content: 'No search needed' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"message":{"content":"Visible answer"},"done":true}\n', { status: 200 }))
+
+    const onText = vi.fn()
+    await new OllamaProvider('qwen:latest').streamResponse(
+      { system: 'system', messages: [{ role: 'user', content: 'timeless question' }], maxTokens: 300 },
+      { onText, onDone: vi.fn(), onError: vi.fn() },
+      { thinking: true, webSearch: { force: false, fallbackQuery: '', search: vi.fn() } },
+    )
+
+    const decisionBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    const answerBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
+    expect(decisionBody).toEqual(expect.objectContaining({ think: false, stream: false }))
+    expect(decisionBody.keep_alive).toBe('30m')
+    expect(decisionBody.options.num_predict).toBe(300)
+    expect(answerBody).toEqual(expect.objectContaining({ think: true, stream: true }))
+    expect(onText).toHaveBeenCalledWith('Visible answer')
+  })
+
   it('uses the explicit request as a fallback query when the model omits a tool call', async () => {
     vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
     vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
@@ -180,6 +211,21 @@ describe('OllamaProvider', () => {
     const answerBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
     expect(answerBody.messages.at(-1).content).toContain('verification failed')
     expect(answerBody.messages.at(-1).content).toContain('Do not invent or cite sources')
+  })
+
+  it('reports local-search startup failures without mislabeling them as Ollama failures', async () => {
+    vi.spyOn(OllamaProvider, 'health').mockResolvedValue({ healthy: true })
+    vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['tools'], supportsVision: false })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      message: { tool_calls: [{ function: { name: 'web_search', arguments: { query: 'current facts' } } }] },
+    }), { status: 200 }))
+    const onError = vi.fn()
+    await expect(new OllamaProvider('qwen:latest').streamResponse(
+      { system: 'system', messages: [{ role: 'user', content: 'verify this' }] },
+      { onText: vi.fn(), onDone: vi.fn(), onError },
+      { webSearch: { force: true, fallbackQuery: 'verify this', search: vi.fn().mockRejectedValue(new Error('Free local search needs one-time installation in Settings.')) } },
+    )).rejects.toThrow('one-time installation')
+    expect(onError).toHaveBeenCalledWith('Free local search needs one-time installation in Settings.')
   })
 
   it('rejects a missing configured model', async () => {

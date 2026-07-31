@@ -75,7 +75,7 @@ describe('store', () => {
 
     it('defaults web search to off', () => {
       expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
-        defaults: expect.objectContaining({ webSearchMode: 'off', webSearchBackend: 'brave' }),
+        defaults: expect.objectContaining({ webSearchMode: 'off', webSearchBackend: 'searxng' }),
       }))
     })
 
@@ -85,6 +85,12 @@ describe('store', () => {
           audioInputDeviceId: '',
           audioOutputDeviceId: '',
         }),
+      }))
+    })
+
+    it('defaults the adaptive overlay to a 45/55 transcript-response split', () => {
+      expect(mockStoreOptions[0]).toEqual(expect.objectContaining({
+        defaults: expect.objectContaining({ overlaySplitRatio: 0.45 }),
       }))
     })
   })

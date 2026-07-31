@@ -14,10 +14,11 @@ describe('WebSearchService', () => {
   })
 
   it('accepts loopback SearXNG and requests JSON results', async () => {
+    const ensureAvailable = vi.fn().mockResolvedValue({ state: 'ready' })
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       results: [{ title: '<b>Result</b>', url: 'https://example.com/page', content: '<p>Useful snippet</p>' }],
     }), { status: 200 }))
-    const results = await new WebSearchService().search({
+    const results = await new WebSearchService({ ensureAvailable }).search({
       backend: 'searxng', searxngBaseUrl: 'http://127.0.0.1:8080/',
     }, ' current facts\nprivate tail ')
     expect(results).toEqual([{ title: 'Result', url: 'https://example.com/page', snippet: 'Useful snippet' }])
@@ -26,6 +27,16 @@ describe('WebSearchService', () => {
     expect(url.pathname).toBe('/search')
     expect(url.searchParams.get('format')).toBe('json')
     expect(url.searchParams.get('q')).toBe('current facts private tail')
+    expect(ensureAvailable).toHaveBeenCalledWith('http://127.0.0.1:8080/')
+  })
+
+  it('does not fall back when managed local search is unavailable', async () => {
+    const ensureAvailable = vi.fn().mockRejectedValue(new Error('Free local search needs one-time installation in Settings.'))
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    await expect(new WebSearchService({ ensureAvailable }).search({
+      backend: 'searxng', searxngBaseUrl: 'http://127.0.0.1:8080',
+    }, 'private interview query')).rejects.toThrow('one-time installation')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('uses Brave fixed HTTPS endpoint and protected header', async () => {

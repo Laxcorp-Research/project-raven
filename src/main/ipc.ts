@@ -1,4 +1,5 @@
 import { app, ipcMain, shell, screen, BrowserWindow } from 'electron'
+import { join } from 'node:path'
 import {
   getAllSettings,
   getSetting,
@@ -28,6 +29,7 @@ import { createLogger } from './logger'
 import { cooldownHandle } from './ipcThrottle'
 import { DEFAULT_OLLAMA_URL, OllamaProvider, validateOllamaUrl } from './services/ai/ollamaProvider'
 import { localSttProcessManager } from './services/localStt/localSttProcessManager'
+import { localSearchProcessManager } from './services/localSearch/localSearchProcessManager'
 import { describeDataPath, evaluateProviderReadiness } from './services/providerReadiness'
 import { validateSearxngUrl, webSearchService } from './services/webSearchService'
 
@@ -66,6 +68,7 @@ function assertBoolean(val: unknown, name: string): asserts val is boolean {
 }
 
 export function registerIpcHandlers(): void {
+  localSearchProcessManager.configureRoot(app.isPackaged ? app.getPath('userData') : process.cwd())
   const OVERLAY_MIN_WIDTH = 480
   const OVERLAY_COMPACT_MIN_HEIGHT = 210
   const OVERLAY_COMPACT_TARGET_HEIGHT = 216
@@ -143,7 +146,10 @@ export function registerIpcHandlers(): void {
     return OllamaProvider.inspectModel(model, url)
   })
 
-  safeHandle('web-search:status', () => ({ hasBraveKey: Boolean(getApiKey('braveSearchApiKey')) }))
+  safeHandle('web-search:status', () => ({
+    hasBraveKey: Boolean(getApiKey('braveSearchApiKey')),
+    localSearch: localSearchProcessManager.getStatus(),
+  }))
   safeHandle('web-search:save-brave-key', (key: string) => {
     assertString(key, 'key', 500)
     saveSetting('braveSearchApiKey', key.trim())
@@ -159,6 +165,17 @@ export function registerIpcHandlers(): void {
       searxngBaseUrl: searxngBaseUrl || String(getSetting('searxngBaseUrl')),
     }, 'Raven meeting assistant', AbortSignal.timeout(12_000))
     return { healthy: true, resultCount: results.length }
+  })
+  safeHandle('local-search:setup', async () => localSearchProcessManager.install(
+    join(app.getAppPath(), 'scripts', 'setup-local-search.mjs'),
+  ))
+  safeHandle('local-search:start', async (baseUrl?: string) => {
+    if (baseUrl !== undefined) assertString(baseUrl, 'baseUrl', 500)
+    return localSearchProcessManager.ensureAvailable(baseUrl || String(getSetting('searxngBaseUrl') || 'http://127.0.0.1:8080'))
+  })
+  safeHandle('local-search:stop', async () => {
+    await localSearchProcessManager.stop()
+    return localSearchProcessManager.getStatus()
   })
 
   safeHandle('local-stt:status', () => localSttProcessManager.getStatus())

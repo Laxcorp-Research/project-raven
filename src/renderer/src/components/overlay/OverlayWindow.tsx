@@ -22,6 +22,14 @@ import { useOverlayDrag } from './useOverlayDrag'
 import { useMousePassthrough } from './useMousePassthrough'
 import { createLogger } from '../../lib/logger'
 import { buildInterviewPresentation } from '../../lib/interviewPresentation'
+import {
+  DEFAULT_SPLIT_RATIO,
+  SPLIT_VIEW_MARGIN,
+  clampSplitRatio,
+  normalizeSavedSplitRatio,
+  preferredSplitWidth,
+  shouldUseSplitView,
+} from './overlayLayout'
 
 const log = createLogger('OverlayWindow')
 
@@ -99,7 +107,7 @@ export function OverlayWindow() {
   const resize = useOverlayResize()
   const {
     panelWidth, panelRight, panelBottom, panelHeight,
-    setPanelRight, setPanelBottom, setPanelHeight,
+    setPanelWidth, setPanelRight, setPanelBottom, setPanelHeight,
     hoveredResizeEdge, setHoveredResizeEdge,
     activeResizeEdge,
     handleResizeStart,
@@ -144,6 +152,7 @@ export function OverlayWindow() {
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [limitInfo, setLimitInfo] = useState<{ type: 'ai' | 'session'; used: number; limit: number; resetAt: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
+  const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT_RATIO)
   const [meetingBanner, setMeetingBanner] = useState<{ platform: string | null; windowId: number } | null>(null)
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -155,9 +164,13 @@ export function OverlayWindow() {
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const splitContentRef = useRef<HTMLDivElement | null>(null)
+  const splitRatioRef = useRef(DEFAULT_SPLIT_RATIO)
+  const hasAutoExpandedRef = useRef(false)
 
   const hasResponse = responses.length > 0 || isLoadingResponse
   const isPanelExpanded = hasResponse || isRecording
+  const isSplitView = shouldUseSplitView(panelWidth, hasResponse)
 
   const { handleLogoClick, handleLogoMouseDown, cleanupDrag } = useOverlayDrag({
     panelRight, panelBottom, panelWidth, panelHeight,
@@ -192,6 +205,12 @@ export function OverlayWindow() {
 
     window.raven.storeGet('incognitoMode').then((enabled) => {
       if (typeof enabled === 'boolean') setIncognitoMode(enabled)
+    }).catch(() => {})
+
+    window.raven.storeGet('overlaySplitRatio').then((value) => {
+      const ratio = normalizeSavedSplitRatio(value)
+      splitRatioRef.current = ratio
+      setSplitRatio(ratio)
     }).catch(() => {})
 
     window.raven.audioGetState().then((state) => {
@@ -729,6 +748,36 @@ export function OverlayWindow() {
   const showBottomResizeRail = hasResponse || isRecording
   const showX = isHoveringPanel || isHoveringX
 
+  const handleSplitDividerMouseDown = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const container = splitContentRef.current
+    if (!container) return
+
+    const originalCursor = document.body.style.cursor
+    const originalUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      const rect = container.getBoundingClientRect()
+      if (rect.width <= 0) return
+      const next = clampSplitRatio((moveEvent.clientX - rect.left) / rect.width)
+      splitRatioRef.current = next
+      setSplitRatio(next)
+    }
+
+    const handleUp = () => {
+      window.removeEventListener('mousemove', handleMove)
+      document.body.style.cursor = originalCursor
+      document.body.style.userSelect = originalUserSelect
+      void window.raven.storeSet('overlaySplitRatio', splitRatioRef.current)
+    }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp, { once: true })
+  }, [])
+
   useEffect(() => {
     if (hasResponse && activeTab !== 'responses') {
       setActiveTab('responses')
@@ -738,6 +787,18 @@ export function OverlayWindow() {
     // while one exists.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasResponse])
+
+  useEffect(() => {
+    if (!hasResponse || hasAutoExpandedRef.current) return
+    hasAutoExpandedRef.current = true
+    const targetWidth = preferredSplitWidth(window.innerWidth)
+    if (targetWidth === null || panelWidth >= targetWidth) return
+    setPanelWidth(targetWidth)
+    setPanelRight(Math.max(
+      SPLIT_VIEW_MARGIN,
+      Math.round((window.innerWidth - targetWidth) / 2),
+    ))
+  }, [hasResponse, panelWidth, setPanelRight, setPanelWidth])
 
   useEffect(() => {
     if (activeTab === 'responses' && responseAreaRef.current) {
@@ -1007,7 +1068,7 @@ export function OverlayWindow() {
         >
 
           {/* Tab Bar - visible when panel is expanded (recording or has responses) */}
-          {isPanelExpanded && (
+          {isPanelExpanded && !isSplitView && (
             <div className="flex px-4 border-b border-white/10 shrink-0">
               {(hasResponse || !isRecording) && (
                 <button
@@ -1036,15 +1097,61 @@ export function OverlayWindow() {
             </div>
           )}
 
+          <div
+            ref={splitContentRef}
+            className={`relative flex-1 min-h-0 overflow-hidden ${isSplitView ? 'flex' : 'block'}`}
+          >
           {/* Transcript Tab */}
-          {isPanelExpanded && activeTab === 'transcript' && (
-            <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-              <TranscriptTab />
+          {isPanelExpanded && (isSplitView || activeTab === 'transcript') && (
+            <div
+              className={`relative min-w-0 h-full flex flex-col overflow-hidden ${isSplitView ? 'border-r border-white/5' : ''}`}
+              style={isSplitView ? { flex: `0 0 ${splitRatio * 100}%` } : undefined}
+            >
+              {isSplitView && (
+                <div className="shrink-0 border-b border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                  Live transcript
+                </div>
+              )}
+              <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+                <TranscriptTab />
+              </div>
             </div>
           )}
 
+          {isSplitView && (
+            <button
+              type="button"
+              aria-label="Resize transcript and response panes"
+              title="Drag to resize panes; double-click to reset"
+              onMouseDown={handleSplitDividerMouseDown}
+              onDoubleClick={() => {
+                splitRatioRef.current = DEFAULT_SPLIT_RATIO
+                setSplitRatio(DEFAULT_SPLIT_RATIO)
+                void window.raven.storeSet('overlaySplitRatio', DEFAULT_SPLIT_RATIO)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                event.preventDefault()
+                const next = clampSplitRatio(splitRatioRef.current + (event.key === 'ArrowLeft' ? -0.02 : 0.02))
+                splitRatioRef.current = next
+                setSplitRatio(next)
+                void window.raven.storeSet('overlaySplitRatio', next)
+              }}
+              className="group relative z-10 w-3 shrink-0 cursor-col-resize border-x border-white/[0.06] bg-white/[0.025] hover:bg-blue-400/10 focus:bg-blue-400/10 focus:outline-none"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              <span className="absolute left-1/2 top-1/2 h-14 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/20 transition-colors group-hover:bg-blue-300/70 group-focus:bg-blue-300/70" />
+            </button>
+          )}
+
           {/* Response Area */}
-          {hasResponse && activeTab === 'responses' && (
+          {hasResponse && (isSplitView || activeTab === 'responses') && (
+            <div className="relative min-w-0 h-full flex-1 flex flex-col overflow-hidden">
+            {isSplitView && (
+              <div className="shrink-0 border-b border-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                Responses
+              </div>
+            )}
             <div className="relative flex-1 min-h-0">
             <div ref={responseAreaRef} onScroll={handleResponseScroll} className="overlay-scroll h-full overflow-y-auto px-4 pt-4 pb-4 space-y-4" style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 12px, black calc(100% - 12px), transparent 100%)' }}>
               <AnimatePresence initial={false}>
@@ -1323,7 +1430,9 @@ export function OverlayWindow() {
               </button>
             )}
             </div>
+            </div>
           )}
+          </div>
 
           {/* Quick Actions - Only when recording */}
           {isRecording && (

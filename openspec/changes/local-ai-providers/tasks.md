@@ -30,6 +30,7 @@
 - [x] 5.2 Add Ollama, local STT, transcription, readiness, migration, privacy, and cancellation unit tests
 - [x] 5.3 Add opt-in Brave/SearXNG web-search tooling, privacy settings, grounding, and mocked tests
 - [x] 5.4 Tighten automatic search selection, primary-source grounding, concise local answers, and single-query limits
+- [x] 5.5 Keep live local replies responsive by disabling thinking in search routing, preloading the selected model, and regression-testing the explicit direct-answer path
 - [x] 5.3 Add a mocked dual-PCM-to-overlay integration test
 
 ## 6. Documentation and Validation

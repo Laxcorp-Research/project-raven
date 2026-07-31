@@ -3,6 +3,7 @@ import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
 import { DEFAULT_OLLAMA_URL, OllamaProvider } from './ollamaProvider';
 import { createLogger } from '../../logger';
+import { classifyInterviewComplexity, type InterviewContext } from '../interviewCopilot';
 
 const log = createLogger('AI');
 
@@ -83,6 +84,54 @@ export async function getProviderFromStore(): Promise<AIProvider> {
 
   const baseURL = provider === 'ollama' ? String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL) : undefined;
   return getProvider({ provider, model, apiKey, baseURL });
+}
+
+export interface InterviewProviderSelection {
+  provider: AIProvider;
+  model: string;
+  routed: boolean;
+  warning?: string;
+  reasons: string[];
+}
+
+export function selectInterviewModel(input: {
+  primaryModel: string;
+  complexModel: string;
+  complexTurn: boolean;
+  complexModelAvailable: boolean;
+}): { model: string; routed: boolean; warning?: string } {
+  if (!input.complexTurn || !input.complexModel || input.complexModel === input.primaryModel) {
+    return { model: input.primaryModel, routed: false };
+  }
+  if (!input.complexModelAvailable) {
+    return { model: input.primaryModel, routed: false, warning: 'The complex interview model is unavailable; Raven is using the primary local model.' };
+  }
+  return { model: input.complexModel, routed: true };
+}
+
+export async function getInterviewProviderFromStore(context: InterviewContext, signal?: AbortSignal): Promise<InterviewProviderSelection> {
+  const { getSetting } = await import('../../store');
+  const providerName = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
+  const primaryModel = String(getSetting('aiModel') || '');
+  const complexity = classifyInterviewComplexity(context);
+  if (providerName !== 'ollama') {
+    return { provider: await getProviderFromStore(), model: primaryModel, routed: false, reasons: complexity.reasons };
+  }
+
+  const baseURL = String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL);
+  const complexModel = String(getSetting('interviewComplexModel') || '');
+  let available = false;
+  if (complexity.complex && complexModel && complexModel !== primaryModel) {
+    available = await OllamaProvider.inspectModel(complexModel, baseURL, signal).then(() => true).catch(() => false);
+  }
+  const selected = selectInterviewModel({ primaryModel, complexModel, complexTurn: complexity.complex, complexModelAvailable: available });
+  return {
+    provider: getProvider({ provider: 'ollama', model: selected.model, apiKey: '', baseURL }),
+    model: selected.model,
+    routed: selected.routed,
+    warning: selected.warning,
+    reasons: complexity.reasons,
+  };
 }
 
 /** Open-source mode: fast model with user's own keys. */

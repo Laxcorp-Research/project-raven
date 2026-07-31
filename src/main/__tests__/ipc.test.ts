@@ -61,6 +61,14 @@ const { mockValidateBothKeys, mockValidateKeys } = vi.hoisted(() => ({
   mockValidateKeys: vi.fn().mockResolvedValue({ valid: true }),
 }))
 
+const { mockLocalSearchStatus, mockLocalSearchInstall, mockLocalSearchStart, mockLocalSearchStop } = vi.hoisted(() => ({
+  mockLocalSearchStatus: vi.fn(() => ({ state: 'not-installed', installed: false, endpoint: 'http://127.0.0.1:8080', managed: false })),
+  mockLocalSearchInstall: vi.fn(),
+  mockLocalSearchStart: vi.fn(),
+  mockLocalSearchStop: vi.fn(),
+}))
+const mockLocalSearchConfigureRoot = vi.hoisted(() => vi.fn())
+
 // ---------------------------------------------------------------------------
 // Hoisted mocks - electron
 // ---------------------------------------------------------------------------
@@ -92,6 +100,8 @@ const {
 vi.mock('electron', () => ({
   app: {
     getPath: vi.fn(() => '/tmp/raven-test'),
+    getAppPath: vi.fn(() => '/tmp/raven-app'),
+    isPackaged: false,
     setLoginItemSettings: mockSetLoginItemSettings,
     quit: mockQuit,
     getVersion: mockGetVersion,
@@ -150,6 +160,16 @@ vi.mock('../ipcThrottle', () => ({
 vi.mock('../validators', () => ({
   validateBothKeys: mockValidateBothKeys,
   validateKeys: mockValidateKeys,
+}))
+
+vi.mock('../services/localSearch/localSearchProcessManager', () => ({
+  localSearchProcessManager: {
+    getStatus: mockLocalSearchStatus,
+    configureRoot: mockLocalSearchConfigureRoot,
+    install: mockLocalSearchInstall,
+    ensureAvailable: mockLocalSearchStart,
+    stop: mockLocalSearchStop,
+  },
 }))
 
 vi.mock('../../main/logger', () => ({
@@ -899,6 +919,27 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
       const result = handlers['window:auto-size-overlay'](fakeEvent(), 'compact')
 
       expect(result).toBe(true)
+    })
+  })
+
+  describe('managed local search', () => {
+    it('exposes setup and start through typed IPC handlers', async () => {
+      const installed = { state: 'stopped', installed: true, endpoint: 'http://127.0.0.1:8080', managed: false }
+      const ready = { ...installed, state: 'ready', managed: true }
+      mockLocalSearchInstall.mockResolvedValue(installed)
+      mockLocalSearchStart.mockResolvedValue(ready)
+
+      await expect(handlers['local-search:setup'](fakeEvent())).resolves.toEqual(installed)
+      await expect(handlers['local-search:start'](fakeEvent(), 'http://127.0.0.1:8080')).resolves.toEqual(ready)
+      expect(mockLocalSearchInstall).toHaveBeenCalledWith(expect.stringContaining('scripts'))
+      expect(mockLocalSearchStart).toHaveBeenCalledWith('http://127.0.0.1:8080')
+    })
+
+    it('stops only through the owned process manager', async () => {
+      mockLocalSearchStop.mockResolvedValue(undefined)
+      await handlers['local-search:stop'](fakeEvent())
+      expect(mockLocalSearchStop).toHaveBeenCalledTimes(1)
+      expect(mockLocalSearchStatus).toHaveBeenCalled()
     })
   })
 

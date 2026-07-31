@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
-import { getProviderFromStore, getProProvider, getProFastProvider } from './services/ai/providerFactory';
+import { getInterviewProviderFromStore, getProviderFromStore, getProProvider, getProFastProvider } from './services/ai/providerFactory';
 import { DEFAULT_OLLAMA_URL, OllamaProvider } from './services/ai/ollamaProvider';
 import { getApiKey, getSetting, isProMode } from './store';
 import type { AIMessage, AIContentPart } from './services/ai/types';
@@ -363,20 +363,30 @@ export class ClaudeService {
         const effectiveParams = preparedInterview?.transcript
           ? { ...params, transcript: preparedInterview.transcript }
           : params;
+        const interviewContext = interviewRequest
+          ? buildInterviewContext(effectiveParams.transcript, effectiveParams.customPrompt)
+          : null;
 
         let provider;
+        let activeOllamaModel = String(getSetting('aiModel') || '');
         if (isProMode()) {
           const useDeepModel = getSetting('smartMode') === true;
           provider = useDeepModel ? await getProProvider() : await getProFastProvider();
         } else {
-          provider = await getProviderFromStore();
+          if (interviewContext && getSetting('aiProvider') === 'ollama') {
+            const selection = await getInterviewProviderFromStore(interviewContext, requestController.signal);
+            provider = selection.provider;
+            activeOllamaModel = selection.model;
+            if (selection.warning) this.broadcast({ type: 'warning', warning: selection.warning });
+          } else {
+            provider = await getProviderFromStore();
+          }
         }
 
         let screenshotAllowed = true;
         if (effectiveParams.includeScreenshot && provider.name === 'ollama') {
-          const model = String(getSetting('aiModel') || '');
           const baseURL = String(getSetting('ollamaBaseUrl') || DEFAULT_OLLAMA_URL);
-          const capability = await OllamaProvider.inspectModel(model, baseURL, requestController.signal);
+          const capability = await OllamaProvider.inspectModel(activeOllamaModel, baseURL, requestController.signal);
           screenshotAllowed = capability.supportsVision;
           if (!screenshotAllowed) {
             this.broadcast({ type: 'warning', warning: 'The selected Ollama model is text-only, so the screenshot was not sent. Choose a vision-capable model to include the screen.' });
@@ -522,7 +532,7 @@ Lead with the answer and keep a live response focused, normally 120-220 words un
                 provider,
                 requestParams,
                 requestOptions,
-                buildInterviewContext(effectiveParams.transcript, effectiveParams.customPrompt),
+                interviewContext,
                 (draft) => {
                   if (requestController.signal.aborted || this.activeRequest !== requestController) return;
                   fullResponse = draft;

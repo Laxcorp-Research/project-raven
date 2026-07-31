@@ -49,8 +49,22 @@ export async function evaluateProviderReadiness(localStt?: LocalSttReadinessSour
       const models = await OllamaProvider.listModels(baseURL).catch(() => [])
       aiReady = models.some((item) => item.name === model || item.name.split(':')[0] === model)
       if (!aiReady) errors.push(`Ollama model "${model}" is not installed.`)
+      else {
+        try { await OllamaProvider.preload(model, baseURL) }
+        catch { warnings.push('The selected Ollama model could not be preloaded; the first response may be slower.') }
+      }
       const selected = models.find((item) => item.name === model)
       if (selected && !selected.supportsVision) warnings.push('Selected Ollama model is text-only; screenshots will not be sent.')
+      const complexModel = String(getSetting('interviewComplexModel') || '')
+      if (complexModel && complexModel !== model) {
+        const complex = models.find((item) => item.name === complexModel || item.name.split(':')[0] === complexModel)
+        if (!complex) warnings.push(`Complex interview model "${complexModel}" is not installed; complex turns will use the primary model.`)
+        else {
+          try { await OllamaProvider.preload(complex.name, baseURL) }
+          catch { warnings.push('The complex interview model could not be preloaded; its first response may be slower.') }
+          if (!complex.supportsVision) warnings.push('Complex interview model is text-only; screenshots will not be sent on routed turns.')
+        }
+      }
     }
     if (webSearchMode !== 'off') {
       const backend = getSetting('webSearchBackend') || 'brave'

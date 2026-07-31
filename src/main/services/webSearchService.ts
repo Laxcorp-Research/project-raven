@@ -1,4 +1,5 @@
 import { createLogger } from '../logger'
+import { localSearchProcessManager } from './localSearch/localSearchProcessManager'
 
 const log = createLogger('WebSearch')
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search'
@@ -21,6 +22,10 @@ export interface WebSearchConfig {
   searxngBaseUrl?: string
 }
 
+export interface LocalSearchAvailability {
+  ensureAvailable(baseUrl: string): Promise<unknown>
+}
+
 export function validateSearxngUrl(value: string): URL {
   let url: URL
   try { url = new URL(value) } catch { throw new Error('Invalid SearXNG URL.') }
@@ -36,6 +41,8 @@ export function validateSearxngUrl(value: string): URL {
 }
 
 export class WebSearchService {
+  constructor(private readonly localSearch: LocalSearchAvailability = localSearchProcessManager) {}
+
   async search(config: WebSearchConfig, rawQuery: string, signal?: AbortSignal): Promise<WebSearchResult[]> {
     const query = normalizeQuery(rawQuery)
     if (!query) throw new Error('Web search query is empty.')
@@ -62,6 +69,7 @@ export class WebSearchService {
 
   private async searchSearxng(baseUrl: string, query: string, signal?: AbortSignal): Promise<WebSearchResult[]> {
     const url = validateSearxngUrl(baseUrl)
+    await this.localSearch.ensureAvailable(url.toString())
     url.pathname = `${url.pathname.replace(/\/$/, '')}/search`
     url.searchParams.set('q', query)
     url.searchParams.set('format', 'json')

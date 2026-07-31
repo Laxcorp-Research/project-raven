@@ -21,9 +21,11 @@ vi.mock('../../main/logger', () => ({
   }),
 }))
 
-import { getProvider, clearProviderCache, getProviderFromStore, getFastProvider } from '../services/ai/providerFactory'
+import { getProvider, clearProviderCache, getProviderFromStore, getFastProvider, getInterviewProviderFromStore, selectInterviewModel } from '../services/ai/providerFactory'
 import { AnthropicProvider } from '../services/ai/anthropicProvider'
 import { OpenAIProvider } from '../services/ai/openaiProvider'
+import { OllamaProvider } from '../services/ai/ollamaProvider'
+import { buildInterviewContext } from '../services/interviewCopilot'
 
 describe('providerFactory', () => {
   beforeEach(() => {
@@ -255,6 +257,44 @@ describe('providerFactory', () => {
       await expect(getFastProvider()).rejects.toThrow(
         'No API key configured for anthropic. Add it in Settings.'
       )
+    })
+  })
+
+  describe('interview model routing', () => {
+    it('keeps ordinary turns on the primary model', () => {
+      expect(selectInterviewModel({ primaryModel: 'qwen3.5:9b', complexModel: 'qwen3.6:35b', complexTurn: false, complexModelAvailable: true })).toEqual({ model: 'qwen3.5:9b', routed: false })
+    })
+
+    it('routes complex turns only when the local model is available', () => {
+      expect(selectInterviewModel({ primaryModel: 'qwen3.5:9b', complexModel: 'qwen3.6:35b', complexTurn: true, complexModelAvailable: true })).toEqual({ model: 'qwen3.6:35b', routed: true })
+      const fallback = selectInterviewModel({ primaryModel: 'qwen3.5:9b', complexModel: 'missing:35b', complexTurn: true, complexModelAvailable: false })
+      expect(fallback.model).toBe('qwen3.5:9b')
+      expect(fallback.routed).toBe(false)
+      expect(fallback.warning).toMatch(/using the primary local model/i)
+    })
+
+    it('does not route when the complex and primary models are identical', () => {
+      expect(selectInterviewModel({ primaryModel: 'qwen3.5:9b', complexModel: 'qwen3.5:9b', complexTurn: true, complexModelAvailable: true })).toEqual({ model: 'qwen3.5:9b', routed: false })
+    })
+
+    it('selects an installed complex Ollama model for a complex interview turn', async () => {
+      mockStoreGet.mockImplementation((key: string) => ({
+        aiProvider: 'ollama', aiModel: 'qwen3.5:9b', interviewComplexModel: 'qwen3.6:35b', ollamaBaseUrl: 'http://127.0.0.1:11434',
+      } as Record<string, unknown>)[key])
+      vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['completion'], supportsVision: false })
+      const result = await getInterviewProviderFromStore(buildInterviewContext('', 'Fix this function and explain the complexity.'))
+      expect(result).toMatchObject({ model: 'qwen3.6:35b', routed: true })
+      expect(result.provider).toBeInstanceOf(OllamaProvider)
+    })
+
+    it('falls back locally when the configured complex model is missing', async () => {
+      mockStoreGet.mockImplementation((key: string) => ({
+        aiProvider: 'ollama', aiModel: 'qwen3.5:9b', interviewComplexModel: 'missing:35b', ollamaBaseUrl: 'http://127.0.0.1:11434',
+      } as Record<string, unknown>)[key])
+      vi.spyOn(OllamaProvider, 'inspectModel').mockRejectedValue(new Error('not installed'))
+      const result = await getInterviewProviderFromStore(buildInterviewContext('', 'Diagnose this flaky test.'))
+      expect(result).toMatchObject({ model: 'qwen3.5:9b', routed: false })
+      expect(result.warning).toMatch(/primary local model/i)
     })
   })
 })

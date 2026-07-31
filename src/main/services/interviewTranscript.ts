@@ -40,7 +40,7 @@ export function prepareInterviewTranscript(rawTranscript: string): PreparedInter
   }
 
   const completedRemote = merged.filter((line) => isRemoteSpeaker(line.speaker) && !line.unfinished);
-  const latestQuestionLine = [...completedRemote].reverse().find((line) => isQuestionLike(line.text));
+  const latestQuestionLine = [...completedRemote].reverse().find((line) => isActionableInterviewQuestion(line.text));
   const hasUnfinishedRemoteSpeech = merged.some((line, index) => index === merged.length - 1 && isRemoteSpeaker(line.speaker) && line.unfinished);
 
   return {
@@ -68,8 +68,10 @@ function isRemoteSpeaker(speaker: string): boolean {
   return /^(?:them|interviewer|recruiter|hiring manager|panelist|speaker\s*\d*)$/i.test(speaker.trim());
 }
 
-function isQuestionLike(text: string): boolean {
-  return /\?|\b(?:what|why|how|when|where|which|who|can you|could you|would you|tell me|describe|explain|design|implement|fix|walk me through|give me)\b/i.test(text);
+export function isActionableInterviewQuestion(text: string): boolean {
+  const normalized = text.trim();
+  if (/^(?:that|this|it)\s+(?:makes sense|is clear|sounds good),?\s*(?:right|correct)\??$/i.test(normalized)) return false;
+  return /\?|\b(?:what|why|how|when|where|which|who|can you|could you|would you|tell me|describe|explain|design|implement|fix|walk me through|give me)\b/i.test(normalized);
 }
 
 function appendWithoutDuplicate(previous: string, next: string): string {

@@ -19,6 +19,7 @@ vi.mock('../services/sessionManager', () => ({
 }));
 
 vi.mock('../services/ai/providerFactory', () => ({
+  getInterviewProviderFromStore: vi.fn(),
   getProviderFromStore: vi.fn(),
   getFastProvider: vi.fn(),
   getProProvider: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('../logger', () => ({
 }));
 
 import { ClaudeService, generateSessionTitle } from '../claudeService';
-import { getProviderFromStore, getFastProvider, getProProvider, getProFastProvider, getProSystemProvider } from '../services/ai/providerFactory';
+import { getInterviewProviderFromStore, getProviderFromStore, getFastProvider, getProProvider, getProFastProvider, getProSystemProvider } from '../services/ai/providerFactory';
 import { isProMode, getSetting } from '../store';
 import { desktopCapturer, ipcMain } from 'electron';
 import { OllamaProvider } from '../services/ai/ollamaProvider';
@@ -370,6 +371,7 @@ describe('Provider routing based on mode', () => {
     vi.mocked(getProProvider).mockResolvedValue(mockProvider as any);
     vi.mocked(getProFastProvider).mockResolvedValue(mockProvider as any);
     vi.mocked(getProSystemProvider).mockResolvedValue(mockProvider as any);
+    vi.mocked(getInterviewProviderFromStore).mockResolvedValue({ provider: mockProvider as any, model: 'qwen3.5:9b', routed: false, reasons: [] });
     mockProvider.streamResponse.mockResolvedValue(undefined);
     ClaudeService._resetForTesting();
     new ClaudeService(null);
@@ -485,6 +487,33 @@ describe('Provider routing based on mode', () => {
     expect(JSON.stringify(request.messages)).not.toContain('base64');
   });
 
+  it('uses the routed complex model for interview screenshot capability checks', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'aiProvider') return 'ollama';
+      if (key === 'aiModel') return 'qwen3.5:9b';
+      if (key === 'ollamaBaseUrl') return 'http://127.0.0.1:11434';
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+    const routedProvider = {
+      ...mockProvider,
+      name: 'ollama' as const,
+      streamResponse: vi.fn(async (_params, callbacks) => { callbacks.onText('Use a bounded retry.'); callbacks.onDone(''); }),
+      generateShort: vi.fn(async () => 'Use a bounded retry with a timeout and error handling.'),
+    };
+    vi.mocked(getInterviewProviderFromStore).mockResolvedValue({ provider: routedProvider as any, model: 'qwen3.6:35b', routed: true, reasons: ['coding'] });
+    const inspect = vi.spyOn(OllamaProvider, 'inspectModel').mockResolvedValue({ capabilities: ['completion'], supportsVision: false });
+
+    await getResponseHandler()({}, {
+      transcript: 'Interviewer: Fix this function and explain its complexity?',
+      action: 'assist', modeId: 'mode-interview', includeScreenshot: true,
+    });
+
+    expect(inspect).toHaveBeenCalledWith('qwen3.6:35b', 'http://127.0.0.1:11434', expect.any(AbortSignal));
+    expect(desktopCapturer.getSources).not.toHaveBeenCalled();
+  });
+
   it('adds local answer guidance and forces verification requests through automatic search', async () => {
     vi.mocked(isProMode).mockReturnValue(false);
     vi.mocked(getSetting).mockImplementation((key: string) => {
@@ -510,6 +539,29 @@ describe('Provider routing based on mode', () => {
     expect(request.system).toContain('verify ownership semantics');
     expect(request.system).toContain('separate V8 isolates/heaps');
     expect(options.webSearch.force).toBe(true);
+  });
+
+  it('answers directly in explicit search mode when thinking is disabled and no search is requested', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'aiModel') return 'qwen3.6:35b';
+      if (key === 'ollamaBaseUrl') return 'http://127.0.0.1:11434';
+      if (key === 'ollamaThinkingEnabled') return false;
+      if (key === 'webSearchMode') return 'explicit';
+      if (key === 'displayName') return 'Alice';
+      return '';
+    });
+    const localProvider = { ...mockProvider, name: 'ollama' as const, streamResponse: vi.fn().mockResolvedValue(undefined) };
+    vi.mocked(getProviderFromStore).mockResolvedValue(localProvider as any);
+
+    await getResponseHandler()({}, {
+      transcript: 'Interviewer: How do you diagnose a flaky Playwright test?',
+      action: 'what-should-i-say',
+    });
+
+    const [, , options] = localProvider.streamResponse.mock.calls[0];
+    expect(options.thinking).toBe(false);
+    expect(options.webSearch).toBeUndefined();
   });
 });
 

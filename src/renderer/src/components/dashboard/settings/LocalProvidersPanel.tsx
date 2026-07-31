@@ -11,19 +11,23 @@ export function LocalProvidersPanel() {
   const [baseURL, setBaseURL] = useState('http://127.0.0.1:11434')
   const [models, setModels] = useState<Array<{ name: string; supportsVision: boolean }>>([])
   const [model, setModel] = useState('')
+  const [interviewComplexModel, setInterviewComplexModel] = useState('')
   const [message, setMessage] = useState('')
   const [webSearchMode, setWebSearchMode] = useState<WebSearchMode>('off')
-  const [webSearchBackend, setWebSearchBackend] = useState<WebSearchBackend>('brave')
+  const [webSearchBackend, setWebSearchBackend] = useState<WebSearchBackend>('searxng')
   const [braveKey, setBraveKey] = useState('')
   const [hasBraveKey, setHasBraveKey] = useState(false)
   const [searxngUrl, setSearxngUrl] = useState('http://127.0.0.1:8080')
+  const [localSearch, setLocalSearch] = useState<LocalSearchStatus | null>(null)
+  const [installingSearch, setInstallingSearch] = useState(false)
   const [readiness, setReadiness] = useState<(ProviderReadiness & { summary: string }) | null>(null)
 
   useEffect(() => {
     void (async () => {
-      const [stt, provider, url, selected, searchMode, searchBackend, savedSearxngUrl, searchStatus] = await Promise.all([
+      const [stt, provider, url, selected, savedComplexModel, searchMode, searchBackend, savedSearxngUrl, searchStatus] = await Promise.all([
         window.raven.storeGet('transcriptionProvider'), window.raven.storeGet('aiProvider'),
         window.raven.storeGet('ollamaBaseUrl'), window.raven.storeGet('aiModel'),
+        window.raven.storeGet('interviewComplexModel'),
         window.raven.storeGet('webSearchMode'), window.raven.storeGet('webSearchBackend'),
         window.raven.storeGet('searxngBaseUrl'), window.raven.webSearchStatus(),
       ])
@@ -31,10 +35,12 @@ export function LocalProvidersPanel() {
       if (provider === 'anthropic' || provider === 'openai' || provider === 'ollama') setAi(provider)
       if (typeof url === 'string' && url) setBaseURL(url)
       if (typeof selected === 'string') setModel(selected)
+      if (typeof savedComplexModel === 'string') setInterviewComplexModel(savedComplexModel)
       if (searchMode === 'off' || searchMode === 'explicit' || searchMode === 'automatic') setWebSearchMode(searchMode)
       if (searchBackend === 'brave' || searchBackend === 'searxng') setWebSearchBackend(searchBackend)
       if (typeof savedSearxngUrl === 'string' && savedSearxngUrl) setSearxngUrl(savedSearxngUrl)
       setHasBraveKey(searchStatus.hasBraveKey)
+      setLocalSearch(searchStatus.localSearch)
       setReadiness(await window.raven.providersReadiness())
     })()
   }, [])
@@ -66,6 +72,7 @@ export function LocalProvidersPanel() {
       aiProvider: ai,
       aiModel: model || await window.raven.storeGet('aiModel'),
       ollamaBaseUrl: baseURL,
+      interviewComplexModel,
       webSearchMode,
       webSearchBackend,
       searxngBaseUrl: searxngUrl,
@@ -89,6 +96,36 @@ export function LocalProvidersPanel() {
       setMessage(`Web search is ready (${result.resultCount} test results).`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Web search test failed.')
+    }
+  }
+
+  const setupLocalSearch = async () => {
+    setInstallingSearch(true)
+    setMessage('Installing free local search… This one-time setup can take several minutes.')
+    try {
+      const status = await window.raven.localSearchSetup()
+      setLocalSearch(status)
+      if (status.state === 'failed') throw new Error(status.error || 'Local-search setup failed.')
+      const started = await window.raven.localSearchStart(searxngUrl)
+      setLocalSearch(started)
+      setMessage(started.state === 'ready' || started.state === 'external'
+        ? 'Free local search is ready. Docker is not required.'
+        : started.error || `Local search: ${started.state}`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Local-search setup failed.')
+    } finally {
+      setInstallingSearch(false)
+    }
+  }
+
+  const startLocalSearch = async () => {
+    setMessage('Starting free local search…')
+    try {
+      const status = await window.raven.localSearchStart(searxngUrl)
+      setLocalSearch(status)
+      setMessage(status.error || `Local search: ${status.state}. Docker is not required.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Local search could not start.')
     }
   }
 
@@ -129,6 +166,13 @@ export function LocalProvidersPanel() {
             </select>
             <button onClick={discover} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs">Discover / test</button>
           </div>
+          <label className="block text-xs text-gray-600">Complex interview model
+            <select value={interviewComplexModel} onChange={(e) => setInterviewComplexModel(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm">
+              <option value="">Same as primary model</option>
+              {models.map((item) => <option key={`complex-${item.name}`} value={item.name}>{item.name}{item.supportsVision ? ' · vision' : ' · text'}</option>)}
+            </select>
+            <span className="mt-1 block text-[11px] text-gray-500">Used only for coding, corrections, multipart questions, synthesis, and ambiguous technical questions.</span>
+          </label>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
             <div>
               <p className="text-xs font-medium text-gray-800">Optional internet search</p>
@@ -144,8 +188,8 @@ export function LocalProvidersPanel() {
               </label>
               <label className="text-xs text-gray-600">Backend
                 <select value={webSearchBackend} onChange={(e) => setWebSearchBackend(e.target.value as WebSearchBackend)} disabled={webSearchMode === 'off'} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm disabled:opacity-50">
-                  <option value="brave">Brave Search</option>
-                  <option value="searxng">Local SearXNG</option>
+                  <option value="searxng">Free local search (managed SearXNG)</option>
+                  <option value="brave">Brave Search (paid API)</option>
                 </select>
               </label>
             </div>
@@ -159,7 +203,21 @@ export function LocalProvidersPanel() {
               </div>
             )}
             {webSearchMode !== 'off' && webSearchBackend === 'searxng' && (
-              <input value={searxngUrl} onChange={(e) => setSearxngUrl(e.target.value)} aria-label="SearXNG URL" className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" />
+              <div className="space-y-2">
+                <p className="text-[11px] text-gray-600">Raven installs and starts this private loopback service automatically. No Docker, paid API, or manual startup is required after setup.</p>
+                <input value={searxngUrl} onChange={(e) => setSearxngUrl(e.target.value)} aria-label="SearXNG URL" className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" />
+                <div className="flex flex-wrap items-center gap-2">
+                  {!localSearch?.installed && (
+                    <button disabled={installingSearch} onClick={() => void setupLocalSearch()} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
+                      {installingSearch ? 'Installing…' : 'Install free local search'}
+                    </button>
+                  )}
+                  {localSearch?.installed && (
+                    <button onClick={() => void startLocalSearch()} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs">Start / health check</button>
+                  )}
+                  <span className="text-[11px] text-gray-600">Status: {localSearch?.state || 'checking'}</span>
+                </div>
+              </div>
             )}
             {webSearchMode !== 'off' && <button onClick={() => void testWebSearch()} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs">Test web search</button>}
           </div>

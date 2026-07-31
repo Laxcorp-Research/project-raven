@@ -7,6 +7,15 @@ interface LocalSttStatus {
   pid?: number;
 }
 
+interface LocalSearchStatus {
+  state: 'not-installed' | 'stopped' | 'installing' | 'starting' | 'ready' | 'external' | 'failed';
+  installed: boolean;
+  endpoint: string;
+  managed: boolean;
+  pid?: number;
+  error?: string;
+}
+
 interface ProviderReadiness {
   audioReady: boolean;
   transcriptionReady: boolean;
