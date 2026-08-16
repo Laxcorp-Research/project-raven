@@ -24,7 +24,8 @@
   "mac": {
     "icon": "build/icon.icns",
     "target": [
-      "dmg"
+      "dmg",
+      "zip"
     ],
     "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
     "extraResources": [

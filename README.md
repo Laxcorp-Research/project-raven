@@ -9,9 +9,27 @@
 Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram or AssemblyAI, and gives you AI assistance (Claude or OpenAI) with context-aware responses - all running locally on your desktop. Bring your own API keys.
 
 <p align="center">
+  <a href="#download"><strong>Download</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/Laxcorp-Research/project-raven/releases"><strong>Releases</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/Laxcorp-Research/project-raven/issues"><strong>Issues</strong></a>
 </p>
+
+---
+
+## Download
+
+Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcorp-Research/project-raven/releases/latest). Enter your own API keys in Settings on first launch.
+
+| Platform | Installer |
+|----------|-----------|
+| **Windows 10/11 (x64)** | [Raven-Windows-2.3.9-Setup.exe](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.9/Raven-Windows-2.3.9-Setup.exe) |
+| **macOS 12+ (Apple Silicon)** | [Raven-Mac-2.3.9-Installer.dmg](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.9/Raven-Mac-2.3.9-Installer.dmg) |
+
+**Windows:** run the setup executable. SmartScreen may warn on an unsigned OSS build — choose **More info → Run anyway**.
+
+**macOS:** the DMG is unsigned (no Apple notarization). Open it, drag Raven to Applications, then **right-click Raven → Open** the first time so Gatekeeper allows it. Intel Macs are not in this DMG — build from source below.
+
+Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS).
 
 ---
 
@@ -138,7 +156,9 @@ src/
 
 ## Getting Started
 
-This section is a complete, linear walkthrough — from a fresh machine to a running app. Pick your platform, follow every numbered step in order, and verify each one before moving on.
+If you only want to run Raven, use a [prebuilt installer](#download) instead of this section.
+
+This walkthrough is for building from source — from a fresh machine to a running app. Pick your platform, follow every numbered step in order, and verify each one before moving on.
 
 > **API keys** (entered in-app on first launch — nothing to configure beforehand):
 >

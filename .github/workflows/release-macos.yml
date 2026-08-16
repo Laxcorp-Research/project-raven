@@ -1,0 +1,211 @@
+name: Release macOS
+
+# Builds the macOS installer on macos-15 and attaches it to a GitHub Release.
+# Windows NSIS is produced on a local Windows machine (GStreamer + WASAPI
+# natives) and uploaded to the same release — hosted Windows runners cannot
+# reliably reproduce that path.
+#
+# Unsigned OSS build: no Apple cert / notarization / S3. Users open the
+# app via right-click → Open the first time (Gatekeeper).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing GitHub Release tag to attach Mac artifacts to'
+        required: true
+        default: 'v2.3.9'
+      ref:
+        description: 'Git ref to build (empty = the release tag)'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-electron
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    name: Build macOS
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    env:
+      PKG_CONFIG_PATH: /opt/homebrew/lib/pkgconfig
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Resolve refs
+        id: refs
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            REF="${{ github.event.inputs.ref }}"
+            if [ -z "$REF" ]; then REF="$TAG"; fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+            REF="${GITHUB_REF}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Building ref=$REF for release $TAG"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.refs.outputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Homebrew build deps
+        run: |
+          brew install meson ninja cmake pkg-config gstreamer
+
+      - name: Record GStreamer version
+        id: gst
+        run: |
+          GST_VERSION=$(pkg-config --modversion gstreamer-1.0)
+          echo "version=$GST_VERSION" >> "$GITHUB_OUTPUT"
+          echo "GStreamer $GST_VERSION"
+          pkg-config --exists gstreamer-app-1.0 gstreamer-audio-1.0 gstreamer-bad-audio-1.0
+
+      - name: Cache AEC static deps
+        uses: actions/cache@v4
+        with:
+          path: src/native/aec/deps
+          key: aec-deps-macos-arm64-gst${{ steps.gst.outputs.version }}-webrtc-v1.3
+
+      - name: Build webrtc-audio-processing
+        run: |
+          DEPS_DIR="$GITHUB_WORKSPACE/src/native/aec/deps"
+          if [ -f "$DEPS_DIR/lib/libwebrtc-audio-processing-1.a" ]; then
+            echo "webrtc-audio-processing already present"
+            exit 0
+          fi
+
+          git clone --depth 1 --branch v1.3 \
+            https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing.git \
+            /tmp/webrtc-audio-processing-src
+
+          meson setup /tmp/webrtc-audio-processing-build \
+            --prefix="$DEPS_DIR" \
+            --default-library=static \
+            --buildtype=release \
+            -Dc_args="-fPIC" \
+            -Dcpp_args="-fPIC" \
+            /tmp/webrtc-audio-processing-src
+
+          ninja -C /tmp/webrtc-audio-processing-build
+          ninja -C /tmp/webrtc-audio-processing-build install
+          ls -la "$DEPS_DIR/lib/"*.a
+
+      - name: Build webrtcdsp GStreamer plugin
+        run: |
+          chmod +x src/native/aec/build-webrtcdsp-plugin.sh src/native/aec/build-deps.sh
+          if [ -f src/native/aec/deps/lib/gstreamer-1.0/libgstwebrtcdsp.dylib ]; then
+            echo "webrtcdsp plugin already present"
+            exit 0
+          fi
+          src/native/aec/build-webrtcdsp-plugin.sh
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build native AEC module
+        run: |
+          ELECTRON_VERSION=$(node -p "require('./node_modules/electron/package.json').version")
+          echo "Electron $ELECTRON_VERSION"
+          cd src/native/aec
+          npm install
+          npx cmake-js compile --runtime electron --runtime-version "$ELECTRON_VERSION"
+
+      - name: Build Swift AudioCapture
+        run: |
+          cd src/native/swift/AudioCapture
+          swift build -c release
+
+      - name: Bundle GStreamer dylibs
+        run: |
+          chmod +x scripts/bundle-gstreamer-mac.sh
+          scripts/bundle-gstreamer-mac.sh
+
+      - name: Verify extraResources exist
+        run: |
+          missing=0
+          for f in \
+            src/native/swift/AudioCapture/.build/release/audiocapture \
+            src/native/aec/build/Release/raven-aec.node \
+            src/native/aec/deps/lib/gstreamer-1.0/libgstwebrtcdsp.dylib
+          do
+            if [ ! -e "$f" ]; then
+              echo "MISSING $f"
+              missing=1
+            else
+              echo "OK $f"
+            fi
+          done
+          if [ ! -d build/gstreamer-bundle/plugins ] || [ ! -d build/gstreamer-bundle/lib ]; then
+            echo "MISSING build/gstreamer-bundle/{plugins,lib}"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "electron-builder extraResources would fail — aborting"
+            exit 1
+          fi
+
+      - name: Build TypeScript and Vite
+        run: |
+          npx tsc
+          npx vite build
+
+      - name: Package unsigned Mac DMG + zip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # zip is required for electron-updater on macOS; dmg is the installer.
+          npx electron-builder --mac dmg zip --publish never -c.mac.identity=null
+
+      - name: Upload Mac artifacts to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.refs.outputs.tag }}"
+          VERSION="${TAG#v}"
+          OUT="release/${VERSION}"
+          ls -la "$OUT"
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG does not exist"
+            exit 1
+          fi
+
+          files=()
+          for f in \
+            "$OUT"/Raven-Mac-"$VERSION"-Installer.dmg \
+            "$OUT"/Raven-Mac-"$VERSION"-Installer.dmg.blockmap \
+            "$OUT"/Raven-Mac-"$VERSION"-Installer.zip \
+            "$OUT"/Raven-Mac-"$VERSION"-Installer.zip.blockmap \
+            "$OUT"/latest-mac.yml
+          do
+            if [ -f "$f" ]; then
+              files+=("$f")
+            fi
+          done
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No Mac artifacts found in $OUT"
+            find release -type f
+            exit 1
+          fi
+
+          gh release upload "$TAG" "${files[@]}" --clobber
+          echo "Uploaded to $TAG: ${files[*]}"
