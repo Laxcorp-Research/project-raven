@@ -59,7 +59,7 @@ const TOUR_STEPS: TourStep[] = [
     id: 'stealth-on',
     highlightId: 'stealth',
     label: 'Undetectable',
-    description: 'Raven becomes invisible and is hidden from screen sharing.',
+    description: 'Raven becomes nearly invisible and is hidden from screen sharing.',
   },
   {
     id: 'incognito-off',
@@ -71,16 +71,16 @@ const TOUR_STEPS: TourStep[] = [
     id: 'incognito-on',
     highlightId: 'incognito',
     label: 'Incognito On',
-    description: 'All recording is paused. Nothing is captured or saved until you turn it off.',
+    description: 'The session will not be saved to history. Recording and transcription still run until you stop.',
   },
 ]
 
-interface OverlayTourFreeProps {
+interface OverlayTourProps {
   onBack: () => void
   onNext: () => void
 }
 
-export function OverlayTourFree({ onBack, onNext }: OverlayTourFreeProps) {
+export function OverlayTour({ onBack, onNext }: OverlayTourProps) {
   const [tourIndex, setTourIndex] = useState(0)
   const currentStep = TOUR_STEPS[tourIndex]
   const buttonRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -141,12 +141,14 @@ export function OverlayTourFree({ onBack, onNext }: OverlayTourFreeProps) {
         </p>
       </div>
 
+      {/* Pill mock on dark background */}
       <div className="rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 p-8 flex flex-col items-center gap-5 relative overflow-hidden">
         <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.5) 1px, transparent 1px)',
           backgroundSize: '20px 20px',
         }} />
 
+        {/* The pill */}
         <div
           ref={(el) => { buttonRefs.current['pill'] = el }}
           className={`relative inline-flex items-center rounded-full px-[11px] py-[9px] gap-[7px] transition-all duration-300 ${
@@ -269,7 +271,7 @@ export function OverlayTourFree({ onBack, onNext }: OverlayTourFreeProps) {
           onClick={handleTourNext}
           className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 text-white rounded-xl text-sm font-medium shadow-sm transition-all"
         >
-          {isLast ? 'Continue' : 'Next'} <ArrowRight size={14} />
+          Next <ArrowRight size={14} />
         </button>
       </div>
     </div>

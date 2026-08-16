@@ -20,18 +20,16 @@ interface UsageInfo {
 }
 
 // After the freemium ungate, only the first two items are genuine Pro
-// benefits - free users already get Fast/Deep model toggle, stealth,
-// and post-meeting insights (capped by the 5 AI responses/day and
-// 2 min per session limits, not feature-gated). Keep the full list
+// benefits - free users already get the Settings model/effort picker,
+// stealth, and post-meeting insights (capped by the 5 AI responses/day
+// and 2 min per session limits, not feature-gated). Keep the full list
 // here because the heading is "Everything you need for meetings"
 // not "Pro-only features" - we're enumerating what Raven does, and
-// the Pro sell is the uncapped version. Fixing the one inaccurate
-// label ("sessions" -> "length") since free has unlimited count, just
-// each capped at 2 min.
+// the Pro sell is the uncapped version.
 const FEATURES = [
   { icon: Zap, label: 'Unlimited AI responses' },
   { icon: Clock, label: 'Record full-length meetings' },
-  { icon: Sparkles, label: 'Fast & Deep AI modes' },
+  { icon: Sparkles, label: 'Any current model plus effort control' },
   { icon: Shield, label: 'Invisible to screen sharing' },
   { icon: BarChart3, label: 'Post-meeting insights' },
 ]

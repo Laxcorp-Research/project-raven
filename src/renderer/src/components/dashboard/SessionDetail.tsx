@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import ravenLogo from '../../../../../logo/raven.svg'
-import { useAppMode } from '../../hooks/useAppMode'
 import { createLogger } from '../../lib/logger'
 
 const log = createLogger('SessionDetail')
@@ -47,7 +46,6 @@ type Tab = 'summary' | 'transcript' | 'usage' | 'insights'
 const MAX_TITLE_LENGTH = 200
 
 export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanner, onUpgrade }: SessionDetailProps) {
-  const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [currentInsightsJson, setCurrentInsightsJson] = useState<string | null>(session.insightsJson ?? null)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -436,19 +434,17 @@ export function SessionDetail({ session, onBack, onUpdateTitle, showUpgradeBanne
             >
               Usage
             </button>
-            {isPro && (
-              <button
-                ref={insightsTabRef}
-                onClick={() => setActiveTab('insights')}
-                className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
-                  activeTab === 'insights'
-                    ? 'text-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Insights
-              </button>
-            )}
+            <button
+              ref={insightsTabRef}
+              onClick={() => setActiveTab('insights')}
+              className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                activeTab === 'insights'
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Insights
+            </button>
           </div>
         </div>
 

@@ -1,11 +1,29 @@
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { sessionManager } from './services/sessionManager';
-import { getProviderFromStore, getProProvider, getProFastProvider } from './services/ai/providerFactory';
+import { getProviderFromStore, getProProvider } from './services/ai/providerFactory';
 import { getSetting, isProMode } from './store';
-import type { AIMessage, AIContentPart } from './services/ai/types';
+import type { AIMessage } from './services/ai/types';
+import { contextWindowFor, fitMessagesToContext, resolveCatalogModel, streamMaxTokensFor } from './services/ai/types';
+import {
+  acceptMemoryText,
+  buildMemoryUpdatePrompt,
+  buildPinnedSystemBlock,
+  buildReplayMessages,
+  buildTranscriptBlock,
+  createEmptyMemory,
+  digestUserTurn,
+  pinOpeningIfNeeded,
+  pinUserQuestion,
+  SESSION_MEMORY_MAX_TOKENS,
+  shouldRefreshMemory,
+  shiftMemoryAfterTrim,
+  transcriptDeltaForMemory,
+  windowLines,
+  type SessionMemory,
+} from './services/ai/sessionMemory';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, STREAM_MAX_TOKENS, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
 
 const log = createLogger('Claude');
 
@@ -13,6 +31,7 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  digest?: string;
   action?: string;
   timestamp: number;
 }
@@ -20,6 +39,17 @@ interface ChatMessage {
 interface ConversationState {
   messages: ChatMessage[];
   lastProcessedTranscriptLength: number;
+  lastSeenTranscript: string;
+  memory: SessionMemory;
+}
+
+function emptyConversation(): ConversationState {
+  return {
+    messages: [],
+    lastProcessedTranscriptLength: 0,
+    lastSeenTranscript: '',
+    memory: createEmptyMemory(),
+  };
 }
 
 interface ScreenshotAttachment {
@@ -110,8 +140,9 @@ applicable:
   **VERIFY:** section that re-derives using a different method.
 - Multiple Choice: state the correct letter + text first, explain why
   it's correct, then briefly explain why each other option is wrong.
-- Code / Technical: lead with the solution code (comments on key lines),
-  follow with complexity analysis + a short reasoning block.
+- Code / Technical: write the complete solution. Do not truncate code,
+  skip files, or say "the rest is similar." Then complexity analysis
+  and a short reasoning block.
 - "What should I say?" / Coaching: give the exact words as a direct
   quote, natural and immediately usable. Keep it to 1-2 sentences.
 - Factual / Conceptual: start with the direct answer, then 1-3 sentences
@@ -124,6 +155,10 @@ Be articulate. Precise, structured, and complete - enough that the user
 can act on your response without needing a second pass. Don't pad, but
 don't clip either: if reasoning is needed to trust the conclusion,
 include it.
+
+Length is driven by the task, not a token budget. Coaching and "what
+should I say?" stay short (1-2 sentences). Coding, debugging, math,
+and multi-step solutions stay as long as they need to be complete.
 
 NEVER use meta-phrases: "Let me help you", "I can see that", "Based on
 the transcript", "Great question", "Sure!", "Of course!", "As an AI".
@@ -171,7 +206,18 @@ the user's USER QUESTION is in English, respond in English regardless.
 Use prior messages for continuity. When a topic carries over, don't
 re-establish context the user already has. When a topic shifts, pivot
 cleanly without trying to bridge from the previous one.
-</conversation_history>`;
+</conversation_history>
+
+<session_memory_rules>
+If <session_memory>, <pinned_opening>, or <pinned_user_questions> are
+present, they are Raven's compressed record of earlier work. Trust them
+for the original problem, constraints, prior decisions, and corrections.
+Do not ask the user to restate details they already contain.
+
+The live <transcript> tail is what is happening RIGHT NOW. If it
+conflicts with session_memory about the current moment, the live tail
+wins. session_memory wins for earlier decisions and the original task.
+</session_memory_rules>`;
 
   const rawName = getSetting('displayName') as string | undefined;
   if (rawName) {
@@ -259,8 +305,8 @@ export async function generateSessionTitle(
   transcriptText: string
 ): Promise<string> {
   try {
-    const { getProSystemProvider } = await import('./services/ai/providerFactory');
-    const provider = isProMode() ? await getProSystemProvider() : await getProviderFromStore();
+    const { getProSystemProvider, getFastProvider } = await import('./services/ai/providerFactory');
+    const provider = isProMode() ? await getProSystemProvider() : await getFastProvider();
 
     const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
 
@@ -303,10 +349,9 @@ export class ClaudeService {
   private overlayWindow: BrowserWindow | null = null;
   private dashboardWindow: BrowserWindow | null = null;
   private isProcessing = false;
-  private conversation: ConversationState = {
-    messages: [],
-    lastProcessedTranscriptLength: 0,
-  };
+  private conversation: ConversationState = emptyConversation();
+  private memoryUpdateInFlight = false;
+  private memoryUpdateQueued = false;
 
   private static ipcRegistered = false;
 
@@ -346,32 +391,40 @@ export class ClaudeService {
 
         this.isProcessing = true;
 
-        let provider;
-        if (isProMode()) {
-          const useDeepModel = getSetting('smartMode') === true;
-          provider = useDeepModel ? await getProProvider() : await getProFastProvider();
-        } else {
-          provider = await getProviderFromStore();
-        }
+        const provider = isProMode()
+          ? await getProProvider()
+          : await getProviderFromStore();
 
         const screenshotAttachment = params.includeScreenshot
           ? await this.captureScreenshotExcludingRaven()
           : null;
 
+        this.conversation.memory = pinOpeningIfNeeded(this.conversation.memory, params.transcript);
+        if (params.action === 'custom' && params.customPrompt) {
+          this.conversation.memory = pinUserQuestion(this.conversation.memory, params.customPrompt);
+        }
+
         const userMessageContent = await this.buildUserMessage(params);
         const assistantMessageId = this.generateId();
+        const actionLabel = this.getActionLabel(params.action);
         const userMessage: ChatMessage = {
           id: this.generateId(),
           role: 'user',
           content: params.action === 'custom' && params.customPrompt
             ? params.customPrompt
-            : this.getActionLabel(params.action),
+            : actionLabel,
+          digest: digestUserTurn({
+            actionLabel,
+            customPrompt: params.customPrompt,
+            transcript: params.transcript,
+          }),
           action: params.action,
           timestamp: Date.now(),
         };
 
         this.conversation.messages.push(userMessage);
         this.conversation.lastProcessedTranscriptLength = params.transcript.length;
+        this.conversation.lastSeenTranscript = params.transcript;
         sessionManager.addSessionMessage('user', userMessage.content);
 
         this.broadcast({
@@ -414,6 +467,10 @@ export class ClaudeService {
         } else {
           systemPrompt = buildSystemPrompt()
         }
+        systemPrompt += buildPinnedSystemBlock(
+          this.conversation.memory,
+          windowLines(params.transcript, TRANSCRIPT_LINE_LIMIT),
+        );
 
         if (params.modePrompt) {
           // Wrap the mode prompt in an XML tag so the base system prompt
@@ -435,6 +492,14 @@ export class ClaudeService {
           });
         }
 
+        const catalogModel = resolveCatalogModel(provider.name, getSetting('aiModel') as string);
+        const fitted = fitMessagesToContext({
+          system: systemPrompt,
+          messages: aiMessages,
+          maxOutputTokens: streamMaxTokensFor(provider.name, catalogModel),
+          contextWindow: contextWindowFor(provider.name, catalogModel),
+        });
+
         const streamTimeout = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), AI_STREAM_TIMEOUT_MS)
         );
@@ -442,8 +507,8 @@ export class ClaudeService {
           provider.streamResponse(
             {
               system: systemPrompt,
-              messages: aiMessages,
-              maxTokens: STREAM_MAX_TOKENS,
+              messages: fitted.messages,
+              maxTokens: fitted.maxTokens,
             },
             {
               onText: (text) => {
@@ -503,7 +568,9 @@ export class ClaudeService {
         this.conversation.messages.push(assistantMessage);
 
         if (this.conversation.messages.length > CONVERSATION_HISTORY_LIMIT) {
+          const dropped = this.conversation.messages.length - CONVERSATION_HISTORY_LIMIT;
           this.conversation.messages = this.conversation.messages.slice(-CONVERSATION_HISTORY_LIMIT);
+          this.conversation.memory = shiftMemoryAfterTrim(this.conversation.memory, dropped);
         }
 
         sessionManager.addSessionMessage('assistant', assistantMessage.content);
@@ -528,6 +595,7 @@ export class ClaudeService {
         });
 
         this.isProcessing = false;
+        this.scheduleMemoryRefresh();
 
       } catch (error: unknown) {
         this.isProcessing = false;
@@ -569,20 +637,15 @@ export class ClaudeService {
     });
 
     ipcMain.handle('claude:clear-history', async () => {
-      this.conversation = {
-        messages: [],
-        lastProcessedTranscriptLength: 0,
-      };
+      this.memoryUpdateQueued = false;
+      this.conversation = emptyConversation();
       this.broadcast({ type: 'cleared' });
       return { success: true };
     });
   }
 
   private windowTranscript(transcript: string): string {
-    const lines = transcript.split('\n');
-    if (lines.length <= TRANSCRIPT_LINE_LIMIT) return transcript;
-    const kept = lines.slice(-TRANSCRIPT_LINE_LIMIT);
-    return `[...earlier conversation omitted - ${lines.length - TRANSCRIPT_LINE_LIMIT} lines]\n${kept.join('\n')}`;
+    return windowLines(transcript, TRANSCRIPT_LINE_LIMIT);
   }
 
   private async buildUserMessage(params: {
@@ -602,22 +665,12 @@ export class ClaudeService {
     // could confuse the model. Tagging closes that loop.
 
     if (params.transcript.trim()) {
-      const windowed = this.windowTranscript(params.transcript);
-      const newTranscript = params.transcript.slice(this.conversation.lastProcessedTranscriptLength);
-
-      if (this.conversation.messages.length === 0) {
-        message += `<transcript>\n${windowed}\n</transcript>\n\n`;
-      } else if (newTranscript.trim()) {
-        // NEW section explicitly flagged for the model - still inside
-        // the same <transcript> semantic scope, just annotated so the
-        // model reads the new content first. Two tagged sub-sections
-        // instead of one would be noisier; keeping it as one annotated
-        // <transcript> block.
-        const windowedNew = this.windowTranscript(newTranscript);
-        message += `<transcript>\n[NEW SINCE LAST - read first]\n${windowedNew.trim()}\n\n[FULL TRANSCRIPT]\n${windowed}\n</transcript>\n\n`;
-      } else {
-        message += `<transcript note="unchanged_since_last">\n${windowed}\n</transcript>\n\n`;
-      }
+      message += buildTranscriptBlock({
+        transcript: params.transcript,
+        lastProcessedLength: this.conversation.lastProcessedTranscriptLength,
+        isFirstTurn: this.conversation.messages.length === 0,
+        nowLineLimit: TRANSCRIPT_LINE_LIMIT,
+      });
     }
 
     if (params.action === 'custom' && params.customPrompt) {
@@ -655,35 +708,67 @@ export class ClaudeService {
     currentUserMessage: string,
     screenshot: ScreenshotAttachment | null
   ): AIMessage[] {
-    const messages: AIMessage[] = [];
+    return buildReplayMessages({
+      history: this.conversation.messages,
+      currentUserMessage,
+      screenshot,
+    });
+  }
 
-    const recentHistory = this.conversation.messages.slice(-CONVERSATION_HISTORY_LIMIT);
+  private scheduleMemoryRefresh(): void {
+    if (this.memoryUpdateInFlight) {
+      this.memoryUpdateQueued = true;
+      return;
+    }
+    void this.refreshSessionMemory();
+  }
 
-    for (let i = 0; i < recentHistory.length - 1; i++) {
-      const msg = recentHistory[i];
-      messages.push({
-        role: msg.role,
-        content: msg.role === 'user'
-          ? `[Previous request: ${msg.content}]`
-          : msg.content,
+  private async refreshSessionMemory(): Promise<void> {
+    if (!shouldRefreshMemory(this.conversation.memory, this.conversation.messages.length)) {
+      return;
+    }
+
+    this.memoryUpdateInFlight = true;
+    const snapshotIndex = this.conversation.messages.length;
+    const fromIndex = this.conversation.memory.throughMessageIndex;
+    const turns = this.conversation.messages.slice(fromIndex, snapshotIndex).map((m) => ({
+      role: m.role,
+      content: m.role === 'user' ? (m.digest || m.content) : m.content,
+    }));
+    const transcriptDelta = transcriptDeltaForMemory(
+      this.conversation.lastSeenTranscript,
+      this.conversation.memory.lastTranscriptLength,
+    );
+
+    try {
+      const { getProSystemProvider, getFastProvider } = await import('./services/ai/providerFactory');
+      const provider = isProMode() ? await getProSystemProvider() : await getFastProvider();
+      const raw = await provider.generateShort({
+        prompt: buildMemoryUpdatePrompt({
+          previousMemory: this.conversation.memory.text,
+          turns,
+          transcriptDelta,
+        }),
+        maxTokens: SESSION_MEMORY_MAX_TOKENS,
       });
+      const accepted = acceptMemoryText(typeof raw === 'string' ? raw : '');
+      if (!accepted) return;
+      if (this.conversation.messages.length < snapshotIndex) return;
+      this.conversation.memory = {
+        ...this.conversation.memory,
+        text: accepted,
+        throughMessageIndex: snapshotIndex,
+        lastTranscriptLength: this.conversation.lastSeenTranscript.length,
+      };
+    } catch (err) {
+      log.warn('Session memory refresh failed (non-fatal):', err);
+    } finally {
+      this.memoryUpdateInFlight = false;
+      if (this.memoryUpdateQueued) {
+        this.memoryUpdateQueued = false;
+        void this.refreshSessionMemory();
+      }
     }
-
-    if (screenshot) {
-      const parts: AIContentPart[] = [
-        { type: 'text', text: currentUserMessage },
-        {
-          type: 'image',
-          base64: screenshot.data,
-          mediaType: screenshot.mediaType,
-        },
-      ];
-      messages.push({ role: 'user', content: parts });
-    } else {
-      messages.push({ role: 'user', content: currentUserMessage });
-    }
-
-    return messages;
   }
 
   private getActionLabel(action: string): string {

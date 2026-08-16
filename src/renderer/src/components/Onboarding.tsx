@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Loader2, Eye, EyeOff, Sparkles } from 'lucide-react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
-import { OverlayTourFree } from './OverlayTourFree'
+import { OverlayTour } from './OverlayTour'
+import { detectMacPlatform, shortcutKeycaps } from '../lib/shortcutLabels'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -29,15 +30,18 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [accessibilityPermission, setAccessibilityPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [deepgramKey, setDeepgramKey] = useState('')
+  const [assemblyKey, setAssemblyKey] = useState('')
   const [aiProvider, setAiProvider] = useState<AiProvider>('anthropic')
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [deepgramInvalid, setDeepgramInvalid] = useState(false)
+  const [assemblyInvalid, setAssemblyInvalid] = useState(false)
   const [aiKeyInvalid, setAiKeyInvalid] = useState(false)
   const [validating, setValidating] = useState(false)
   const [fadeKey, setFadeKey] = useState(0)
   const [showDeepgramKey, setShowDeepgramKey] = useState(false)
+  const [showAssemblyKey, setShowAssemblyKey] = useState(false)
   const [showAiKey, setShowAiKey] = useState(false)
   const [screenNeedsRestart, setScreenNeedsRestart] = useState(false)
 
@@ -47,15 +51,18 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const handleNext = async () => {
     if (step === 2) {
-      if (!deepgramKey.trim() || !aiKey.trim()) {
-        setError('Both API keys are required.')
-        setDeepgramInvalid(!deepgramKey.trim())
+      const hasStt = !!deepgramKey.trim() || !!assemblyKey.trim()
+      if (!hasStt || !aiKey.trim()) {
+        setError('Add a transcription key (Deepgram or AssemblyAI) and an AI key.')
+        setDeepgramInvalid(!deepgramKey.trim() && !assemblyKey.trim())
+        setAssemblyInvalid(!deepgramKey.trim() && !assemblyKey.trim())
         setAiKeyInvalid(!aiKey.trim())
         return
       }
       setValidating(true)
       setError(null)
       setDeepgramInvalid(false)
+      setAssemblyInvalid(false)
       setAiKeyInvalid(false)
       try {
         const result = await window.raven.validateKeys(
@@ -63,12 +70,26 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           aiProvider,
           aiKey.trim()
         )
+        if ('throttled' in result && result.throttled) {
+          setError('Please wait a moment and try again.')
+          setValidating(false)
+          return
+        }
         if (!result.valid) {
-          setError(result.error || 'Invalid API keys.')
+          setError(result.aiError || result.deepgramError || result.error || 'Invalid API keys.')
           setDeepgramInvalid(!!result.deepgramError)
           setAiKeyInvalid(!!result.aiError)
           setValidating(false)
           return
+        }
+        if (assemblyKey.trim()) {
+          const aai = await window.raven.validateAssemblyAIKey(assemblyKey.trim())
+          if (!aai.valid) {
+            setError(aai.error || 'Invalid AssemblyAI key.')
+            setAssemblyInvalid(true)
+            setValidating(false)
+            return
+          }
         }
       } catch {
         setError('Failed to validate keys. Check your internet connection.')
@@ -77,6 +98,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       }
       setValidating(false)
       setDeepgramInvalid(false)
+      setAssemblyInvalid(false)
       setAiKeyInvalid(false)
     }
 
@@ -174,12 +196,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       await window.raven.apiKeysSave(
         deepgramKey.trim(),
         aiProvider === 'anthropic' ? anthropicKey.trim() : '',
-        aiProvider === 'openai' ? openaiKey.trim() : undefined
+        aiProvider === 'openai' ? openaiKey.trim() : undefined,
+        assemblyKey.trim() ? { assemblyaiApiKey: assemblyKey.trim() } : undefined
       )
       await window.raven.storeSet('aiProvider', aiProvider)
       await window.raven.storeSet(
         'aiModel',
-        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5.4-mini'
+        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5.6-luna'
       )
       await window.raven.storeSet('onboardingComplete', true)
       onComplete()
@@ -190,9 +213,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setValidating(false)
   }
 
-  const isMac =
-    typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
-  const cmdKey = isMac ? '⌘' : 'Ctrl'
+  const isMac = detectMacPlatform()
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -311,7 +332,48 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         </button>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400">Speech-to-text. Free tier: $200 credit.</p>
+                    <p className="text-xs text-gray-400">Speech-to-text. Free tier: $200 credit. Optional if you use AssemblyAI below.</p>
+                  </div>
+
+                  {/* AssemblyAI */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">AssemblyAI</label>
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          window.raven.openExternal('https://www.assemblyai.com/dashboard/signup')
+                        }}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Get key
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showAssemblyKey ? 'text' : 'password'}
+                        value={assemblyKey}
+                        onChange={(e) => { setAssemblyKey(e.target.value); setAssemblyInvalid(false); setError(null) }}
+                        placeholder="Optional — or use instead of Deepgram"
+                        className={`w-full px-3 py-2.5 pr-10 bg-white border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 transition-colors ${
+                          assemblyInvalid
+                            ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                            : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                        }`}
+                      />
+                      {assemblyKey && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAssemblyKey(!showAssemblyKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                          {showAssemblyKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400">Preferred STT when set.</p>
                   </div>
 
                   {/* AI Provider Toggle */}
@@ -464,7 +526,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </button>
                   <button
                     onClick={handleNext}
-                    disabled={!deepgramKey.trim() || !aiKey.trim() || validating}
+                    disabled={(!deepgramKey.trim() && !assemblyKey.trim()) || !aiKey.trim() || validating}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-b from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium shadow-sm transition-all"
                   >
                     {validating ? (
@@ -632,7 +694,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
             {/* Step 4: Overlay Tour */}
             {step === 4 && (
-              <OverlayTourFree
+              <OverlayTour
                 onBack={handleBack}
                 onNext={handleNext}
               />
@@ -650,10 +712,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
                 <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
                   {[
-                    { keys: [cmdKey, '\\'], label: 'Show / Hide Overlay', description: 'Toggle Raven visibility anytime' },
-                    { keys: [cmdKey, '↵'], label: 'AI Assist', description: 'Screenshot + transcript analysis' },
-                    { keys: [cmdKey, 'R'], label: 'Start / Stop Session', description: 'Begin or end a recording' },
-                    { keys: [cmdKey, '⇧', 'R'], label: 'Clear Conversation', description: 'Reset the AI conversation' },
+                    { keys: shortcutKeycaps('visibility', isMac), label: 'Show / Hide Overlay', description: 'Toggle Raven visibility anytime' },
+                    { keys: shortcutKeycaps('assist', isMac), label: 'AI Assist', description: 'Screenshot + transcript analysis' },
+                    { keys: shortcutKeycaps('recording', isMac), label: 'Start / Stop Session', description: 'Begin or end a recording' },
+                    { keys: shortcutKeycaps('clear', isMac), label: 'Clear Conversation', description: 'Reset the AI conversation' },
                   ].map((shortcut) => (
                     <div key={shortcut.label} className="flex items-center justify-between py-1">
                       <div>
@@ -695,6 +757,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
                 {/* Summary card */}
                 <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                  {deepgramKey.trim() && (
                   <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
                     <div className="flex items-center gap-2">
                       <Key size={13} className="text-gray-400" />
@@ -704,6 +767,18 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       {deepgramKey.slice(0, 6)}...{deepgramKey.slice(-4)}
                     </span>
                   </div>
+                  )}
+                  {assemblyKey.trim() && (
+                  <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Key size={13} className="text-gray-400" />
+                      <span className="text-sm text-gray-600">AssemblyAI</span>
+                    </div>
+                    <span className="text-xs font-mono text-green-600 bg-green-50 px-2 py-0.5 rounded-md">
+                      {assemblyKey.slice(0, 6)}...{assemblyKey.slice(-4)}
+                    </span>
+                  </div>
+                  )}
                   <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-200">
                     <div className="flex items-center gap-2">
                       <Key size={13} className="text-gray-400" />
@@ -721,7 +796,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                       <span className="text-sm text-gray-600">Model</span>
                     </div>
                     <span className="text-xs text-gray-700 font-medium">
-                      {aiProvider === 'anthropic' ? 'Claude Haiku 4.5' : 'GPT-5 Mini'}
+                      {aiProvider === 'anthropic' ? 'Claude Haiku 4.5' : 'GPT-5.6 Luna'}
                     </span>
                   </div>
                   <div className="px-4 py-2.5 flex items-center justify-between">
@@ -741,9 +816,9 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   </div>
                   <div className="space-y-1.5">
                     {[
-                      { keys: [cmdKey, '↵'], label: 'AI Suggestion' },
-                      { keys: [cmdKey, 'R'], label: 'Toggle Recording' },
-                      { keys: [cmdKey, '\\'], label: 'Toggle Overlay' },
+                      { keys: shortcutKeycaps('assist', isMac), label: 'AI Suggestion' },
+                      { keys: shortcutKeycaps('recording', isMac), label: 'Toggle Recording' },
+                      { keys: shortcutKeycaps('visibility', isMac), label: 'Toggle Overlay' },
                     ].map((shortcut) => (
                       <div
                         key={shortcut.label}

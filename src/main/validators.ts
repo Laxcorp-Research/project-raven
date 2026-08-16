@@ -1,11 +1,55 @@
-import Anthropic from '@anthropic-ai/sdk'
+function isElectronRuntime(): boolean {
+  return typeof process.versions.electron === 'string'
+}
+
+/**
+ * Electron's Node/undici `fetch` often throws on vendor TLS (Anthropic in
+ * particular). Chromium `net.fetch` uses the same cert store as the rest of
+ * the app. Tests and non-Electron callers keep using global `fetch`.
+ */
+async function vendorGet(url: string, headers: Record<string, string>): Promise<Response> {
+  if (isElectronRuntime()) {
+    const { net } = await import('electron')
+    if (typeof net?.fetch === 'function') {
+      return (await net.fetch(url, { headers })) as Response
+    }
+  }
+  return await fetch(url, { headers })
+}
+
+function vendorUnreachable(name: string, err: unknown): { valid: false; error: string } {
+  const detail = err instanceof Error && err.message.trim() ? err.message.trim() : 'network error'
+  return { valid: false, error: `Could not reach ${name} (${detail}).` }
+}
+
+function statusFromUnknown(err: unknown): number | undefined {
+  if (err != null && typeof err === 'object' && 'status' in err) {
+    const status = (err as { status: unknown }).status
+    if (typeof status === 'number' && status > 0) return status
+  }
+  return undefined
+}
+
+function interpretAnthropicHttpStatus(status: number): { valid: boolean; error?: string } {
+  if (status >= 200 && status < 300) return { valid: true }
+  if (status === 401) return { valid: false, error: 'Invalid Anthropic API key.' }
+  if (status === 403) return { valid: false, error: 'Anthropic key does not have permission. Check your plan.' }
+  if (status === 429) {
+    return { valid: false, error: 'Anthropic rate-limited the check. Wait a few seconds and try again.' }
+  }
+  return { valid: false, error: `Anthropic returned status ${status}.` }
+}
+
+/** messages.create 400/404 still mean the key was accepted (model/billing). */
+function interpretAnthropicSdkStatus(status: number): { valid: boolean; error?: string } {
+  if (status === 400 || status === 404) return { valid: true }
+  return interpretAnthropicHttpStatus(status)
+}
 
 export async function validateDeepgramKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const response = await fetch('https://api.deepgram.com/v1/projects', {
-      headers: {
-        Authorization: `Token ${apiKey}`
-      }
+    const response = await vendorGet('https://api.deepgram.com/v1/projects', {
+      Authorization: `Token ${apiKey}`,
     })
 
     if (response.ok) {
@@ -17,46 +61,48 @@ export async function validateDeepgramKey(apiKey: string): Promise<{ valid: bool
     }
 
     return { valid: false, error: `Deepgram returned status ${response.status}.` }
-  } catch {
-    return { valid: false, error: 'Could not reach Deepgram. Check your internet connection.' }
+  } catch (err) {
+    return vendorUnreachable('Deepgram', err)
   }
 }
 
 export async function validateAnthropicKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  // Prefer GET /v1/models — auth only, no specific chat model required.
+  // If that transport throws (common with Node fetch in Electron), fall
+  // back to the official SDK. A 400/404 from messages.create is still a
+  // valid key (model alias or billing), not "invalid key."
   try {
-    const client = new Anthropic({ apiKey })
-
-    await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 10,
-      messages: [{ role: 'user', content: 'Hi' }]
+    const response = await vendorGet('https://api.anthropic.com/v1/models', {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
     })
 
-    return { valid: true }
-  } catch (err: unknown) {
-    const status = err != null && typeof err === 'object' && 'status' in err
-      ? (err as { status: number }).status
-      : undefined;
-    if (status === 401) {
-      return { valid: false, error: 'Invalid Anthropic API key.' }
+    if (response.ok) {
+      return { valid: true }
     }
-    if (status === 403) {
-      return { valid: false, error: 'Anthropic key does not have permission. Check your plan.' }
+    return interpretAnthropicHttpStatus(response.status)
+  } catch (httpErr) {
+    try {
+      const Anthropic = (await import('@anthropic-ai/sdk')).default
+      const client = new Anthropic({ apiKey })
+      await client.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'ping' }],
+      })
+      return { valid: true }
+    } catch (sdkErr) {
+      const status = statusFromUnknown(sdkErr)
+      if (status !== undefined) return interpretAnthropicSdkStatus(status)
+      return vendorUnreachable('Anthropic', sdkErr instanceof Error ? sdkErr : httpErr)
     }
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('fetch')) {
-      return { valid: false, error: 'Could not reach Anthropic. Check your internet connection.' }
-    }
-    return { valid: false, error: `Anthropic error: ${msg || 'Unknown error'}` }
   }
 }
 
 export async function validateOpenAIKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const response = await fetch('https://api.openai.com/v1/models', {
-      headers: {
-        Authorization: `Bearer ${apiKey}`
-      }
+    const response = await vendorGet('https://api.openai.com/v1/models', {
+      Authorization: `Bearer ${apiKey}`,
     })
 
     if (response.ok) {
@@ -71,9 +117,41 @@ export async function validateOpenAIKey(apiKey: string): Promise<{ valid: boolea
     }
 
     return { valid: false, error: `OpenAI returned status ${response.status}.` }
-  } catch {
-    return { valid: false, error: 'Could not reach OpenAI. Check your internet connection.' }
+  } catch (err) {
+    return vendorUnreachable('OpenAI', err)
   }
+}
+
+export async function validateAssemblyAIKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const response = await vendorGet('https://api.assemblyai.com/v2/account', {
+      authorization: apiKey,
+    })
+
+    if (response.ok) {
+      return { valid: true }
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { valid: false, error: 'Invalid AssemblyAI API key.' }
+    }
+    return { valid: false, error: `AssemblyAI returned status ${response.status}.` }
+  } catch (err) {
+    return vendorUnreachable('AssemblyAI', err)
+  }
+}
+
+export const DEFAULT_RECALL_API_URL = 'https://ap-northeast-1.recall.ai'
+
+export function normalizeRecallApiUrl(url: string | undefined): string {
+  const trimmed = (url || DEFAULT_RECALL_API_URL).trim().replace(/\/$/, '')
+  return trimmed || DEFAULT_RECALL_API_URL
+}
+
+export async function validateRecallKey(
+  _apiKey: string,
+  _apiUrl?: string,
+): Promise<{ valid: boolean; error?: string }> {
+  return { valid: false, error: 'Recall is not available.' }
 }
 
 export async function validateBothKeys(
@@ -106,7 +184,7 @@ export async function validateKeys(
     : validateAnthropicKey(aiKey)
 
   const [deepgramResult, aiResult] = await Promise.all([
-    validateDeepgramKey(deepgramKey),
+    deepgramKey ? validateDeepgramKey(deepgramKey) : Promise.resolve({ valid: true as const }),
     aiValidation
   ])
 
@@ -118,7 +196,9 @@ export async function validateKeys(
       deepgramError ? 'Deepgram' : null,
       aiError ? (aiProvider === 'openai' ? 'OpenAI' : 'Anthropic') : null,
     ].filter(Boolean)
-    const error = `Invalid ${invalidKeys.join(', ')} key${invalidKeys.length > 1 ? 's' : ''}.`
+    const error = deepgramError && aiError
+      ? `Invalid ${invalidKeys.join(', ')} keys.`
+      : (aiError || deepgramError) as string
     return { valid: false, error, deepgramError, aiError }
   }
 

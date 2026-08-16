@@ -77,7 +77,11 @@ export function registerIpcHandlers(): void {
     return getSetting(key)
   })
 
-  const PROTECTED_STORE_KEYS: readonly string[] = ['mode', 'auth_tokens', 'auth_user', 'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'apiKeysConfigured']
+  const PROTECTED_STORE_KEYS: readonly string[] = [
+    'mode', 'auth_tokens', 'auth_user',
+    'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey',
+    'assemblyaiApiKey', 'recallApiKey', 'apiKeysConfigured',
+  ]
 
   safeHandle(
     'store:set',
@@ -88,6 +92,11 @@ export function registerIpcHandlers(): void {
       saveSetting(key, value)
       if (key === 'openOnLogin') {
         app.setLoginItemSettings({ openAtLogin: !!value })
+      }
+      if (key === 'recallApiUrl') {
+        void import('./services/vendorFeatures').then(({ reinitRecallFromStore }) =>
+          reinitRecallFromStore(),
+        )
       }
       return true
     }
@@ -104,11 +113,21 @@ export function registerIpcHandlers(): void {
 
   safeHandle(
     'store:save-api-keys',
-    (deepgramKey: string, anthropicKey: string, openaiKey?: string) => {
+    (
+      deepgramKey: string,
+      anthropicKey: string,
+      openaiKey?: string,
+      extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+    ) => {
       assertString(deepgramKey, 'deepgramKey', 500)
       assertString(anthropicKey, 'anthropicKey', 500)
       if (openaiKey !== undefined) assertString(openaiKey, 'openaiKey', 500)
-      saveApiKeys(deepgramKey, anthropicKey, openaiKey)
+      if (extras?.assemblyaiApiKey !== undefined) assertString(extras.assemblyaiApiKey, 'assemblyaiApiKey', 500)
+      if (extras?.recallApiKey !== undefined) assertString(extras.recallApiKey, 'recallApiKey', 500)
+      saveApiKeys(deepgramKey, anthropicKey, openaiKey, extras)
+      void import('./services/vendorFeatures').then(({ reinitRecallFromStore }) =>
+        reinitRecallFromStore(),
+      )
       return true
     }
   )
@@ -119,6 +138,9 @@ export function registerIpcHandlers(): void {
 
   safeHandle('store:clear-api-keys', () => {
     clearApiKeys()
+    void import('./services/vendorFeatures').then(({ reinitRecallFromStore }) =>
+      reinitRecallFromStore(),
+    )
     return true
   })
 
@@ -132,6 +154,9 @@ export function registerIpcHandlers(): void {
 
   safeHandle('store:reset-all', () => {
     resetAll()
+    void import('./services/vendorFeatures').then(({ reinitRecallFromStore }) =>
+      reinitRecallFromStore(),
+    )
     return true
   })
 
@@ -151,6 +176,33 @@ export function registerIpcHandlers(): void {
       const { validateKeys } = await import('./validators')
       return validateKeys(deepgramKey, aiProvider, aiKey)
     }
+  )
+
+  cooldownHandle(
+    'validate-assemblyai-key', 2000,
+    async (apiKey: string) => {
+      assertString(apiKey, 'apiKey', 500)
+      const { validateAssemblyAIKey } = await import('./validators')
+      return validateAssemblyAIKey(apiKey)
+    }
+  )
+
+  cooldownHandle(
+    'validate-recall-key', 2000,
+    async (apiKey: string, apiUrl?: string) => {
+      assertString(apiKey, 'apiKey', 500)
+      if (apiUrl !== undefined) assertString(apiUrl, 'apiUrl', 200)
+      const { validateRecallKey } = await import('./validators')
+      return validateRecallKey(apiKey, apiUrl)
+    }
+  )
+
+  safeHandle(
+    'proxy:analyze-session',
+    async (params: { transcript: string; features: string[]; sessionId?: string }) => {
+      const { analyzeSession } = await import('./services/insightsService')
+      return analyzeSession(params)
+    },
   )
 
   // ---- Shell ----
@@ -413,16 +465,15 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('proxy:check-session', () => ({ allowed: true, plan: 'FREE', sessionMaxSeconds: 120, sessionsUsed: 0, sessionLimit: null, resetAt: null }))
     ipcMain.handle('proxy:start-session', () => ({ allowed: true, sessionMaxSeconds: 120 }))
     ipcMain.handle('proxy:get-transcription-token', noopNull)
-    ipcMain.handle('proxy:analyze-session', noopNull)
     ipcMain.handle('sync:get-status', () => ({ lastSyncAt: null, queueSize: 0, consecutiveFailures: 0 }))
     ipcMain.handle('sync:trigger', noopObj)
     ipcMain.handle('sync:get-log', () => [])
-
-    ipcMain.handle('recall:is-available', noopFalse)
-    ipcMain.handle('recall:get-detected-meetings', () => [])
-    ipcMain.handle('recall:get-state', () => ({ isRecording: false, windowId: null, sdkReady: false }))
-    ipcMain.handle('recall:start-meeting-recording', noopResult)
-    ipcMain.handle('recall:start-adhoc-recording', noopResult)
-    ipcMain.handle('recall:stop-recording', noopResult)
   }
+
+  ipcMain.handle('recall:is-available', () => false)
+  ipcMain.handle('recall:get-detected-meetings', () => [])
+  ipcMain.handle('recall:get-state', () => ({ status: 'idle' }))
+  ipcMain.handle('recall:start-meeting-recording', async () => ({ success: false, error: 'Recall is not available' }))
+  ipcMain.handle('recall:start-adhoc-recording', async () => ({ success: false, error: 'Recall is not available' }))
+  ipcMain.handle('recall:stop-recording', async () => ({ success: true }))
 }

@@ -109,6 +109,24 @@ describe('providerFactory', () => {
 
       expect(first).not.toBe(second)
     })
+
+    it('creates new instance when effort changes', () => {
+      const first = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-placeholder',
+        effort: 'low',
+      })
+
+      const second = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-placeholder',
+        effort: 'max',
+      })
+
+      expect(first).not.toBe(second)
+    })
   })
 
   describe('clearProviderCache', () => {
@@ -128,7 +146,7 @@ describe('providerFactory', () => {
   })
 
   describe('getProviderFromStore', () => {
-    it('reads anthropic config from store and returns provider', async () => {
+    it('reads anthropic config including effort from store', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
@@ -142,6 +160,35 @@ describe('providerFactory', () => {
 
       expect(provider).toBeInstanceOf(AnthropicProvider)
       expect(provider.name).toBe('anthropic')
+    })
+
+    it('applies store aiEffort so Assist uses the Settings value', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-sonnet-5',
+          aiEffort: 'max',
+          anthropicApiKey: 'test-ant-store-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const fromStore = await getProviderFromStore()
+      const sameEffort = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'max',
+      })
+      const otherEffort = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
+
+      expect(fromStore).toBe(sameEffort)
+      expect(fromStore).not.toBe(otherEffort)
     })
 
     it('reads openai config from store and returns provider', async () => {
@@ -208,7 +255,7 @@ describe('providerFactory', () => {
       expect(provider.name).toBe('anthropic')
     })
 
-    it('returns openai provider with fast model (gpt-5.4-mini)', async () => {
+    it('returns openai provider with fast model (gpt-5.6-luna)', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'openai',

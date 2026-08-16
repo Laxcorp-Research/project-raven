@@ -10,6 +10,8 @@ export function AudioTab() {
   const [isTestingMic, setIsTestingMic] = useState(false)
   const [testTimeRemaining, setTestTimeRemaining] = useState(10)
   const [testTranscript, setTestTranscript] = useState('')
+  const [testInterim, setTestInterim] = useState('')
+  const [testError, setTestError] = useState<string | null>(null)
   const [captureSystemAudio, setCaptureSystemAudio] = useState(true)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const barsRef = useRef<HTMLDivElement[]>([])
@@ -81,12 +83,17 @@ export function AudioTab() {
 
   const startMicTest = async (deviceId?: string) => {
     const micId = deviceId || selectedMic
-    if (!micId) return
+    if (!micId) {
+      setTestError('Select a microphone first.')
+      return
+    }
 
     try {
       setIsTestingMic(true)
       setTestTimeRemaining(10)
       setTestTranscript('')
+      setTestInterim('')
+      setTestError(null)
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: { exact: micId } },
@@ -174,18 +181,30 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
       updateBars()
 
       try {
-        await window.raven.startTestTranscription(micId)
+        const result = await window.raven.startTestTranscription(micId)
+        if (!result?.success) {
+          setTestError(result?.error || 'Could not reach AssemblyAI or Deepgram.')
+          stopMicTest()
+          return
+        }
         transcriptUnsubscribeRef.current?.()
         transcriptUnsubscribeRef.current = window.raven.onTestTranscriptionUpdate((data) => {
-          if (data.text && data.isFinal) {
+          if (!data.text) return
+          if (data.isFinal) {
             setTestTranscript((prev) => {
               const newText = prev ? `${prev} ${data.text}` : data.text
               return newText.trim()
             })
+            setTestInterim('')
+          } else {
+            setTestInterim(data.text)
           }
         })
       } catch (err) {
         log.error('Failed to start test transcription:', err)
+        setTestError(err instanceof Error ? err.message : 'Failed to start transcription test.')
+        stopMicTest()
+        return
       }
 
       timerRef.current = setInterval(() => {
@@ -256,6 +275,8 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
     <div className="space-y-6 max-w-xl">
       <p className="text-sm text-gray-500">
         Test your audio input and transcription before you hop into a call.
+        Live recording uses your system default microphone; this selector
+        applies to the mic test.
       </p>
 
       {/* Microphone Selection */}
@@ -350,8 +371,15 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor)
 
         <div className="bg-white border border-gray-200 rounded-lg p-3 min-h-[86px]">
           <p className="text-xs font-medium text-gray-600 mb-1">Live transcription preview</p>
-          {testTranscript ? (
-            <p className="text-sm text-gray-800 leading-relaxed">{testTranscript}</p>
+          {testError ? (
+            <p className="text-sm text-red-600 leading-relaxed">{testError}</p>
+          ) : (testTranscript || testInterim) ? (
+            <p className="text-sm text-gray-800 leading-relaxed">
+              {testTranscript}
+              {testInterim ? (
+                <span className="text-gray-500">{testTranscript ? ' ' : ''}{testInterim}</span>
+              ) : null}
+            </p>
           ) : (
             <p className="text-sm text-gray-400 italic">
               {isTestingMic ? 'Listening... say a sentence to preview transcription.' : 'Run a 10-second test to preview transcription output.'}

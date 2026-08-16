@@ -14,6 +14,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
 import { createLogger } from './logger'
+import { getSetting } from './store'
 
 const log = createLogger('SystemAudio')
 
@@ -40,6 +41,8 @@ let processedAudioCallback: ProcessedAudioCallback | null = null
  * spawned.
  */
 let expectingCaptureExit = false
+let windowsDeathPoll: ReturnType<typeof setInterval> | null = null
+let windowsSystemCaptureActive = false
 
 /**
  * Rolling buffer of the child's most-recent stderr (capped). Surfaced to
@@ -493,6 +496,8 @@ export function stopCapture(): boolean {
 
 
 function handleSystemChunk(audioData: Buffer): void {
+  if (getSetting('captureSystemAudio') === false) return
+
   systemChunkCount++
   if (systemChunkCount <= 5 || systemChunkCount % 100 === 0) {
     log.debug(`System chunk #${systemChunkCount}, bytes: ${audioData.length}`)
@@ -663,29 +668,120 @@ function stopMacCapture(): boolean {
   return true
 }
 
+/**
+ * Windows start rule: microphone is required (that's the user's voice).
+ * System loopback is optional and skipped when captureSystemAudio is off.
+ * Returning only systemStarted used to mark "recording" with no mic.
+ */
+export function evaluateWindowsCaptureStart(opts: {
+  micStarted: boolean
+  systemStarted: boolean
+}): { ok: boolean; stopSystem: boolean } {
+  if (!opts.micStarted) {
+    return { ok: false, stopSystem: opts.systemStarted }
+  }
+  return { ok: true, stopSystem: false }
+}
+
+/** Mic-only sessions still count as a clean stop. */
+export function evaluateWindowsCaptureStop(opts: {
+  systemStopped: boolean
+  micStopped: boolean
+}): boolean {
+  return opts.systemStopped || opts.micStopped
+}
+
+/**
+ * WASAPI threads do not emit a JS 'exit'. If system loopback was started
+ * and isCapturing() flips false without stopCapture(), treat it as death.
+ */
+export function shouldNotifyWindowsCaptureDeath(opts: {
+  systemWasStarted: boolean
+  expectingStop: boolean
+  isStillCapturing: boolean
+}): boolean {
+  return opts.systemWasStarted && !opts.expectingStop && !opts.isStillCapturing
+}
+
 function startWindowsCapture(): boolean {
   const mod = loadWindowsModule()
   if (!mod) return false
 
-  const systemStarted = mod.startSystemAudioCapture((chunk) => {
-    handleSystemChunk(chunk.data)
-  })
+  const wantSystem = getSetting('captureSystemAudio') !== false
+
+  let systemStarted = false
+  if (wantSystem) {
+    systemStarted = mod.startSystemAudioCapture((chunk) => {
+      handleSystemChunk(chunk.data)
+    })
+    if (!systemStarted) {
+      log.warn('Windows system audio capture failed - continuing with microphone only')
+    }
+  }
 
   const micStarted = mod.startMicCapture((chunk) => {
     handleMicChunk(chunk.data)
   })
 
+  const decision = evaluateWindowsCaptureStart({ micStarted, systemStarted })
+  if (!decision.ok) {
+    if (decision.stopSystem) {
+      try { mod.stopSystemAudioCapture() } catch { /* best effort */ }
+    }
+    log.error(`Windows microphone capture failed (system: ${systemStarted}, mic: ${micStarted})`)
+    return false
+  }
+
+  expectingCaptureExit = false
+  startWindowsDeathPoll(mod, systemStarted)
   log.info(`Windows capture started - system: ${systemStarted}, mic: ${micStarted}`)
-  return systemStarted
+  return true
+}
+
+function startWindowsDeathPoll(mod: WindowsAudioModule, systemWasStarted: boolean): void {
+  stopWindowsDeathPoll()
+  windowsSystemCaptureActive = systemWasStarted
+  if (!systemWasStarted) return
+  windowsDeathPoll = setInterval(() => {
+    if (!shouldNotifyWindowsCaptureDeath({
+      systemWasStarted: windowsSystemCaptureActive,
+      expectingStop: expectingCaptureExit,
+      isStillCapturing: !!mod.isCapturing(),
+    })) {
+      return
+    }
+    stopWindowsDeathPoll()
+    if (!captureExitCallback) return
+    try {
+      captureExitCallback({
+        code: null,
+        signal: null,
+        stderrTail: 'Windows system audio capture thread exited',
+      })
+    } catch (err) {
+      log.error('captureExitCallback threw:', err)
+    }
+  }, 2000)
+}
+
+function stopWindowsDeathPoll(): void {
+  if (windowsDeathPoll) {
+    clearInterval(windowsDeathPoll)
+    windowsDeathPoll = null
+  }
+  windowsSystemCaptureActive = false
 }
 
 function stopWindowsCapture(): boolean {
+  expectingCaptureExit = true
+  stopWindowsDeathPoll()
   const mod = loadWindowsModule()
   if (!mod) return false
   const systemStopped = mod.stopSystemAudioCapture()
   const micStopped = mod.stopMicCapture()
+  expectingCaptureExit = false
   log.info(
     `Windows capture stopped - system: ${systemStopped} (${systemChunkCount} chunks), mic: ${micStopped} (${micChunkCount} chunks)`
   )
-  return systemStopped
+  return evaluateWindowsCaptureStop({ systemStopped, micStopped })
 }

@@ -2,13 +2,12 @@
  * AudioManager - main process coordinator for recording lifecycle.
  * Owns the full pipeline: native capture -> AEC -> transcription.
  *
- * In pro mode, tries Recall SDK first (handles both capture + transcription).
- * Falls back to native capture + AssemblyAI, then Deepgram.
- * In free mode, uses native capture + user-provided Deepgram key.
+ * Native capture + AssemblyAI (if keyed), then Deepgram.
  */
 
 import { BrowserWindow, ipcMain } from 'electron'
 import { getSetting, isProMode } from './store'
+import { chooseNativeSttStrategy } from './services/transcriptProviderRouting'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
 import { setProcessedAudioCallback, setCaptureExitCallback, startCapture, stopCapture } from './systemAudioNative'
@@ -38,8 +37,11 @@ interface TranscriptionProvider {
 // 10 min is the threshold used in the launch plan; a quiet meeting
 // still produces continuous silence-audio chunks, so legitimate silence
 // doesn't trip this - only the absence of ANY chunks does.
-const AUDIO_SILENCE_WARN_THRESHOLD_MS = 10 * 60 * 1000
-const AUDIO_SILENCE_CHECK_INTERVAL_MS = 60 * 1000
+// No AEC chunks means capture died (PCM still flows during speech pauses).
+// 10 minutes left a live interview "recording" with no audio. 20s is long
+// enough to ignore a hiccup and short enough to notice a dead WASAPI thread.
+export const AUDIO_SILENCE_WARN_THRESHOLD_MS = 20_000
+export const AUDIO_SILENCE_CHECK_INTERVAL_MS = 5_000
 
 export class AudioManager {
   private isRecording = false
@@ -51,13 +53,11 @@ export class AudioManager {
   private transcriptionService: TranscriptionService
   private activeProvider: TranscriptionProvider | null = null
   private usingAssemblyAI = false
-  private usingRecall = false
   private sessionTimer: ReturnType<typeof setTimeout> | null = null
   private transcriptionStartupAbort: AbortController | null = null
   private transcriptionRetryTimer: ReturnType<typeof setTimeout> | null = null
   private proSessionStarted = false
-  // Silence watchdog: bookkeeping for F3. Only meaningful on the native
-  // capture path (Recall sessions bypass setProcessedAudioCallback).
+  // Silence watchdog: bookkeeping for F3 on the native capture path.
   private lastAudioChunkAt: number | null = null
   private silenceCheckTimer: ReturnType<typeof setInterval> | null = null
   private silenceWarningSent = false
@@ -108,11 +108,13 @@ export class AudioManager {
     // an `expectingCaptureExit` flag in systemAudioNative that suppresses
     // this path, so normal user stops don't trip a spurious error toast.
     setCaptureExitCallback((reason) => {
-      if (!this.isRecording || this.usingRecall) return
+      if (!this.isRecording) return
 
       const hintsAtPermission = /permission|SCStream|AVAuthorization|TCC/i.test(reason.stderrTail)
       const body = hintsAtPermission
-        ? 'The audio capture process stopped. This usually means macOS revoked Screen Recording or Microphone access for Raven. Check System Settings → Privacy & Security and re-grant, then restart the app.'
+        ? process.platform === 'win32'
+          ? 'The audio capture process stopped. Check Windows Settings → Privacy & security → Microphone, then try recording again.'
+          : 'The audio capture process stopped. This usually means macOS revoked Screen Recording or Microphone access for Raven. Check System Settings → Privacy & Security and re-grant, then restart the app.'
         : 'The audio capture process exited unexpectedly and the session was stopped. Check the app logs for details.'
 
       log.error('Capture died mid-session:', reason)
@@ -192,60 +194,43 @@ export class AudioManager {
         }
       }
 
-      if (isProMode()) {
-        // Check session limit before starting
-        const sessionCheck = await this.checkAndStartProSession()
-        if (!sessionCheck.allowed) {
+      const captureStarted = startCapture()
+      if (!captureStarted) {
+        log.error('Native audio capture failed to start')
+        void trackRecordingFailed('native_capture_failed_to_start')
+        return { success: false, error: 'Audio capture failed to start' }
+      }
+
+      const sttStrategy = chooseNativeSttStrategy({
+        language: getSetting('transcriptionLanguage') as string,
+        hasAssemblyKey: !!getSetting('assemblyaiApiKey'),
+        hasDeepgramKey: !!getSetting('deepgramApiKey'),
+      })
+
+      if (sttStrategy === 'assembly-retry') {
+        shouldStartProRetryLoop = true
+      } else if (sttStrategy === 'deepgram') {
+        const deepgramKey = getSetting('deepgramApiKey')
+        this.transcriptionService.setApiKey(deepgramKey)
+        this.transcriptionService.clearTranscript()
+        this.activeProvider = this.transcriptionService
+        const result = await this.transcriptionService.start()
+        if (!result.success) {
+          log.error('Transcription failed to start:', result.error)
+          stopCapture()
+          void trackRecordingFailed('transcription_failed_to_start')
           return {
             success: false,
-            error: sessionCheck.error || 'Session limit reached',
-            code: sessionCheck.code,
-            sessionsUsed: sessionCheck.sessionsUsed,
-            sessionLimit: sessionCheck.sessionLimit,
-            resetAt: sessionCheck.resetAt,
+            error: result.error || 'Transcription failed to start. Check your Deepgram key.',
           }
-        }
-
-        // Try Recall SDK first (handles both audio capture + transcription)
-        const recallStarted = await this.tryStartRecallRecording()
-        if (recallStarted) {
-          this.usingRecall = true
-          log.info('Pro recording: Recall SDK active (native capture skipped)')
-        } else {
-          // Fall back to native capture + AssemblyAI/Deepgram
-          this.usingRecall = false
-          const captureStarted = startCapture()
-          if (!captureStarted) {
-            log.error('Native audio capture failed to start')
-            void trackRecordingFailed('native_capture_failed_to_start_pro')
-            return { success: false, error: 'Audio capture failed to start' }
-          }
-          shouldStartProRetryLoop = true
-        }
-
-        // Start session time limit for FREE users
-        if (sessionCheck.sessionMaxSeconds && sessionCheck.sessionMaxSeconds > 0) {
-          this.startSessionTimer(sessionCheck.sessionMaxSeconds)
         }
       } else {
-        const deepgramKey = getSetting('deepgramApiKey')
-        if (deepgramKey) {
-          this.transcriptionService.setApiKey(deepgramKey)
-          this.transcriptionService.clearTranscript()
-          this.activeProvider = this.transcriptionService
-          const result = await this.transcriptionService.start()
-          if (!result.success) {
-            log.error('Transcription failed to start:', result.error)
-          }
-        } else {
-          log.warn('No Deepgram API key - transcription disabled')
-        }
-
-        const captureStarted = startCapture()
-        if (!captureStarted) {
-          log.error('Native audio capture failed to start')
-          void trackRecordingFailed('native_capture_failed_to_start')
-          return { success: false, error: 'Audio capture failed to start' }
+        log.error('No AssemblyAI or Deepgram API key - refusing to start a silent recording')
+        stopCapture()
+        void trackRecordingFailed('no_transcription_key')
+        return {
+          success: false,
+          error: 'Add a Deepgram or AssemblyAI key in Settings before recording.',
         }
       }
 
@@ -254,33 +239,13 @@ export class AudioManager {
       this.recordingStartTime = Date.now()
       this.proSessionStarted = false
       this.broadcastRecordingState(true)
-      // Start the silence watchdog for native-capture sessions. Skipped
-      // for Recall sessions because audio doesn't flow through our
-      // setProcessedAudioCallback on that path - the Recall SDK has its
-      // own error events (setCaptureExitCallback above) that cover the
-      // equivalent failure modes.
-      if (!this.usingRecall) {
-        this.startSilenceWatchdog()
-      }
+      this.startSilenceWatchdog()
       log.info(
         'Recording started',
         deviceId ? `device: ${deviceId}` : '(default)'
       )
 
-      if (!isProMode()) {
-        // Free mode: session starts immediately (transcription is synchronous above)
-        this.startSessionOnce()
-      } else if (isProMode() && this.usingRecall && this.activeProvider) {
-        // Recall implies transcription is already connected.
-        this.broadcastTranscriptionConnectionState({
-          phase: 'connected',
-          provider: 'recall',
-          retryCount: 0,
-          maxRetries: 3,
-          nextRetryAt: null,
-        })
-        this.startSessionOnce()
-      } else if (isProMode()) {
+      if (shouldStartProRetryLoop) {
         this.broadcastTranscriptionConnectionState({
           phase: 'connecting',
           provider: 'assemblyai',
@@ -288,14 +253,11 @@ export class AudioManager {
           maxRetries: 3,
           nextRetryAt: null,
         })
-      }
-
-      if (shouldStartProRetryLoop) {
-        // Start transcription asynchronously with retries. Recording can begin
-        // immediately, but we delay session creation until transcription is connected.
         this.startProTranscriptionWithRetries().catch((err) => {
-          log.error('Pro transcription retry loop crashed:', err)
+          log.error('Transcription retry loop crashed:', err)
         })
+      } else {
+        this.startSessionOnce()
       }
 
       return { success: true }
@@ -382,9 +344,7 @@ export class AudioManager {
     this.stopSilenceWatchdog()
     this.broadcastTranscriptionConnectionState({ phase: 'idle', provider: null, retryCount: 0, maxRetries: 3, nextRetryAt: null })
 
-    if (!this.usingRecall) {
-      stopCapture()
-    }
+    stopCapture()
 
     if (this.activeProvider) {
       await this.activeProvider.stop()
@@ -400,7 +360,6 @@ export class AudioManager {
     }
     this.activeProvider = null
     this.usingAssemblyAI = false
-    this.usingRecall = false
     this.proSessionStarted = false
 
     this.isRecording = false
@@ -466,29 +425,30 @@ export class AudioManager {
       stopIfAborted()
 
       // 1) AssemblyAI
+      let aaiService: { stop: () => Promise<void> } | null = null
       try {
         this.broadcastTranscriptionConnectionState({
           phase: 'connecting',
           provider: 'assemblyai',
         })
         const { AssemblyAITranscriptionService } = await import(
-          /* @vite-ignore */ '../pro/main/assemblyAITranscriptionService'
+          './services/assemblyAITranscriptionService'
         )
-        const aaiService = new AssemblyAITranscriptionService()
-        aaiService.setWindows(this.dashboardWindow, this.overlayWindow)
-        aaiService.setFallbackHandler(async () => {
-          // Fallback during an active session is handled by the service.
-          // Startup retries are coordinated by AudioManager.
-          log.warn('AssemblyAI signaled fallback during active session')
+        const service = new AssemblyAITranscriptionService()
+        aaiService = service
+        service.setWindows(this.dashboardWindow, this.overlayWindow)
+        service.setFallbackHandler(async () => {
+          log.warn('AssemblyAI signaled fallback during active session - switching to Deepgram')
+          await this.startDeepgramFallback()
         })
 
-        const result = await withTimeout(aaiService.start(), CONNECT_TIMEOUT_MS)
+        const result = await withTimeout(service.start(), CONNECT_TIMEOUT_MS)
         stopIfAborted()
 
         if (result?.success) {
-          this.activeProvider = aaiService
+          this.activeProvider = service
           this.usingAssemblyAI = true
-          log.info('Pro transcription: AssemblyAI connected')
+          log.info('Transcription: AssemblyAI connected')
           this.broadcastTranscriptionConnectionState({
             phase: 'connected',
             provider: 'assemblyai',
@@ -500,7 +460,7 @@ export class AudioManager {
           return { ok: true }
         }
 
-        try { await aaiService.stop() } catch { /* ignore */ }
+        try { await service.stop() } catch { /* ignore */ }
       } catch (err) {
         if (err instanceof Error && err.message === 'CONNECT_TIMEOUT') {
           log.warn('AssemblyAI connect timed out')
@@ -508,6 +468,9 @@ export class AudioManager {
           throw err
         } else {
           log.warn('AssemblyAI connect failed:', err)
+        }
+        if (aaiService) {
+          try { await aaiService.stop() } catch { /* ignore */ }
         }
       }
 
@@ -522,19 +485,7 @@ export class AudioManager {
         // Ensure any previous Deepgram attempts are cleaned up
         try { await this.transcriptionService.stop() } catch { /* ignore */ }
 
-        // In pro mode, the Deepgram key comes from the backend. Ensure it's cached.
-        let deepgramKey = getSetting('deepgramApiKey')
-        if (!deepgramKey) {
-          try {
-            const { fetchAndCacheDeepgramKey } = await import(
-              /* @vite-ignore */ '../pro/main/managedKeyService'
-            )
-            await fetchAndCacheDeepgramKey()
-            deepgramKey = getSetting('deepgramApiKey')
-          } catch {
-            log.warn('Could not fetch managed Deepgram key')
-          }
-        }
+        const deepgramKey = getSetting('deepgramApiKey')
 
         if (!deepgramKey) {
           log.warn('No Deepgram key available for fallback')
@@ -549,7 +500,7 @@ export class AudioManager {
         if (deepgramResult?.success) {
           this.activeProvider = this.transcriptionService
           this.usingAssemblyAI = false
-          log.info('Pro transcription: Deepgram fallback connected')
+          log.info('Transcription: Deepgram fallback connected')
           this.broadcastTranscriptionConnectionState({
             phase: 'connected',
             provider: 'deepgram',
@@ -724,61 +675,9 @@ export class AudioManager {
     }
   }
 
-  private async tryStartRecallRecording(): Promise<boolean> {
-    try {
-      const { isRecallSdkReady, getRecallService } = await import(
-        /* @vite-ignore */ '../pro/main/recallService'
-      )
-
-      if (!isRecallSdkReady()) {
-        log.info('Recall SDK not ready - using native capture')
-        return false
-      }
-
-      const recallService = getRecallService()
-      recallService.setWindows(this.dashboardWindow, this.overlayWindow)
-
-      // If a meeting is already detected (Zoom/Teams/Meet), use its windowId
-      // for meeting-specific capture. Otherwise fall back to adhoc desktop audio.
-      const meetings = recallService.getDetectedMeetings()
-      let result
-      if (meetings.length > 0) {
-        const meeting = meetings[meetings.length - 1]
-        log.info(`Detected meeting: ${meeting.platform || 'unknown'} - using meeting capture`)
-        result = await recallService.start(meeting.windowId)
-      } else {
-        result = await recallService.start()
-      }
-
-      if (result.success) {
-        this.activeProvider = recallService
-        log.info('Recall SDK recording started')
-        return true
-      }
-
-      log.warn('Recall recording failed to start:', result.error)
-      return false
-    } catch (err) {
-      log.warn('Failed to load Recall service:', err)
-      return false
-    }
-  }
 
   private async startDeepgramFallback(): Promise<void> {
-    let deepgramKey = getSetting('deepgramApiKey')
-
-    // In pro mode, the Deepgram key comes from the backend. Ensure it's cached.
-    if (!deepgramKey && isProMode()) {
-      try {
-        const { fetchAndCacheDeepgramKey } = await import(
-          /* @vite-ignore */ '../pro/main/managedKeyService'
-        )
-        await fetchAndCacheDeepgramKey()
-        deepgramKey = getSetting('deepgramApiKey')
-      } catch {
-        log.warn('Could not fetch managed Deepgram key')
-      }
-    }
+    const deepgramKey = getSetting('deepgramApiKey')
 
     if (!deepgramKey) {
       log.error('No Deepgram key available for fallback - transcription disabled')
@@ -794,6 +693,13 @@ export class AudioManager {
       this.activeProvider = null
     } else {
       log.info('Deepgram fallback active')
+      this.broadcastTranscriptionConnectionState({
+        phase: 'connected',
+        provider: 'deepgram',
+        retryCount: 0,
+        maxRetries: 3,
+        nextRetryAt: null,
+      })
     }
   }
 
@@ -854,16 +760,12 @@ export class AudioManager {
   }
 
   /**
-   * Silence watchdog: once per minute while recording, check whether any
-   * AEC-processed audio chunk has arrived in the last
-   * AUDIO_SILENCE_WARN_THRESHOLD_MS. If not, broadcast a warning once
-   * per silence period and leave it at that - the lastAudioChunkAt stamp
-   * resets as soon as audio resumes, which also resets silenceWarningSent,
-   * so a subsequent silence period can trip another warning.
+   * Silence watchdog: while recording, check whether any AEC-processed
+   * audio chunk has arrived in the last AUDIO_SILENCE_WARN_THRESHOLD_MS.
+   * If not, broadcast a warning once per silence period. lastAudioChunkAt
+   * resets as soon as audio resumes, which also resets silenceWarningSent.
    *
-   * Scoped to native capture because Recall sessions don't flow through
-   * setProcessedAudioCallback - the SDK's own error events cover that
-   * path. See the usingRecall check at the watchdog start site.
+   * Native capture only — audio always flows through setProcessedAudioCallback.
    */
   private startSilenceWatchdog(): void {
     this.stopSilenceWatchdog() // defensive: don't leak intervals on restart
@@ -876,11 +778,14 @@ export class AudioManager {
       if (elapsed < AUDIO_SILENCE_WARN_THRESHOLD_MS) return
 
       this.silenceWarningSent = true
-      const minutes = Math.round(elapsed / 60_000)
-      log.warn(`Audio silence watchdog tripped - no chunks for ~${minutes} min`)
+      const elapsedSec = Math.max(1, Math.round(elapsed / 1000))
+      const durationLabel = elapsedSec < 60
+        ? `${elapsedSec} seconds`
+        : `${Math.round(elapsedSec / 60)} minutes`
+      log.warn(`Audio silence watchdog tripped - no chunks for ~${elapsedSec}s`)
       this.broadcastWarning(
         'Audio has gone quiet',
-        `No audio has reached Raven in about ${minutes} minutes. If this is unexpected, try stopping and restarting the recording.`,
+        `No audio has reached Raven in about ${durationLabel}. If this is unexpected, try stopping and restarting the recording.`,
       )
     }, AUDIO_SILENCE_CHECK_INTERVAL_MS)
   }
@@ -901,9 +806,7 @@ export class AudioManager {
     this.clearSessionTimer()
     this.clearTranscriptionRetryLoop()
 
-    if (!this.usingRecall) {
-      stopCapture()
-    }
+    stopCapture()
 
     if (this.activeProvider) {
       await this.activeProvider.stop()
@@ -917,7 +820,6 @@ export class AudioManager {
 
     this.activeProvider = null
     this.usingAssemblyAI = false
-    this.usingRecall = false
     this.isRecording = false
     this.recordingStartTime = null
   }

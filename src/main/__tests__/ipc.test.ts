@@ -124,6 +124,7 @@ vi.mock('../store', () => ({
   isFreeMode: mockIsFreeMode,
   isProMode: mockIsProMode,
   resetAll: mockResetAll,
+  getApiKey: vi.fn(() => ''),
 }))
 
 vi.mock('../windowManager', () => ({
@@ -150,6 +151,18 @@ vi.mock('../ipcThrottle', () => ({
 vi.mock('../validators', () => ({
   validateBothKeys: mockValidateBothKeys,
   validateKeys: mockValidateKeys,
+  validateAssemblyAIKey: vi.fn().mockResolvedValue({ valid: true }),
+  validateRecallKey: vi.fn().mockResolvedValue({ valid: true }),
+}))
+
+vi.mock('../services/vendorFeatures', () => ({
+  reinitRecallFromStore: vi.fn().mockResolvedValue(undefined),
+  initializeVendorFeatures: vi.fn(),
+  shutdownVendorFeatures: vi.fn(),
+}))
+
+vi.mock('../services/insightsService', () => ({
+  analyzeSession: vi.fn().mockResolvedValue({ sentiment: 'ok' }),
 }))
 
 vi.mock('../../main/logger', () => ({
@@ -166,6 +179,8 @@ vi.mock('../../main/logger', () => ({
 // ---------------------------------------------------------------------------
 
 import { registerIpcHandlers } from '../ipc'
+import { analyzeSession } from '../services/insightsService'
+import { reinitRecallFromStore } from '../services/vendorFeatures'
 
 // ---------------------------------------------------------------------------
 // Helper: create a fake IPC event
@@ -285,14 +300,22 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
     it('delegates to saveApiKeys and returns true', () => {
       const result = handlers['store:save-api-keys'](fakeEvent(), 'dg-key', 'ant-key')
 
-      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', undefined)
+      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', undefined, undefined)
       expect(result).toBe(true)
     })
 
     it('passes openai key when provided', () => {
       const result = handlers['store:save-api-keys'](fakeEvent(), 'dg-key', 'ant-key', 'oai-key')
 
-      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', 'oai-key')
+      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', 'oai-key', undefined)
+      expect(result).toBe(true)
+    })
+
+    it('passes AssemblyAI and Recall extras when provided', () => {
+      const extras = { assemblyaiApiKey: 'aai-key', recallApiKey: 'recall-key' }
+      const result = handlers['store:save-api-keys'](fakeEvent(), 'dg-key', 'ant-key', 'oai-key', extras)
+
+      expect(mockSaveApiKeys).toHaveBeenCalledWith('dg-key', 'ant-key', 'oai-key', extras)
       expect(result).toBe(true)
     })
   })
@@ -317,20 +340,26 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
   })
 
   describe('store:clear-api-keys', () => {
-    it('delegates to clearApiKeys and returns true', () => {
+    it('delegates to clearApiKeys, tears down Recall, and returns true', async () => {
       const result = handlers['store:clear-api-keys']()
 
       expect(mockClearApiKeys).toHaveBeenCalled()
       expect(result).toBe(true)
+      await vi.waitFor(() => {
+        expect(reinitRecallFromStore).toHaveBeenCalled()
+      })
     })
   })
 
   describe('store:reset-all', () => {
-    it('delegates to resetAll and returns true', () => {
+    it('delegates to resetAll, tears down Recall, and returns true', async () => {
       const result = handlers['store:reset-all']()
 
       expect(mockResetAll).toHaveBeenCalled()
       expect(result).toBe(true)
+      await vi.waitFor(() => {
+        expect(reinitRecallFromStore).toHaveBeenCalled()
+      })
     })
   })
 
@@ -721,6 +750,17 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
       const result = await handlers['validate-api-keys'](fakeEvent(), 'bad', 'bad')
 
       expect(result).toEqual({ valid: false, error: 'Bad key' })
+    })
+  })
+
+  describe('proxy:analyze-session', () => {
+    it('runs local insights on the user LLM instead of the backend proxy', async () => {
+      vi.mocked(analyzeSession).mockResolvedValue({ sentiment: 'ok' })
+      const params = { transcript: 'Alice: hello', features: ['sentiment'], sessionId: 's1' }
+      const result = await handlers['proxy:analyze-session'](fakeEvent(), params)
+
+      expect(analyzeSession).toHaveBeenCalledWith(params)
+      expect(result).toEqual({ sentiment: 'ok' })
     })
   })
 

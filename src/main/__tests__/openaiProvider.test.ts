@@ -157,6 +157,70 @@ describe('OpenAIProvider', () => {
       )
     })
 
+    it('defaults omitted max_tokens to the official 128k model max', async () => {
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {},
+      })
+
+      await provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ max_tokens: 128000 })
+      )
+    })
+
+    it('sends the selected reasoning_effort on GPT-5.6', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-luna', 'xhigh')
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {},
+      })
+
+      await provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'gpt-5.6-luna',
+          reasoning_effort: 'xhigh',
+        })
+      )
+    })
+
+    it('sends reasoning_effort on GPT-5.4 when the user set it', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.4-mini', 'none')
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {},
+      })
+
+      await provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+
+      const args = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0]
+      expect(args.reasoning_effort).toBe('none')
+    })
+
+    it('sends reasoning_effort on GPT-5.2', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.2', 'high')
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {},
+      })
+
+      await provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+
+      const args = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0]
+      expect(args.reasoning_effort).toBe('high')
+    })
+
     it('calls onError with friendly message on 401', async () => {
       const onError = vi.fn()
 

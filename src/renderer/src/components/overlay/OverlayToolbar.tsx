@@ -37,7 +37,10 @@ export function OverlayToolbar({
       await window.raven.audioStopRecording()
     } else {
       try {
-        await window.raven.audioStartRecording()
+        const micId = await window.raven.storeGet('selectedMicrophone')
+        await window.raven.audioStartRecording(
+          typeof micId === 'string' && micId ? micId : undefined,
+        )
       } catch (err) {
         log.error('Failed to start recording:', err)
         await window.raven.audioStopRecording()

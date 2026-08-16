@@ -1,9 +1,32 @@
 /**
- * Analytics — opt-in anonymous usage tracking via PostHog.
- * Default OFF. Respects user consent via `analyticsEnabled` store key.
+ * Analytics - anonymous usage tracking via PostHog.
  *
- * NEVER tracks: transcripts, AI responses, user content, email,
- * API keys, file names, or IP addresses.
+ * Default ON, in line with standard commercial-SaaS product
+ * telemetry. The `analyticsEnabled` store key is honored if it's
+ * explicitly set to `false` (no in-app UI exposes it; reserved as an
+ * operational lever for privacy-request handling and dev-tooling
+ * overrides). New installs and the common case have telemetry on.
+ *
+ * What we send (per event):
+ *   - A randomly-generated anonymous distinctId of the shape
+ *     `anon-<timestamp>-<random>`. NOT the user's email, NOT the
+ *     server-side user UUID; not stable across uninstalls.
+ *   - Event name + a small set of structural properties (e.g.
+ *     duration buckets like "5-15m", action type strings).
+ *   - `$ip: null` is set explicitly on every event so PostHog does
+ *     not record the user's IP from the connecting socket.
+ *
+ * What we NEVER send:
+ *   - Transcript content, AI prompt or response content.
+ *   - Email addresses, names, file names, or any account identifier.
+ *   - API keys or secret material.
+ *   - The user's IP address.
+ *
+ * Legal basis (GDPR Art. 6(1)(f) - legitimate interest): the data is
+ * anonymous and used for product analytics. The Privacy Policy
+ * documents this and provides a contact path for users with
+ * concerns; we rely on PostHog's API for any per-distinctId deletion
+ * a privacy request demands.
  */
 
 import { app, ipcMain } from 'electron'
@@ -15,7 +38,10 @@ const log = createLogger('Analytics')
 const POSTHOG_API_KEY = 'phc_PLACEHOLDER'
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 
-let enabled = false
+// Default ON. The early initialization (before initAnalytics runs)
+// already takes the always-on default; initAnalytics tightens this
+// to "off only if explicitly disabled in the store".
+let enabled = true
 let posthogClient: PostHogClient | null = null
 
 interface PostHogClient {
@@ -67,7 +93,12 @@ function getDurationBucket(durationSeconds: number): string {
 }
 
 export function initAnalytics(): void {
-  enabled = getSetting('analyticsEnabled') === true
+  // Default ON; we only honor an explicit `false`. `undefined`
+  // (fresh install) and `true` (older opt-in users) both resolve to
+  // enabled. There is no in-app UI to write the setting today; the
+  // helper IPCs below are kept for ops tooling + future opt-out
+  // support without committing to a UI surface.
+  enabled = getSetting('analyticsEnabled') !== false
 
   ipcMain.handle('analytics:track', async (_event, eventName: string, properties?: Record<string, unknown>) => {
     trackEvent({ name: eventName, properties })
@@ -102,7 +133,7 @@ export function initAnalytics(): void {
     })
   }
 
-  log.info('Analytics initialized (opt-in:', enabled, ')')
+  log.info('Analytics initialized (enabled:', enabled, ')')
 }
 
 export function trackEvent(event: AnalyticsEvent): void {

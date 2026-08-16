@@ -133,26 +133,11 @@ export function ChatTab() {
       )}
 
       {limitInfo && (
-        <div className="mx-1 rounded-xl bg-gradient-to-r from-purple-600/90 to-blue-600/90 p-4 text-white shadow-lg">
+        <div className="mx-1 rounded-xl bg-white/10 p-4 text-white/80">
           <p className="text-sm font-medium mb-1">
-            You&apos;ve used all {limitInfo.limit} free AI responses for today.
+            You&apos;ve used all {limitInfo.limit} AI responses for today.
           </p>
-          <p className="text-xs text-white/70 mb-3">
-            Upgrade to Raven Pro for unlimited access.
-          </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                void window.raven.trackClientEvent('checkout_opened', { metadata: { plan: 'PRO', surface: 'overlay_chat' } })
-                void window.raven.authOpenCheckout('PRO')
-              }}
-              className="px-4 py-1.5 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
-            >
-              Upgrade Now
-            </button>
-            <span className="text-xs text-white/50">Resets tomorrow</span>
-          </div>
+          <span className="text-xs text-white/50">Resets tomorrow</span>
         </div>
       )}
 

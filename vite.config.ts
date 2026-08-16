@@ -21,7 +21,6 @@ export default defineConfig({
                 'pdf-parse',
                 '@sentry/electron',
                 '@sentry/electron/main',
-                '@recallai/desktop-sdk',
                 'onnxruntime-node',
                 'onnxruntime-web',
                 'sharp',

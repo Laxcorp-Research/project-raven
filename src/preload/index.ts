@@ -6,8 +6,12 @@ contextBridge.exposeInMainWorld('raven', {
   storeSet: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
   storeSaveMany: (settings: Record<string, unknown>) =>
     ipcRenderer.invoke('store:save-many', settings),
-  apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) =>
-    ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey),
+  apiKeysSave: (
+    deepgramKey: string,
+    anthropicKey: string,
+    openaiKey?: string,
+    extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+  ) => ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey, extras),
   apiKeysHas: () => ipcRenderer.invoke('store:has-api-keys'),
   apiKeysClear: () => ipcRenderer.invoke('store:clear-api-keys'),
   planIsFree: () => ipcRenderer.invoke('store:is-free-mode'),
@@ -17,6 +21,10 @@ contextBridge.exposeInMainWorld('raven', {
     ipcRenderer.invoke('validate-api-keys', deepgramKey, anthropicKey),
   validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) =>
     ipcRenderer.invoke('validate-keys', deepgramKey, aiProvider, aiKey),
+  validateAssemblyAIKey: (apiKey: string) =>
+    ipcRenderer.invoke('validate-assemblyai-key', apiKey),
+  validateRecallKey: (apiKey: string, apiUrl?: string) =>
+    ipcRenderer.invoke('validate-recall-key', apiKey, apiUrl),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),

@@ -13,11 +13,9 @@ interface ControllerPillProps {
   isRecording: boolean
   isStarting: boolean
   incognitoMode: boolean
-  smartMode?: boolean
   onToggleRecording: () => void
   onToggleStealth: () => void
   onToggleIncognito: () => void
-  onToggleSmartMode?: () => void
   onHide: () => void
   onLogoClick: () => void
   onLogoMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void
@@ -28,11 +26,9 @@ export function ControllerPill({
   isRecording,
   isStarting,
   incognitoMode,
-  smartMode,
   onToggleRecording,
   onToggleStealth,
   onToggleIncognito,
-  onToggleSmartMode,
   onHide,
   onLogoClick,
   onLogoMouseDown
@@ -270,44 +266,6 @@ export function ControllerPill({
         )}
       </button>
       </div>
-
-      {/* Fast/Deep Toggle. Parent gates this on the Pro binary, not the
-          subscription plan - free users in the Pro binary can switch
-          between Haiku (Fast) and Sonnet (Deep). Volume caps already
-          bound the cost at 5 AI responses/day for free accounts. */}
-      {onToggleSmartMode && (
-        <div
-          onPointerEnter={() => setButtonHovered(true)}
-          onPointerLeave={() => setButtonHovered(false)}
-          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-          onClick={(e) => e.stopPropagation()}
-        >
-        <button
-          onClick={onToggleSmartMode}
-          onMouseEnter={(e) =>
-            showTooltip(smartMode ? 'Deep Mode ON' : 'Fast Mode', e.currentTarget)
-          }
-          onMouseLeave={clearTooltipHideTimer}
-          className={`h-6 px-2 flex items-center gap-1 rounded-full text-[11px] font-semibold transition-all duration-150 ${
-            smartMode
-              ? 'bg-yellow-400/20 text-yellow-200/90 border border-yellow-400/30'
-              : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white/70'
-          }`}
-          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-        >
-          {smartMode ? (
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
-            </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-          )}
-          {smartMode ? 'Deep' : 'Fast'}
-        </button>
-        </div>
-      )}
 
       {/* Incognito Toggle */}
       <div

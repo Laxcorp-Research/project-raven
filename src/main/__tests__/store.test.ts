@@ -138,6 +138,7 @@ describe('store', () => {
         outputLanguage: 'en',
         aiProvider: 'anthropic',
         aiModel: 'claude-sonnet-4-6',
+        aiEffort: 'low',
         openaiApiKey: '',
         activeModeId: null,
         displayName: '',
@@ -154,6 +155,26 @@ describe('store', () => {
       expect(settings.mode).toBe('pro')
       expect(settings.theme).toBe('dark')
       expect(settings.apiKeysConfigured).toBe(true)
+      expect(settings.aiEffort).toBe('low')
+    })
+
+    it('redacts API key fields so store:get-all never returns secrets', () => {
+      mockGet.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-secret'
+        if (key === 'anthropicApiKey') return 'ant-secret'
+        if (key === 'assemblyaiApiKey') return 'aai-secret'
+        if (key === 'recallApiKey') return 'recall-secret'
+        if (key === 'openaiApiKey') return 'oai-secret'
+        return ''
+      })
+
+      const settings = getAllSettings()
+
+      expect(settings.deepgramApiKey).toBe('')
+      expect(settings.anthropicApiKey).toBe('')
+      expect(settings.assemblyaiApiKey).toBe('')
+      expect(settings.recallApiKey).toBe('')
+      expect(settings.openaiApiKey).toBe('')
     })
   })
 
@@ -179,6 +200,16 @@ describe('store', () => {
         (c: unknown[]) => c[0] === 'openaiApiKey',
       )
       expect(openaiCall).toBeUndefined()
+    })
+
+    it('saves AssemblyAI and Recall extras when provided', () => {
+      saveApiKeys('dg-key', 'ant-key', undefined, {
+        assemblyaiApiKey: 'aai-key',
+        recallApiKey: 'recall-key',
+      })
+
+      expect(mockSet).toHaveBeenCalledWith('assemblyaiApiKey', 'aai-key')
+      expect(mockSet).toHaveBeenCalledWith('recallApiKey', 'recall-key')
     })
 
     it('encrypts keys when safeStorage available', () => {
@@ -232,6 +263,17 @@ describe('store', () => {
 
       expect(hasApiKeys()).toBe(false)
     })
+
+    it('returns true when AssemblyAI is the only STT key', () => {
+      mockGet.mockImplementation((key: string) => {
+        if (key === 'assemblyaiApiKey') return 'aai-key'
+        if (key === 'anthropicApiKey') return 'ant-key'
+        if (key === 'aiProvider') return 'anthropic'
+        return ''
+      })
+
+      expect(hasApiKeys()).toBe(true)
+    })
   })
 
   describe('clearApiKeys', () => {
@@ -241,6 +283,8 @@ describe('store', () => {
       expect(mockSet).toHaveBeenCalledWith('deepgramApiKey', '')
       expect(mockSet).toHaveBeenCalledWith('anthropicApiKey', '')
       expect(mockSet).toHaveBeenCalledWith('openaiApiKey', '')
+      expect(mockSet).toHaveBeenCalledWith('assemblyaiApiKey', '')
+      expect(mockSet).toHaveBeenCalledWith('recallApiKey', '')
       expect(mockSet).toHaveBeenCalledWith('apiKeysConfigured', false)
     })
   })

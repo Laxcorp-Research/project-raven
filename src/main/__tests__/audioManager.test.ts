@@ -81,6 +81,7 @@ const mockIsProMode = vi.hoisted(() => vi.fn(() => false))
 vi.mock('../store', () => ({
   getSetting: mockGetSetting,
   isProMode: mockIsProMode,
+  getApiKey: (key: string) => mockGetSetting(key),
 }))
 
 vi.mock('../logger', () => ({
@@ -92,7 +93,7 @@ vi.mock('../logger', () => ({
   }),
 }))
 
-import { AudioManager } from '../audioManager'
+import { AudioManager, AUDIO_SILENCE_WARN_THRESHOLD_MS } from '../audioManager'
 
 describe('AudioManager', () => {
   let manager: AudioManager
@@ -102,7 +103,10 @@ describe('AudioManager', () => {
     Object.keys(mockIpcHandlers).forEach((k) => delete mockIpcHandlers[k])
     Object.keys(mockIpcOnHandlers).forEach((k) => delete mockIpcOnHandlers[k])
 
-    mockGetSetting.mockReturnValue('')
+    mockGetSetting.mockImplementation((key: string) => {
+      if (key === 'deepgramApiKey') return 'dg-test-key'
+      return ''
+    })
     mockIsProMode.mockReturnValue(false)
     mockStartCapture.mockReturnValue(true)
     mockGetPermissionStatus.mockReturnValue({ microphone: 'granted', screen: 'granted', accessibility: 'granted' })
@@ -165,17 +169,54 @@ describe('AudioManager', () => {
       expect(mockTranscriptionService.setApiKey).toHaveBeenCalledWith('dg-test-key')
       expect(mockTranscriptionService.start).toHaveBeenCalled()
       expect(mockStartCapture).toHaveBeenCalled()
+      expect((manager as any).usingRecall).toBeUndefined()
     })
 
-    it('starts recording without Deepgram key (transcription disabled)', async () => {
+    it('refuses to start a silent recording when no STT key is configured', async () => {
       mockGetSetting.mockReturnValue('')
 
       const handler = mockIpcHandlers['audio:start-recording']
       const result = await handler({})
 
-      expect(result).toEqual({ success: true })
-      expect(manager.getIsRecording()).toBe(true)
+      expect(result).toEqual({
+        success: false,
+        error: 'Add a Deepgram or AssemblyAI key in Settings before recording.',
+      })
+      expect(manager.getIsRecording()).toBe(false)
+      expect(mockStopCapture).toHaveBeenCalled()
       expect(mockTranscriptionService.setApiKey).not.toHaveBeenCalled()
+    })
+
+    it('refuses to start when Deepgram connect fails', async () => {
+      mockGetSetting.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-test-key'
+        return ''
+      })
+      mockTranscriptionService.start.mockResolvedValue({ success: false, error: '401 unauthorized' })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+
+      expect(result).toMatchObject({ success: false })
+      expect(String((result as { error?: string }).error)).toContain('401')
+      expect(manager.getIsRecording()).toBe(false)
+      expect(mockStopCapture).toHaveBeenCalled()
+    })
+
+    it('uses Deepgram (not Assembly) when language is auto-detect and both keys exist', async () => {
+      mockGetSetting.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-test-key'
+        if (key === 'assemblyaiApiKey') return 'aai-key'
+        if (key === 'transcriptionLanguage') return 'multi'
+        return ''
+      })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+
+      expect(result).toEqual({ success: true })
+      expect(mockTranscriptionService.setApiKey).toHaveBeenCalledWith('dg-test-key')
+      expect(mockTranscriptionService.start).toHaveBeenCalled()
     })
 
     it('returns error when recording is already in progress', async () => {
@@ -325,28 +366,14 @@ describe('AudioManager', () => {
       expect(result).toMatchObject({ success: true })
     })
 
-    it('denies recording with AUTH_REQUIRED when session check throws an auth error', async () => {
-      // Simulate the "auth expired overnight" scenario: pro module
-      // imports fine but every apiRequest throws 'Missing authorization
-      // token'. Before the fix, this took the BACKEND_UNAVAILABLE grace
-      // path and let a logged-out user start a recording that 401'd
-      // every transcription provider and auto-stopped after 38s.
-      const checkMock = vi.spyOn(manager as unknown as { checkAndStartProSession: () => Promise<unknown> }, 'checkAndStartProSession')
-      checkMock.mockResolvedValue({
-        allowed: false,
-        error: 'Please sign in to start a recording.',
-        code: 'AUTH_REQUIRED',
-      })
-
+    it('starts recording without a backend session check', async () => {
       const handler = mockIpcHandlers['audio:start-recording']
       const result = await handler({}) as { success: boolean; error?: string; code?: string }
 
-      expect(result.success).toBe(false)
-      expect(result.code).toBe('AUTH_REQUIRED')
-      expect(result.error).toContain('sign in')
-      expect(manager.getIsRecording()).toBe(false)
-      expect(mockStartCapture).not.toHaveBeenCalled()
-      checkMock.mockRestore()
+      expect(result.success).toBe(true)
+      expect(result.code).toBeUndefined()
+      expect(manager.getIsRecording()).toBe(true)
+      expect(mockStartCapture).toHaveBeenCalled()
     })
   })
 
@@ -619,27 +646,56 @@ describe('AudioManager', () => {
     })
 
     it('broadcasts a permission-hint error + stops recording when Swift stderr mentions TCC/SCStream', async () => {
-      const overlaySend = vi.fn()
-      const dashboard = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
-      const overlay = { isDestroyed: () => false, webContents: { send: overlaySend } } as any
-      manager.setWindows(dashboard, overlay)
-      ;(manager as any).isRecording = true
-      ;(manager as any).usingRecall = false
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      try {
+        const overlaySend = vi.fn()
+        const dashboard = { isDestroyed: () => false, webContents: { send: vi.fn() } } as any
+        const overlay = { isDestroyed: () => false, webContents: { send: overlaySend } } as any
+        manager.setWindows(dashboard, overlay)
+        ;(manager as any).isRecording = true
 
-      const captureExitCb = mockSetCaptureExitCallback.mock.calls[0][0] as (r: { code: number | null; signal: string | null; stderrTail: string }) => void
-      captureExitCb({ code: 1, signal: null, stderrTail: 'SCStream: permission denied' })
+        const captureExitCb = mockSetCaptureExitCallback.mock.calls[0][0] as (r: { code: number | null; signal: string | null; stderrTail: string }) => void
+        captureExitCb({ code: 1, signal: null, stderrTail: 'SCStream: permission denied' })
 
-      expect(overlaySend).toHaveBeenCalledWith(
-        'overlay:notification',
-        expect.objectContaining({
-          type: 'error',
-          title: 'Recording stopped',
-          body: expect.stringContaining('Screen Recording'),
-        }),
-      )
+        expect(overlaySend).toHaveBeenCalledWith(
+          'overlay:notification',
+          expect.objectContaining({
+            type: 'error',
+            title: 'Recording stopped',
+            body: expect.stringContaining('Screen Recording'),
+          }),
+        )
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      }
     })
 
-    it('stays silent when Recall is active (Recall has its own lifecycle)', () => {
+    it('uses Windows privacy copy when capture dies on win32', async () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      try {
+        const overlaySend = vi.fn()
+        manager.setWindows(null, { isDestroyed: () => false, webContents: { send: overlaySend } } as any)
+        ;(manager as any).isRecording = true
+
+        const captureExitCb = mockSetCaptureExitCallback.mock.calls[0][0] as (r: { code: number | null; signal: string | null; stderrTail: string }) => void
+        captureExitCb({ code: 1, signal: null, stderrTail: 'permission denied' })
+
+        expect(overlaySend).toHaveBeenCalledWith(
+          'overlay:notification',
+          expect.objectContaining({
+            type: 'error',
+            title: 'Recording stopped',
+            body: expect.stringContaining('Windows Settings'),
+          }),
+        )
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+      }
+    })
+
+    it('still stops recording when capture dies even if a leftover usingRecall flag is set', () => {
       const overlaySend = vi.fn()
       manager.setWindows(null, { isDestroyed: () => false, webContents: { send: overlaySend } } as any)
       ;(manager as any).isRecording = true
@@ -648,7 +704,10 @@ describe('AudioManager', () => {
       const captureExitCb = mockSetCaptureExitCallback.mock.calls[0][0] as (r: { code: number | null; signal: string | null; stderrTail: string }) => void
       captureExitCb({ code: 1, signal: null, stderrTail: 'some error' })
 
-      expect(overlaySend).not.toHaveBeenCalled()
+      expect(overlaySend).toHaveBeenCalledWith(
+        'overlay:notification',
+        expect.objectContaining({ type: 'error', title: 'Recording stopped' }),
+      )
     })
   })
 
@@ -696,8 +755,8 @@ describe('AudioManager', () => {
   })
 
   describe('silence watchdog (F3)', () => {
-    const FIVE_MIN = 5 * 60 * 1000
-    const ELEVEN_MIN = 11 * 60 * 1000
+    const BEFORE_THRESHOLD = AUDIO_SILENCE_WARN_THRESHOLD_MS - 5_000
+    const AFTER_THRESHOLD = AUDIO_SILENCE_WARN_THRESHOLD_MS + 5_000
 
     function attachWindows(): { overlaySend: ReturnType<typeof vi.fn>; dashSend: ReturnType<typeof vi.fn> } {
       const overlaySend = vi.fn()
@@ -721,10 +780,10 @@ describe('AudioManager', () => {
       ;(manager as any).startSilenceWatchdog()
       ;(manager as any).isRecording = true
 
-      // Simulate audio chunks arriving every minute for 15 minutes
+      // Chunks must arrive more often than AUDIO_SILENCE_WARN_THRESHOLD_MS
       const audioCb = mockSetProcessedAudioCallback.mock.calls[0][0] as (buf: Buffer, src: 'mic' | 'system') => void
       for (let i = 0; i < 15; i++) {
-        vi.advanceTimersByTime(60 * 1000)
+        vi.advanceTimersByTime(5_000)
         audioCb(Buffer.alloc(8), 'mic')
       }
 
@@ -734,12 +793,12 @@ describe('AudioManager', () => {
       expect(warnings).toHaveLength(0)
     })
 
-    it('fires a warning after 10 min of zero chunks during an active recording', () => {
+    it('fires a warning after 20s of zero chunks during an active recording', () => {
       const { overlaySend } = attachWindows()
       ;(manager as any).isRecording = true
       ;(manager as any).startSilenceWatchdog()
 
-      vi.advanceTimersByTime(ELEVEN_MIN)
+      vi.advanceTimersByTime(AFTER_THRESHOLD)
 
       const warnings = overlaySend.mock.calls.filter(
         (call) => call[0] === 'overlay:notification' && call[1]?.type === 'warning',
@@ -751,12 +810,12 @@ describe('AudioManager', () => {
       })
     })
 
-    it('does NOT warn before the 10 min threshold has elapsed', () => {
+    it('does NOT warn before the 20s threshold has elapsed', () => {
       const { overlaySend } = attachWindows()
       ;(manager as any).isRecording = true
       ;(manager as any).startSilenceWatchdog()
 
-      vi.advanceTimersByTime(FIVE_MIN)
+      vi.advanceTimersByTime(BEFORE_THRESHOLD)
 
       const warnings = overlaySend.mock.calls.filter(
         (call) => call[0] === 'overlay:notification' && call[1]?.type === 'warning',
@@ -785,7 +844,7 @@ describe('AudioManager', () => {
       ;(manager as any).startSilenceWatchdog()
 
       // First silence period → one warning
-      vi.advanceTimersByTime(ELEVEN_MIN)
+      vi.advanceTimersByTime(AFTER_THRESHOLD)
       let warnings = overlaySend.mock.calls.filter(
         (call) => call[0] === 'overlay:notification' && call[1]?.type === 'warning',
       )
@@ -796,7 +855,7 @@ describe('AudioManager', () => {
       audioCb(Buffer.alloc(8), 'mic')
 
       // New silence period → second warning
-      vi.advanceTimersByTime(ELEVEN_MIN)
+      vi.advanceTimersByTime(AFTER_THRESHOLD)
       warnings = overlaySend.mock.calls.filter(
         (call) => call[0] === 'overlay:notification' && call[1]?.type === 'warning',
       )
@@ -818,22 +877,18 @@ describe('AudioManager', () => {
       expect(warnings).toHaveLength(0)
     })
 
-    it('does NOT fire for Recall sessions (usingRecall short-circuits the start)', () => {
-      // The caller gate in startRecording skips startSilenceWatchdog when
-      // usingRecall is true. This test proves the gate logic by exercising
-      // the watchdog directly - if it's never started, no timer is
-      // scheduled and no warning can fire.
-      const { overlaySend } = attachWindows()
-      ;(manager as any).usingRecall = true
-      // Deliberately do NOT call startSilenceWatchdog - mirrors the gated
-      // path in start-recording.
-
-      vi.advanceTimersByTime(30 * 60 * 1000)
-
-      const warnings = overlaySend.mock.calls.filter(
-        (call) => call[0] === 'overlay:notification' && call[1]?.type === 'warning',
-      )
-      expect(warnings).toHaveLength(0)
+    it('starts the silence watchdog after a successful start (Recall skip is gone)', async () => {
+      mockGetSetting.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-test-key'
+        return ''
+      })
+      attachWindows()
+      vi.useRealTimers()
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+      expect(result).toEqual({ success: true })
+      expect((manager as any).silenceCheckTimer).toBeTruthy()
+      ;(manager as any).stopSilenceWatchdog()
     })
   })
 })

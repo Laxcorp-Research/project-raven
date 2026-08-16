@@ -23,6 +23,9 @@ interface PermissionsGateProps {
  * another window and come straight back to this screen finding a
  * green checkmark, without having to relaunch Raven.
  */
+const isWindows =
+  typeof navigator !== 'undefined' && navigator.platform.includes('Win')
+
 export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Element {
   const [mic, setMic] = useState<PermissionState>('unknown')
   const [screen, setScreen] = useState<PermissionState>('unknown')
@@ -109,8 +112,9 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
           <div className="text-center">
             <h1 className="text-xl font-semibold text-gray-900 mb-1">Grant permissions to continue</h1>
             <p className="text-sm text-gray-500">
-              Raven needs these macOS permissions to capture audio and detect meetings.
-              It looks like one or more have been revoked since you set Raven up.
+              {isWindows
+                ? 'Raven needs microphone access to capture your voice. Windows Settings may have turned it off for desktop apps.'
+                : 'Raven needs these macOS permissions to capture audio and detect meetings. It looks like one or more have been revoked since you set Raven up.'}
             </p>
           </div>
 
@@ -130,6 +134,8 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
               )}
             />
 
+            {!isWindows && (
+            <>
             <PermissionRow
               title="Screen Recording"
               description="For capturing system audio and screenshots"
@@ -169,7 +175,7 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
 
             <PermissionRow
               title="Accessibility"
-              description="For keyboard shortcuts and meeting detection"
+              description="For keyboard shortcuts"
               state={accessibility}
               onGrant={handleGrantAccessibility}
               iconBg="bg-amber-100"
@@ -183,11 +189,14 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
                 </>
               )}
             />
+            </>
+            )}
           </div>
 
           <p className="text-xs text-gray-400 text-center">
-            This screen auto-closes the moment all three show &quot;Granted&quot;. You can grant them in
-            System Settings → Privacy &amp; Security.
+            {isWindows
+              ? 'This screen auto-closes once the microphone shows “Granted”. You can grant it in Windows Settings → Privacy & security → Microphone.'
+              : 'This screen auto-closes the moment all three show “Granted”. You can grant them in System Settings → Privacy & Security.'}
           </p>
         </div>
       </div>

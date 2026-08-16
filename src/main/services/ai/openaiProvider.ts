@@ -1,14 +1,17 @@
 import type { AIProvider, AIMessage, AIContentPart, StreamCallbacks } from './types';
+import { buildOpenAIEffortParams, streamMaxTokensFor } from './types';
 import type OpenAI from 'openai';
 
 export class OpenAIProvider implements AIProvider {
   readonly name = 'openai' as const;
   private apiKey: string;
   private model: string;
+  private effort?: string;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, effort?: string) {
     this.apiKey = apiKey;
     this.model = model;
+    this.effort = effort;
   }
 
   async streamResponse(
@@ -53,9 +56,10 @@ export class OpenAIProvider implements AIProvider {
     try {
       const stream = await client.chat.completions.create({
         model: this.model,
-        max_tokens: params.maxTokens ?? 1024,
+        max_tokens: params.maxTokens ?? streamMaxTokensFor('openai', this.model),
         messages: openaiMessages,
         stream: true,
+        ...this.effortParams(),
       });
 
       for await (const chunk of stream) {
@@ -101,6 +105,10 @@ export class OpenAIProvider implements AIProvider {
     });
 
     return response.choices[0]?.message?.content?.trim() || '';
+  }
+
+  private effortParams(): Record<string, unknown> {
+    return buildOpenAIEffortParams(this.model, this.effort);
   }
 
   private convertContent(

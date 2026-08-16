@@ -1,4 +1,5 @@
 import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
+import { DEFAULT_EFFORT, resolveCatalogModel } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
 import { createLogger } from '../../logger';
@@ -9,7 +10,7 @@ let cachedProvider: AIProvider | null = null;
 let cachedConfigKey = '';
 
 function configKey(config: AIProviderConfig): string {
-  return `${config.provider}:${config.model}:${config.apiKey}`;
+  return `${config.provider}:${config.model}:${config.effort ?? ''}:${config.apiKey}`;
 }
 
 export function getProvider(config: AIProviderConfig): AIProvider {
@@ -20,17 +21,17 @@ export function getProvider(config: AIProviderConfig): AIProvider {
 
   switch (config.provider) {
     case 'anthropic':
-      cachedProvider = new AnthropicProvider(config.apiKey, config.model);
+      cachedProvider = new AnthropicProvider(config.apiKey, config.model, config.effort);
       break;
     case 'openai':
-      cachedProvider = new OpenAIProvider(config.apiKey, config.model);
+      cachedProvider = new OpenAIProvider(config.apiKey, config.model, config.effort);
       break;
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
   }
 
   cachedConfigKey = key;
-  log.info(`Created ${config.provider} provider with model ${config.model}`);
+  log.info(`Created ${config.provider} provider with model ${config.model} effort ${config.effort ?? 'default'}`);
   return cachedProvider;
 }
 
@@ -39,34 +40,19 @@ export function clearProviderCache(): void {
   cachedConfigKey = '';
 }
 
-const FAST_MODELS: Record<AIProviderName, string> = {
+/** Cheap model for title/summary generation only. Not an overlay mode. */
+export const FAST_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-5.4-mini',
+  openai: 'gpt-5.6-luna',
 };
 
-// Deep-mode models used by the Pro path when the user toggles "Smart
-// Mode" in the overlay. Previously getProProvider() read the `aiModel`
-// setting from the local store, but the Pro UI has no way to change
-// that setting (ApiKeysTab is hidden for Pro users). The setting
-// silently stayed at its default - claude-haiku-4-5 - so the Smart
-// Mode toggle was a no-op: both Fast and Deep ended up using Haiku.
-//
-// Pinning Deep to Sonnet 4.6 here makes the toggle actually differentiate
-// quality: Haiku (~sub-1s, 'near-frontier') for live responsiveness,
-// Sonnet (better reasoning, extended thinking) when the user explicitly
-// opts into the slower/smarter path. OSS users keep picking their own
-// model via ApiKeysTab + getProviderFromStore().
-const DEEP_MODELS: Record<AIProviderName, string> = {
-  anthropic: 'claude-sonnet-4-6',
-  openai: 'gpt-5',
-};
-
-/** Open-source mode: reads user's own API keys from local store. */
+/** Open-source mode: reads the user's model + effort from Settings. */
 export async function getProviderFromStore(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
   const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
-  const model = (getSetting('aiModel') || 'claude-haiku-4-5') as string;
+  const model = resolveCatalogModel(provider, getSetting('aiModel') as string);
+  const effort = (getSetting('aiEffort') as string) || DEFAULT_EFFORT;
 
   const apiKey = provider === 'openai'
     ? getApiKey('openaiApiKey')
@@ -76,10 +62,10 @@ export async function getProviderFromStore(): Promise<AIProvider> {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
   }
 
-  return getProvider({ provider, model, apiKey });
+  return getProvider({ provider, model, apiKey, effort });
 }
 
-/** Open-source mode: fast model with user's own keys. */
+/** Cheap BYOK model for title generation. Assist does not use this. */
 export async function getFastProvider(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
@@ -94,65 +80,52 @@ export async function getFastProvider(): Promise<AIProvider> {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
   }
 
-  return getProvider({ provider, model, apiKey });
+  return getProvider({ provider, model, apiKey, effort: DEFAULT_EFFORT });
 }
 
 let cachedProProvider: AIProvider | null = null;
 let cachedProKey = '';
 
-// Pro mode is Claude-only by design. The Pro UI hides the AI-provider
-// picker (API Keys tab is filtered out in SettingsModal for isPro users),
-// so `aiProvider` in the store has no legitimate way to become 'openai'
-// for a Pro user. Pinning the three Pro helpers to 'anthropic' here is
-// defense-in-depth against: (1) store corruption or rollback from an
-// OSS install that set aiProvider='openai', (2) tampering, (3) a
-// future code path that exposes the picker and forgets to gate it by
-// plan. OSS users are unaffected - getProviderFromStore/getFastProvider
-// still read `aiProvider` honestly for self-hosted keys.
-const PRO_PROVIDER: AIProviderName = 'anthropic';
-
-/** Pro mode: routes through backend proxy. Deep/Smart mode - pins to the
- *  Deep model (Sonnet 4.6). Intentionally ignores the `aiModel` store
- *  setting because the Pro UI has no picker for it; reading that setting
- *  meant Deep mode silently used Haiku (same as Fast mode), making the
- *  Smart toggle a no-op. See DEEP_MODELS + PRO_PROVIDER comments. */
 export async function getProProvider(): Promise<AIProvider> {
-  const model = DEEP_MODELS[PRO_PROVIDER];
-  const key = `pro:${PRO_PROVIDER}:${model}`;
+  const { getSetting } = await import('../../store');
+  const provider = (getSetting('aiProvider') === 'openai' ? 'openai' : 'anthropic') as AIProviderName;
+  const model = resolveCatalogModel(provider, getSetting('aiModel') as string);
+  const effort = (getSetting('aiEffort') as string) || DEFAULT_EFFORT;
+  const key = `pro:${provider}:${model}:${effort}`;
 
   if (cachedProProvider && cachedProKey === key) return cachedProProvider;
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  cachedProProvider = new BackendProxyProvider(PRO_PROVIDER, model);
+  cachedProProvider = new BackendProxyProvider(provider, model, { effort });
   cachedProKey = key;
-  log.info(`Created proxy provider (deep): ${PRO_PROVIDER}/${model}`);
+  log.info(`Created proxy provider: ${provider}/${model} effort ${effort}`);
   return cachedProProvider;
 }
 
-/** Pro mode: routes through backend proxy with a fast model. */
+/** Cheap Pro model for title generation. Assist does not use this. */
 export async function getProFastProvider(): Promise<AIProvider> {
-  const model = FAST_MODELS[PRO_PROVIDER];
-  const key = `pro-fast:${PRO_PROVIDER}:${model}`;
+  const model = FAST_MODELS.anthropic;
+  const key = `pro-fast:anthropic:${model}`;
 
   if (cachedProProvider && cachedProKey === key) return cachedProProvider;
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  cachedProProvider = new BackendProxyProvider(PRO_PROVIDER, model);
+  cachedProProvider = new BackendProxyProvider('anthropic', model);
   cachedProKey = key;
-  log.info(`Created proxy provider (fast): ${PRO_PROVIDER}/${model}`);
+  log.info(`Created proxy provider (system-fast): anthropic/${model}`);
   return cachedProProvider;
 }
 
 /** Pro mode: system endpoint for summary/title generation - bypasses AI usage limit. */
 export async function getProSystemProvider(): Promise<AIProvider> {
-  const model = FAST_MODELS[PRO_PROVIDER];
+  const model = FAST_MODELS.anthropic;
 
   const { BackendProxyProvider } = await import(
     /* @vite-ignore */ '../../../pro/main/backendProxyProvider'
   );
-  return new BackendProxyProvider(PRO_PROVIDER, model, { systemEndpoint: true });
+  return new BackendProxyProvider('anthropic', model, { systemEndpoint: true });
 }

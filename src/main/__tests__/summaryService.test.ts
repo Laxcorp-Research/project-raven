@@ -5,7 +5,7 @@ const { mockGenerateShort } = vi.hoisted(() => ({
 }))
 
 vi.mock('../services/ai/providerFactory', () => ({
-  getProviderFromStore: vi.fn(() => ({
+  getFastProvider: vi.fn(() => ({
     generateShort: mockGenerateShort,
   })),
   getProSystemProvider: vi.fn(() => ({
@@ -31,11 +31,11 @@ vi.mock('../logger', () => ({
 }))
 
 import { generateSessionSummary } from '../services/summaryService'
-import { getProviderFromStore } from '../services/ai/providerFactory'
+import { getFastProvider } from '../services/ai/providerFactory'
 
 describe('generateSessionSummary', () => {
   beforeEach(() => {
-    vi.mocked(getProviderFromStore).mockResolvedValue({
+    vi.mocked(getFastProvider).mockResolvedValue({
       generateShort: mockGenerateShort,
     } as any)
   })
@@ -64,9 +64,13 @@ describe('generateSessionSummary', () => {
       null,
     )
 
+    expect(getFastProvider).toHaveBeenCalled()
     expect(result.title).toBe('Team Standup')
     expect(result.summary).toContain('Key Points')
     expect(result.summary).toContain('discussed roadmap')
+    expect(mockGenerateShort).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTokens: 2000 }),
+    )
   })
 
   it('handles malformed response gracefully', async () => {

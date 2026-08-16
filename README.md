@@ -6,11 +6,10 @@
   <strong>Open-source, AI-powered meeting copilot with real-time transcription and echo cancellation.</strong>
 </p>
 
-Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram, and gives you AI assistance (Claude or OpenAI) with context-aware responses - all running locally on your desktop.
+Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram or AssemblyAI, and gives you AI assistance (Claude or OpenAI) with context-aware responses - all running locally on your desktop. Bring your own API keys.
 
 <p align="center">
-  <a href="https://useraven.ai"><strong>Download Raven</strong></a> &nbsp;|&nbsp;
-  <a href="https://docs.useraven.ai"><strong>Documentation</strong></a> &nbsp;|&nbsp;
+  <a href="https://github.com/Laxcorp-Research/project-raven/releases"><strong>Releases</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/Laxcorp-Research/project-raven/issues"><strong>Issues</strong></a>
 </p>
 
@@ -82,7 +81,7 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 
 - **Dual-stream audio capture** — System audio + microphone, captured natively on macOS (ScreenCaptureKit) and Windows (WASAPI)
 - **Echo cancellation** — GStreamer pipeline using the WebRTC AEC3 engine (the same echo canceller used in Chrome)
-- **Real-time transcription** — Deepgram Nova-3 over WebSocket with separate connections for mic and system audio
+- **Real-time transcription** — Deepgram or AssemblyAI, with separate streams for mic and system audio
 - **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
 - **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
 - **Local-first** — Your API keys and data stay on your machine (SQLite via better-sqlite3)
@@ -90,7 +89,6 @@ Raven captures system audio and microphone during meetings, cancels echo so spea
 - **Sessions** — Auto-saved with full transcript, AI responses, and summaries
 - **Modes** — Customizable AI behavior profiles with system prompts and quick actions
 - **Profile picture editor** — Crop, zoom, and pan before saving your avatar
-- **Pro features** — Optional auth, billing, and sync for a paid tier (connects to a separate backend)
 
 ## Architecture
 
@@ -144,10 +142,8 @@ This section is a complete, linear walkthrough — from a fresh machine to a run
 
 > **API keys** (entered in-app on first launch — nothing to configure beforehand):
 >
-> - [Deepgram](https://console.deepgram.com) — real-time transcription (free tier available)
+> - [Deepgram](https://console.deepgram.com) or [AssemblyAI](https://www.assemblyai.com) — real-time transcription
 > - [Anthropic](https://console.anthropic.com) or [OpenAI](https://platform.openai.com) — AI assistance
->
-> This guide covers the open-source app. For the premium/pro mode setup, see [`docs/REPO_STRUCTURE.md`](docs/REPO_STRUCTURE.md).
 
 ---
 

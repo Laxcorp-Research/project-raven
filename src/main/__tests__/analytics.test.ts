@@ -25,6 +25,20 @@ vi.mock('../logger', () => ({
   }),
 }))
 
+// Mock posthog-node so createPostHogClient() never opens a REAL network
+// client. The module-level `posthogClient` set by earlier tests
+// (enabled=true) leaks into the shutdownAnalytics test; awaiting the real
+// client's network flush in shutdown() hangs past the 5s test timeout on
+// any network where us.i.posthog.com isn't reachable (proxied/offline dev
+// machines, locked-down CI). The mock's shutdown() resolves instantly.
+vi.mock('posthog-node', () => ({
+  PostHog: vi.fn(() => ({
+    capture: vi.fn(),
+    identify: vi.fn(),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+  })),
+}))
+
 import {
   initAnalytics,
   trackEvent,
@@ -58,7 +72,28 @@ describe('analytics', () => {
       expect(getSetting).toHaveBeenCalledWith('analyticsEnabled')
     })
 
-    it('analytics:is-enabled returns false by default', async () => {
+    // Regression lock for the 2026-05-03 default-flip: analytics is
+    // ON by default (industry-standard SaaS telemetry posture). Only
+    // an explicit `false` in the store opts out. A fresh install
+    // (getSetting -> undefined) MUST resolve to enabled = true.
+    it('is enabled by default on a fresh install (getSetting returns undefined)', async () => {
+      vi.mocked(getSetting).mockReturnValueOnce(undefined as never)
+      initAnalytics()
+
+      const result = await mockIpcHandlers['analytics:is-enabled']()
+      expect(result).toBe(true)
+    })
+
+    it('is enabled when getSetting returns true (legacy explicit opt-in users)', async () => {
+      vi.mocked(getSetting).mockReturnValueOnce(true as never)
+      initAnalytics()
+
+      const result = await mockIpcHandlers['analytics:is-enabled']()
+      expect(result).toBe(true)
+    })
+
+    it('is disabled only when getSetting returns false (explicit opt-out via ops tooling or privacy@ request)', async () => {
+      vi.mocked(getSetting).mockReturnValueOnce(false as never)
       initAnalytics()
 
       const result = await mockIpcHandlers['analytics:is-enabled']()

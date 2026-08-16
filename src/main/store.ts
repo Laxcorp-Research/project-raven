@@ -21,9 +21,12 @@ export interface LocalSettings {
   // Plan mode
   mode: 'free' | 'pro';
 
-  // API Keys (free tier only)
+  // API Keys (BYOK — all modes)
   deepgramApiKey: string;
   anthropicApiKey: string;
+  assemblyaiApiKey: string;
+  recallApiKey: string;
+  recallApiUrl: string;
   apiKeysConfigured: boolean;
 
   // Onboarding
@@ -51,6 +54,7 @@ export interface LocalSettings {
   // AI Provider
   aiProvider: 'anthropic' | 'openai';
   aiModel: string;
+  aiEffort: string;
   openaiApiKey: string;
 
   // Active mode
@@ -69,6 +73,9 @@ const STORE_DEFAULTS: LocalSettings = {
   mode: 'free',
   deepgramApiKey: '',
   anthropicApiKey: '',
+  assemblyaiApiKey: '',
+  recallApiKey: '',
+  recallApiUrl: 'https://ap-northeast-1.recall.ai',
   apiKeysConfigured: false,
   onboardingComplete: false,
   proOnboardingComplete: false,
@@ -83,6 +90,7 @@ const STORE_DEFAULTS: LocalSettings = {
   vocabulary: '',
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
+  aiEffort: 'low',
   openaiApiKey: '',
   activeModeId: null,
   displayName: '',
@@ -138,10 +146,16 @@ export function getStore(): Store<LocalSettings> {
 }
 
 export function getAllSettings(): LocalSettings {
+  // API keys are omitted on purpose. store:get-all is used for boot
+  // flags and General settings — never for secrets. Use store:get /
+  // getApiKey for a single decrypted key.
   return {
     mode: store.get('mode'),
-    deepgramApiKey: store.get('deepgramApiKey'),
-    anthropicApiKey: store.get('anthropicApiKey'),
+    deepgramApiKey: '',
+    anthropicApiKey: '',
+    assemblyaiApiKey: '',
+    recallApiKey: '',
+    recallApiUrl: store.get('recallApiUrl'),
     apiKeysConfigured: store.get('apiKeysConfigured'),
     onboardingComplete: store.get('onboardingComplete'),
     dashboardBounds: store.get('dashboardBounds'),
@@ -154,7 +168,8 @@ export function getAllSettings(): LocalSettings {
     vocabulary: store.get('vocabulary'),
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
-    openaiApiKey: store.get('openaiApiKey'),
+    aiEffort: store.get('aiEffort'),
+    openaiApiKey: '',
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
@@ -193,7 +208,13 @@ export function saveSettings(settings: Partial<LocalSettings>): void {
 
 // ---- Secure storage helpers for API keys ----
 
-const API_KEY_FIELDS = ['deepgramApiKey', 'anthropicApiKey', 'openaiApiKey'] as const;
+const API_KEY_FIELDS = [
+  'deepgramApiKey',
+  'anthropicApiKey',
+  'openaiApiKey',
+  'assemblyaiApiKey',
+  'recallApiKey',
+] as const;
 
 function encryptValue(value: string): string {
   if (!value) return '';
@@ -222,28 +243,41 @@ export function getApiKey(key: typeof API_KEY_FIELDS[number]): string {
 
 // ---- API Key Helpers ----
 
-export function saveApiKeys(deepgramKey: string, anthropicKey: string, openaiKey?: string): void {
+export function saveApiKeys(
+  deepgramKey: string,
+  anthropicKey: string,
+  openaiKey?: string,
+  extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+): void {
   store.set('deepgramApiKey', encryptValue(deepgramKey));
   store.set('anthropicApiKey', encryptValue(anthropicKey));
   if (openaiKey !== undefined) {
     store.set('openaiApiKey', encryptValue(openaiKey));
   }
+  if (extras?.assemblyaiApiKey !== undefined) {
+    store.set('assemblyaiApiKey', encryptValue(extras.assemblyaiApiKey));
+  }
+  if (extras?.recallApiKey !== undefined) {
+    store.set('recallApiKey', encryptValue(extras.recallApiKey));
+  }
   store.set('apiKeysConfigured', true);
 }
 
 export function hasApiKeys(): boolean {
-  const hasDeepgram = !!getApiKey('deepgramApiKey');
+  const hasStt = !!getApiKey('deepgramApiKey') || !!getApiKey('assemblyaiApiKey');
   const provider = store.get('aiProvider') || 'anthropic';
   const hasAiKey = provider === 'openai'
     ? !!getApiKey('openaiApiKey')
     : !!getApiKey('anthropicApiKey');
-  return hasDeepgram && hasAiKey;
+  return hasStt && hasAiKey;
 }
 
 export function clearApiKeys(): void {
   store.set('deepgramApiKey', '');
   store.set('anthropicApiKey', '');
   store.set('openaiApiKey', '');
+  store.set('assemblyaiApiKey', '');
+  store.set('recallApiKey', '');
   store.set('apiKeysConfigured', false);
 }
 

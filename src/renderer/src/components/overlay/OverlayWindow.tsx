@@ -16,11 +16,13 @@ import { Sparkles, Wand2, MessageSquareText, RotateCcw, ChevronRight } from 'luc
 import { ControllerPill } from './ControllerPill'
 import { TranscriptTab } from './TranscriptTab'
 import { OverlayNotification, type NotificationData } from './OverlayNotification'
-import { useAppMode } from '../../hooks/useAppMode'
 import { useOverlayResize } from './useOverlayResize'
 import { useOverlayDrag } from './useOverlayDrag'
 import { useMousePassthrough } from './useMousePassthrough'
 import { createLogger } from '../../lib/logger'
+import { detectMacPlatform, modifierLabel } from '../../lib/shortcutLabels'
+
+const assistModKey = modifierLabel(detectMacPlatform())
 
 const log = createLogger('OverlayWindow')
 
@@ -91,8 +93,6 @@ const getActionLabel = (action?: string): string => {
 }
 
 export function OverlayWindow() {
-  const { isPro } = useAppMode()
-
   // --- Extracted hooks ---
   const resize = useOverlayResize()
   const {
@@ -122,8 +122,7 @@ export function OverlayWindow() {
   // State
   const [isRecording, setIsRecording] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
-  const [stealthEnabled, setStealthEnabled] = useState(true)
-  const [smartMode, setSmartMode] = useState(false)
+  const [stealthEnabled, setStealthEnabled] = useState(false)
   const [incognitoMode, setIncognitoMode] = useState(false)
   const [isHoveringPanel, setIsHoveringPanel] = useState(false)
   const [isHoveringX, setIsHoveringX] = useState(false)
@@ -139,7 +138,6 @@ export function OverlayWindow() {
   const [notifications, setNotifications] = useState<NotificationData[]>([])
   const [limitInfo, setLimitInfo] = useState<{ type: 'ai' | 'session'; used: number; limit: number; resetAt: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'responses' | 'transcript'>('transcript')
-  const [meetingBanner, setMeetingBanner] = useState<{ platform: string | null; windowId: number } | null>(null)
   const scrollHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
@@ -173,10 +171,6 @@ export function OverlayWindow() {
       if (typeof enabled === 'boolean') setStealthEnabled(enabled)
     }).catch(() => {})
 
-    window.raven.storeGet('smartMode').then((enabled) => {
-      if (typeof enabled === 'boolean') setSmartMode(enabled)
-    }).catch(() => {})
-
     window.raven.storeGet('incognitoMode').then((enabled) => {
       if (typeof enabled === 'boolean') setIncognitoMode(enabled)
     }).catch(() => {})
@@ -193,8 +187,6 @@ export function OverlayWindow() {
       setIsRecording(state.isRecording)
       if (!state.isRecording) {
         setIsStarting(false)
-      } else {
-        setMeetingBanner(null)
       }
     })
 
@@ -298,18 +290,6 @@ export function OverlayWindow() {
       })
     })
 
-    const unsubMeetingDetected = window.raven.on('recall:meeting-detected', (data: unknown) => {
-      const meeting = data as { platform: string | null; windowId: number; title: string | null }
-      if (meeting?.windowId != null && !isRecording) {
-        setMeetingBanner({ platform: meeting.platform, windowId: meeting.windowId })
-      }
-    })
-
-    const unsubMeetingClosed = window.raven.on('recall:meeting-closed', (data: unknown) => {
-      const meeting = data as { windowId: number }
-      setMeetingBanner((prev) => (prev?.windowId === meeting?.windowId ? null : prev))
-    })
-
     const unsubAuthExpired = window.raven.onAuthSessionExpired?.(() => {
       requestInFlightRef.current = false
       setIsLoadingResponse(false)
@@ -347,8 +327,6 @@ export function OverlayWindow() {
       unsubAi()
       unsubSessionLimit()
       unsubAuthExpired()
-      unsubMeetingDetected()
-      unsubMeetingClosed()
       clearHideXTimer()
       cleanupResize()
       if (copiedResetTimerRef.current) {
@@ -440,14 +418,16 @@ export function OverlayWindow() {
       await window.raven.claudeClearHistory?.()
 
       try {
-        const result = await window.raven.audioStartRecording() as { success: boolean; code?: string; error?: string }
+        const micId = await window.raven.storeGet('selectedMicrophone')
+        const result = await window.raven.audioStartRecording(
+          typeof micId === 'string' && micId ? micId : undefined,
+        ) as { success: boolean; code?: string; error?: string }
         if (result && !result.success) {
           if (result.code === 'SESSION_LIMIT') {
             setLimitInfo({ type: 'session', used: 1, limit: 1, resetAt: '' })
           } else {
             // Any other failure (mic/screen permission denied, capture
-            // backend failed to start, Recall fallback couldn't attach
-            // to an audio device, etc.) used to silently leave the user
+            // backend failed to start, etc.) used to silently leave the user
             // staring at an overlay that briefly showed "starting" and
             // then went back to idle with no explanation. Surface the
             // main-process error string as an overlay notification so
@@ -572,13 +552,6 @@ export function OverlayWindow() {
       notificationTimersRef.current.set(n.id, timerId)
     }
   }, [])
-
-  const handleToggleSmartMode = useCallback(async () => {
-    const next = !smartMode
-    setSmartMode(next)
-    await window.raven.storeSet('smartMode', next)
-    try { await window.raven.authUpdateProfile({ preferences: { smartMode: next } }) } catch { /* free mode */ }
-  }, [smartMode])
 
   const handleToggleIncognito = useCallback(async () => {
     const next = !incognitoMode
@@ -746,55 +719,6 @@ export function OverlayWindow() {
       className="fixed inset-0 bg-transparent pointer-events-none"
       style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
     >
-    {/* Meeting detection banner */}
-    <AnimatePresence>
-      {meetingBanner && !isRecording && (
-        <motion.div
-          key="meeting-banner"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="absolute top-4 left-1/2 -translate-x-1/2 z-[90] pointer-events-auto"
-          style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-        >
-          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#1a1d26]/95 border border-white/15 shadow-2xl shadow-black/40 backdrop-blur-sm">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-              </span>
-              <span className="text-white/90 text-sm font-medium">
-                {meetingBanner.platform
-                  ? `${meetingBanner.platform.charAt(0).toUpperCase() + meetingBanner.platform.slice(1)} meeting detected`
-                  : 'Meeting detected'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void handleToggleRecording()
-              }}
-              className="px-3 py-1.5 bg-gradient-to-b from-blue-500 to-blue-700 text-white text-xs font-semibold rounded-lg hover:from-blue-400 hover:to-blue-600 transition-colors shadow-sm"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              Start recording
-            </button>
-            <button
-              type="button"
-              onClick={() => setMeetingBanner(null)}
-              className="w-5 h-5 flex items-center justify-center text-white/40 hover:text-white/70 transition-colors"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-
     {/* Notification area - top right */}
     <div
       ref={notificationRef}
@@ -838,7 +762,6 @@ export function OverlayWindow() {
           onToggleRecording={handleToggleRecording}
           onToggleStealth={handleToggleStealth}
           onToggleIncognito={handleToggleIncognito}
-          {...(isPro ? { smartMode, onToggleSmartMode: handleToggleSmartMode } : {})}
           onHide={handleHide}
           onLogoClick={handleLogoClick}
           onLogoMouseDown={handleLogoMouseDown}
@@ -1197,33 +1120,15 @@ export function OverlayWindow() {
               )}
 
               {limitInfo && (
-                <div className="rounded-xl bg-gradient-to-r from-purple-600/90 to-blue-600/90 p-4 text-white shadow-lg mt-2">
+                <div className="rounded-xl bg-white/10 p-4 text-white/80 mt-2">
                   <p className="text-sm font-medium mb-1">
                     {limitInfo.type === 'session'
-                      ? 'Free sessions are limited to 2 minutes.'
-                      : `You\u2019ve used all ${limitInfo.limit} free AI responses for today.`}
+                      ? 'This session hit a length limit.'
+                      : `You\u2019ve used all ${limitInfo.limit} AI responses for today.`}
                   </p>
-                  <p className="text-xs text-white/70 mb-3">
-                    {limitInfo.type === 'session'
-                      ? 'Upgrade to Raven Pro for unlimited meeting length.'
-                      : 'Upgrade to Raven Pro for unlimited AI responses.'}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void window.raven.trackClientEvent('checkout_opened', { metadata: { plan: 'PRO', surface: 'overlay_upgrade_banner' } })
-                        void window.raven.authOpenCheckout('PRO')
-                      }}
-                      className="px-4 py-1.5 bg-white text-purple-700 text-sm font-semibold rounded-lg hover:bg-white/90 transition-colors"
-                      style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-                    >
-                      Upgrade Now
-                    </button>
-                    {limitInfo.type === 'ai' && (
-                      <span className="text-xs text-white/50">Resets tomorrow</span>
-                    )}
-                  </div>
+                  {limitInfo.type === 'ai' && (
+                    <span className="text-xs text-white/50">Resets tomorrow</span>
+                  )}
                 </div>
               )}
             </div>
@@ -1325,10 +1230,10 @@ export function OverlayWindow() {
                     Ask about your screen or conversation, or
                     <span className="flex items-center gap-1">
                       <span
-                        className="inline-flex justify-center items-center shrink-0 text-white/50 rounded-md"
-                        style={{ width: 18, height: 20, fontSize: 11, border: '1px solid rgba(255,255,255,0.25)', background: 'linear-gradient(to bottom, rgba(0,0,0,0.12), rgba(0,0,0,0.18))' }}
+                        className="inline-flex justify-center items-center shrink-0 text-white/50 rounded-md px-1"
+                        style={{ minWidth: assistModKey === 'Ctrl' ? 28 : 18, height: 20, fontSize: 11, border: '1px solid rgba(255,255,255,0.25)', background: 'linear-gradient(to bottom, rgba(0,0,0,0.12), rgba(0,0,0,0.18))' }}
                       >
-                        ⌘
+                        {assistModKey}
                       </span>
                       <span
                         className="inline-flex justify-center items-center shrink-0 text-white/50 rounded-md"

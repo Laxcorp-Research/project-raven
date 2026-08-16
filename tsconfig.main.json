@@ -1,5 +1,5 @@
 {
-  // Type-checks main + preload + pro code that tsconfig.json does not cover.
+  // Type-checks main + preload code that tsconfig.json does not cover.
   //
   // The root tsconfig.json scopes type-checking to src/renderer/src + electron
   // only; tsconfig.node.json covers just vite.config.ts. As a result, main and
@@ -31,6 +31,6 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["src/main/**/*.ts", "src/pro/**/*.ts", "src/preload/**/*.ts"],
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts"],
   "exclude": ["**/__tests__/**", "**/node_modules/**"]
 }

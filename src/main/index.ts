@@ -67,6 +67,7 @@ import { sessionManager } from './services/sessionManager'
 import { ensureActiveMode, createDefaultMode, migrateGeneralAssistantPromptV21 } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
 import { initializeProFeatures } from './proLoader'
+import { initializeVendorFeatures, shutdownVendorFeatures } from './services/vendorFeatures'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
@@ -76,9 +77,15 @@ import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus } from './permissions'
 import { createLogger } from './logger'
 import { isProMode } from './store'
+import { trustSystemCAs } from './trustSystemCAs'
 
 const log = createLogger('Raven')
 const ipcLog = createLogger('IPC')
+
+// Node `ws` / undici (mic test + live STT) must use the OS CA store.
+// Without this, Windows can fail AssemblyAI/Deepgram with
+// "unable to verify the first certificate" while Chromium works.
+trustSystemCAs()
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function safeHandle(channel: string, handler: (...args: any[]) => any): void {
@@ -312,7 +319,7 @@ function registerGlobalHotkeys(
     !recordingRegistered || !visibilityRegistered || !aiRegistered
   if (failedPrimary) {
     const failed: string[] = []
-    if (!recordingRegistered) failed.push(`${modifier}+R (toggle recording)`)
+    if (!recordingRegistered) failed.push(`${modifier}+Shift+Space (toggle recording)`)
     if (!visibilityRegistered) failed.push(`${modifier}+\\ (toggle visibility)`)
     if (!aiRegistered) failed.push(`${modifier}+Return (ask Raven)`)
     const payload = {
@@ -336,74 +343,6 @@ function registerGlobalHotkeys(
     }
   }
 }
-
-// Recall SDK's meeting auto-detection (Zoom/Meet/Teams) reads window
-// titles via Accessibility APIs. `requestPermission('accessibility')` at
-// SDK init is fire-and-forget - it doesn't tell us the result and doesn't
-// re-prompt on subsequent launches. So if a user revoked Accessibility
-// after onboarding (or denied it the first time and ignored the system
-// prompt), Raven will keep logging "meeting detection active" while the
-// feature silently does nothing. Check the live TCC state once per
-// session and surface a warning so the user knows why detection isn't
-// working + how to fix it.
-//
-// Only fires in Pro mode on darwin - free users don't have meeting
-// detection, and Windows/Linux don't gate window-title access this way.
-function warnIfProAccessibilityLimited(
-  overlayWindow: BrowserWindow | null,
-  dashboardWindow: BrowserWindow | null
-): void {
-  if (process.platform !== 'darwin') return
-  if (!isProMode()) return
-
-  const status = getPermissionStatus()
-  if (status.accessibility === 'granted') return
-
-  log.warn('Accessibility denied - Recall meeting auto-detection will not work')
-  // No autoDismissMs here. Unlike transient error/crash toasts, this
-  // warns about a persistent degraded-state and needs to survive being
-  // occluded by macOS's own Accessibility Access modal (which Recall's
-  // requestPermission triggers at startup). Stays until the user X's
-  // it; if they grant Accessibility, the check skips the broadcast
-  // entirely on next launch.
-  const payload = {
-    id: `accessibility-warn-${Date.now()}`,
-    title: 'Meeting auto-detection disabled',
-    body: "Raven can't auto-detect Zoom/Meet/Teams meetings without Accessibility permission. Grant access in System Settings → Privacy & Security → Accessibility to enable.",
-    type: 'warning' as const,
-  }
-
-  // webContents.send doesn't queue - if the overlay's React app hasn't
-  // mounted and wired up `window.raven.on('overlay:notification', ...)`
-  // yet, the message is silently dropped. This function runs right after
-  // window creation in boot(), which is well before the renderer bundle
-  // has finished loading + mounting. Defer the send until did-finish-load
-  // + 1s grace for React's useEffect to run. The identical pattern would
-  // benefit the hotkey-failure notification above, but we're only
-  // touching this one since it's the one we actively verified was
-  // getting lost.
-  const broadcast = (win: BrowserWindow) => {
-    try {
-      if (!win.isDestroyed()) {
-        win.webContents.send('overlay:notification', payload)
-      }
-    } catch (err) {
-      log.warn('Failed to broadcast accessibility-warning notification:', err)
-    }
-  }
-  const scheduleBroadcast = (win: BrowserWindow | null) => {
-    if (!win || win.isDestroyed()) return
-    const fire = () => setTimeout(() => broadcast(win), 1_000)
-    if (win.webContents.isLoading()) {
-      win.webContents.once('did-finish-load', fire)
-    } else {
-      fire()
-    }
-  }
-  scheduleBroadcast(overlayWindow)
-  scheduleBroadcast(dashboardWindow)
-}
-
 
 function boot(): void {
   const rendererURL = process.env.VITE_DEV_SERVER_URL || null
@@ -450,7 +389,6 @@ function boot(): void {
     }
 
     registerGlobalHotkeys(dashboard, overlay)
-    warnIfProAccessibilityLimited(overlay, dashboard)
   }
 
   ipcMain.on('onboarding:completed', async () => {
@@ -465,7 +403,6 @@ function boot(): void {
     if (process.platform === 'win32') showOverlayWindow()
     else overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
-    warnIfProAccessibilityLimited(overlay, dashboard)
     setTrayOnboarding(false)
   })
 
@@ -539,6 +476,7 @@ app.whenReady().then(() => {
   registerSystemAudioHandlers()
   registerPermissionHandlers()
   void initializeProFeatures()
+  void initializeVendorFeatures()
   void initDeepLinksReady()
   boot()
 
@@ -1019,46 +957,41 @@ app.whenReady().then(() => {
     }
     testTranscriptionProvider = null
 
-    // In Pro mode, try AssemblyAI first
-    if (isProMode()) {
+    const assemblyKey = getSetting('assemblyaiApiKey') as string
+    if (assemblyKey) {
       try {
-        const { _apiRequest: apiRequest } = await import(/* @vite-ignore */ '../pro/main/authService')
-        const result = await (apiRequest as <T>(path: string, options?: RequestInit) => Promise<T>)<{
-          token?: string; expiresIn?: number; error?: string
-        }>('/api/proxy/transcription-token', { method: 'POST' })
+        const { AssemblyAI, RealtimeTranscriber } = await import('assemblyai')
+        const client = new AssemblyAI({ apiKey: assemblyKey })
+        const token = await client.realtime.createTemporaryToken({ expires_in: 480 })
+        const transcriber = new RealtimeTranscriber({
+          token,
+          sampleRate: AUDIO_SAMPLE_RATE,
+          encoding: 'pcm_s16le',
+          endUtteranceSilenceThreshold: 500,
+        })
 
-        if (result.token) {
-          const { RealtimeTranscriber } = await import('assemblyai')
-          const transcriber = new RealtimeTranscriber({
-            token: result.token,
-            sampleRate: AUDIO_SAMPLE_RATE,
-            encoding: 'pcm_s16le',
-            endUtteranceSilenceThreshold: 500,
-          })
+        transcriber.on('transcript', (transcript) => {
+          if (!transcript.text) return
+          try {
+            sender.send('transcription:test-update', {
+              text: transcript.text,
+              isFinal: transcript.message_type === 'FinalTranscript',
+            })
+          } catch { /* sender may be destroyed */ }
+        })
 
-          transcriber.on('transcript', (transcript) => {
-            if (!transcript.text) return
-            try {
-              sender.send('transcription:test-update', {
-                text: transcript.text,
-                isFinal: transcript.message_type === 'FinalTranscript',
-              })
-            } catch { /* sender may be destroyed */ }
-          })
+        transcriber.on('error', (err) => {
+          ipcLog.error('Test AssemblyAI error:', err)
+        })
 
-          transcriber.on('error', (err) => {
-            ipcLog.error('Test AssemblyAI error:', err)
-          })
-
-          await transcriber.connect()
-          testAssemblyAITranscriber = {
-            sendAudio: (buf: Buffer) => transcriber.sendAudio(buf as unknown as ArrayBufferLike),
-            close: () => transcriber.close(),
-          }
-          testTranscriptionProvider = 'assemblyai'
-          ipcLog.info('Test transcription connected (AssemblyAI)', deviceId ? `device: ${deviceId}` : '(default)')
-          return { success: true, provider: 'assemblyai' }
+        await transcriber.connect()
+        testAssemblyAITranscriber = {
+          sendAudio: (buf: Buffer) => transcriber.sendAudio(buf as unknown as ArrayBufferLike),
+          close: () => transcriber.close(),
         }
+        testTranscriptionProvider = 'assemblyai'
+        ipcLog.info('Test transcription connected (AssemblyAI)', deviceId ? `device: ${deviceId}` : '(default)')
+        return { success: true, provider: 'assemblyai' }
       } catch (err) {
         ipcLog.warn('Test AssemblyAI failed, trying Deepgram fallback:', err instanceof Error ? err.message : err)
       }
@@ -1091,19 +1024,6 @@ app.whenReady().then(() => {
         headers: { Authorization: `Token ${apiKey}` },
       })
 
-      testTranscriptionWs.onopen = () => {
-        ipcLog.info('Test transcription connected (Deepgram)', deviceId ? `device: ${deviceId}` : '(default)')
-        const keepAlive = setInterval(() => {
-          if (testTranscriptionWs?.readyState === 1) {
-            testTranscriptionWs.send(JSON.stringify({ type: 'KeepAlive' }))
-          }
-        }, DEEPGRAM_KEEPALIVE_MS)
-
-        testTranscriptionCleanup = () => {
-          clearInterval(keepAlive)
-        }
-      }
-
       testTranscriptionWs.onmessage = (messageEvent: { data: unknown }) => {
         try {
           const data = JSON.parse(
@@ -1122,10 +1042,6 @@ app.whenReady().then(() => {
         }
       }
 
-      testTranscriptionWs.onerror = (err: { message?: string }) => {
-        ipcLog.error('Test transcription error:', err.message || err)
-      }
-
       testTranscriptionWs.onclose = () => {
         ipcLog.debug('Test transcription closed')
         if (testTranscriptionCleanup) {
@@ -1134,6 +1050,30 @@ app.whenReady().then(() => {
         }
         testTranscriptionWs = null
       }
+
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Deepgram test connect timed out'))
+        }, 8000)
+        testTranscriptionWs!.onopen = () => {
+          clearTimeout(timer)
+          ipcLog.info('Test transcription connected (Deepgram)', deviceId ? `device: ${deviceId}` : '(default)')
+          const keepAlive = setInterval(() => {
+            if (testTranscriptionWs?.readyState === 1) {
+              testTranscriptionWs.send(JSON.stringify({ type: 'KeepAlive' }))
+            }
+          }, DEEPGRAM_KEEPALIVE_MS)
+          testTranscriptionCleanup = () => {
+            clearInterval(keepAlive)
+          }
+          resolve()
+        }
+        testTranscriptionWs!.onerror = (err: { message?: string }) => {
+          clearTimeout(timer)
+          ipcLog.error('Test transcription error:', err.message || err)
+          reject(new Error(err.message || 'Deepgram test connection failed'))
+        }
+      })
 
       testTranscriptionProvider = 'deepgram'
       return { success: true, provider: 'deepgram' }
@@ -1222,21 +1162,7 @@ app.on('before-quit', () => {
     log.error('Shutdown error:', err)
   })
 
-  // Shut down the Recall SDK if it was initialized in pro mode. Without
-  // this, the SDK's native process gets SIGKILLed by the OS during
-  // quitAndInstall(); on Windows that has left GStreamer / audio-device
-  // locks held into the NSIS relaunch. Fire-and-forget to match
-  // audioManager above - we don't want to block quit, just give the SDK
-  // a chance to tear down cleanly.
-  if (isProMode()) {
-    import(/* @vite-ignore */ '../pro/main/recallService')
-      .then(async ({ getRecallService, isRecallSdkReady }) => {
-        if (isRecallSdkReady()) {
-          await getRecallService().shutdown()
-        }
-      })
-      .catch((err) => log.warn('Recall shutdown error (non-fatal):', err))
-  }
+  void shutdownVendorFeatures()
 
   // Force-close the dashboard window (bypass the hide-on-close behavior)
   const dashboard = getDashboardWindow()

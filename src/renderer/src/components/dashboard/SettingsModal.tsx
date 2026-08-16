@@ -103,7 +103,7 @@ export function SettingsModal({ isOpen, onClose, initialSubscription, initialTab
   const { isPro } = useAppMode()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
-  const visibleTabs = isPro ? tabs.filter((t) => t.id !== 'api-keys') : tabs.filter((t) => t.id !== 'billing')
+  const visibleTabs = isPro ? tabs : tabs.filter((t) => t.id !== 'billing')
 
   useEffect(() => {
     if (isOpen) {

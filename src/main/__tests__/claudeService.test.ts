@@ -97,7 +97,8 @@ describe('ClaudeService', () => {
     });
 
     expect(msg).toContain('NEW SINCE LAST');
-    expect(msg).toContain('[FULL TRANSCRIPT]');
+    expect(msg).toContain('[RECENT TAIL]');
+    expect(msg).not.toContain('[FULL TRANSCRIPT]');
     expect(msg).toContain('<transcript>');
   });
 
@@ -306,6 +307,22 @@ describe('ClaudeService', () => {
     expect(registeredChannels).toContain('claude:get-history');
     expect(registeredChannels).toContain('claude:clear-history');
   });
+
+  it('clear-history drops session memory and pins', async () => {
+    (service as any).conversation.memory.text = '## User Intent\nOld problem';
+    (service as any).conversation.memory.openingTranscript = 'Implement LRU';
+    (service as any).conversation.memory.userPins = ['complexity?'];
+    (service as any).conversation.messages.push({ id: '1', role: 'user', content: 'Assist', timestamp: 1 });
+
+    const entry = vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === 'claude:clear-history');
+    if (!entry) throw new Error('claude:clear-history not registered');
+    await (entry[1] as () => Promise<unknown>)();
+
+    expect((service as any).conversation.messages).toEqual([]);
+    expect((service as any).conversation.memory.text).toBe('');
+    expect((service as any).conversation.memory.openingTranscript).toBe('');
+    expect((service as any).conversation.memory.userPins).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -318,17 +335,23 @@ describe('generateSessionTitle', () => {
   });
 
   it('cleans quotes and prefixes from the provider result', async () => {
-    vi.mocked(getProviderFromStore).mockResolvedValue({
-      generateShort: vi.fn().mockResolvedValue('"Q4 Sales Review"'),
+    const generateShort = vi.fn().mockResolvedValue('"Q4 Sales Review"');
+    vi.mocked(getFastProvider).mockResolvedValue({
+      generateShort,
     } as any);
 
     const title = await generateSessionTitle('Alice: Let us discuss Q4 numbers');
 
     expect(title).toBe('Q4 Sales Review');
+    expect(getFastProvider).toHaveBeenCalled();
+    expect(getProviderFromStore).not.toHaveBeenCalled();
+    expect(generateShort).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTokens: 30 }),
+    );
   });
 
   it('rejects invalid titles that look like conversational responses', async () => {
-    vi.mocked(getProviderFromStore).mockResolvedValue({
+    vi.mocked(getFastProvider).mockResolvedValue({
       generateShort: vi.fn().mockResolvedValue("I'd be happy to help with that"),
     } as any);
 
@@ -347,6 +370,7 @@ describe('Provider routing based on mode', () => {
     streamResponse: vi.fn(),
     generateShort: vi.fn(),
   };
+  let service: ClaudeService;
 
   function getResponseHandler(): (...args: unknown[]) => Promise<void> {
     const calls = vi.mocked(ipcMain.handle).mock.calls;
@@ -364,14 +388,14 @@ describe('Provider routing based on mode', () => {
     vi.mocked(getProSystemProvider).mockResolvedValue(mockProvider as any);
     mockProvider.streamResponse.mockResolvedValue(undefined);
     ClaudeService._resetForTesting();
-    new ClaudeService(null);
+    service = new ClaudeService(null);
   });
 
-  it('uses getProviderFromStore in free mode', async () => {
+  it('uses the Settings provider in free mode (no Fast/Deep)', async () => {
     vi.mocked(isProMode).mockReturnValue(false);
     vi.mocked(getSetting).mockImplementation((key: string) => {
-      if (key === 'smartMode') return true;
       if (key === 'displayName') return 'Alice';
+      if (key === 'smartMode') return true;
       return '';
     });
 
@@ -380,28 +404,14 @@ describe('Provider routing based on mode', () => {
 
     expect(getProviderFromStore).toHaveBeenCalled();
     expect(getFastProvider).not.toHaveBeenCalled();
+    expect(getProFastProvider).not.toHaveBeenCalled();
   });
 
-  it('uses getProFastProvider in pro mode without smartMode', async () => {
+  it('uses getProProvider in pro mode (no Fast/Deep)', async () => {
     vi.mocked(isProMode).mockReturnValue(true);
     vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
       if (key === 'smartMode') return false;
-      if (key === 'displayName') return 'Alice';
-      return '';
-    });
-
-    const handler = getResponseHandler();
-    await handler({}, { transcript: 'test', action: 'assist' });
-
-    expect(getProFastProvider).toHaveBeenCalled();
-    expect(getProviderFromStore).not.toHaveBeenCalled();
-  });
-
-  it('uses getProProvider in pro mode with smartMode enabled', async () => {
-    vi.mocked(isProMode).mockReturnValue(true);
-    vi.mocked(getSetting).mockImplementation((key: string) => {
-      if (key === 'smartMode') return true;
-      if (key === 'displayName') return 'Alice';
       return '';
     });
 
@@ -410,6 +420,168 @@ describe('Provider routing based on mode', () => {
 
     expect(getProProvider).toHaveBeenCalled();
     expect(getProFastProvider).not.toHaveBeenCalled();
+    expect(getFastProvider).not.toHaveBeenCalled();
+  });
+
+  it('sends official model max tokens for Assist (128k for Sonnet 5)', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'test', action: 'assist' });
+
+    expect(mockProvider.streamResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxTokens: 128000,
+        system: expect.stringContaining('Length is driven by the task'),
+      }),
+      expect.any(Object),
+    );
+    expect(getProviderFromStore).toHaveBeenCalled();
+    expect(getFastProvider).not.toHaveBeenCalled();
+  });
+
+  it('replays prior assistant text so the next Assist call has context', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+
+    (service as any).conversation.messages.push(
+      { id: '1', role: 'user', content: 'Assist', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'Use a sliding window on the array', timestamp: 2 },
+    );
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'follow up', action: 'assist' });
+
+    const sent = mockProvider.streamResponse.mock.calls[0][0];
+    const texts = sent.messages.map((m: { content: unknown }) =>
+      typeof m.content === 'string' ? m.content : '',
+    );
+    expect(texts.some((t: string) => t.includes('sliding window'))).toBe(true);
+    expect(texts[texts.length - 1]).toContain('follow up');
+  });
+
+  it('sends official 64k max tokens for Haiku 4.5 Assist', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-haiku-4-5';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'test', action: 'assist' });
+
+    expect(mockProvider.streamResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTokens: 64000 }),
+      expect.any(Object),
+    );
+  });
+
+  it('keeps the original problem in the system prompt after the live tail has moved on', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+
+    (service as any).conversation.memory.openingTranscript =
+      'Interviewer: Implement LRU cache, O(1) get and put';
+    (service as any).conversation.memory.text =
+      '## User Intent\nSolve LRU\n## Problem / Interview Task\nO(1) get and put';
+    (service as any).conversation.messages.push(
+      { id: '1', role: 'user', content: 'Assist', digest: 'Assist: LRU', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'class LRU...', timestamp: 2 },
+    );
+
+    const later = Array.from({ length: 80 }, (_, i) => `Them: later chatter ${i}`).join('\n');
+    const handler = getResponseHandler();
+    await handler({}, { transcript: later, action: 'assist' });
+
+    const sent = mockProvider.streamResponse.mock.calls[0][0];
+    expect(sent.system).toContain('<session_memory>');
+    expect(sent.system).toContain('Solve LRU');
+    expect(sent.system).toContain('<pinned_opening>');
+    expect(sent.system).toContain('Implement LRU cache');
+    expect(sent.system).toContain('<session_memory_rules>');
+  });
+
+  it('pins a typed question so a later Assist still has the exact ask', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+
+    const handler = getResponseHandler();
+    await handler({}, {
+      transcript: 'talk',
+      action: 'custom',
+      customPrompt: 'What is the time complexity of the LRU get?',
+    });
+
+    const sent = mockProvider.streamResponse.mock.calls[0][0];
+    expect(sent.system).toContain('<pinned_user_questions>');
+    expect(sent.system).toContain('What is the time complexity of the LRU get?');
+    expect((service as any).conversation.memory.userPins).toContain(
+      'What is the time complexity of the LRU get?',
+    );
+  });
+
+  it('writes structured session memory in the background after two turns', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+    mockProvider.generateShort.mockResolvedValue(
+      '## User Intent\nTwo sum in O(n)\n## Errors & Corrections\nDo not brute force',
+    );
+    (service as any).conversation.messages.push(
+      { id: '1', role: 'user', content: 'Assist', digest: 'Assist: two sum', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'Use a hashmap', timestamp: 2 },
+    );
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'Them: handle duplicates too', action: 'assist' });
+
+    await vi.waitFor(() => {
+      expect((service as any).conversation.memory.text).toContain('Two sum in O(n)');
+    });
+    expect(mockProvider.generateShort).toHaveBeenCalled();
+    const prompt = mockProvider.generateShort.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('handle duplicates too');
+  });
+
+  it('does not wipe existing memory when the compact model returns garbage', async () => {
+    vi.mocked(isProMode).mockReturnValue(false);
+    (service as any).conversation.memory.text =
+      '## User Intent\nKeep this\n## Problem / Interview Task\nLRU';
+    (service as any).conversation.memory.throughMessageIndex = 0;
+    (service as any).conversation.messages.push(
+      { id: '1', role: 'user', content: 'Assist', timestamp: 1 },
+      { id: '2', role: 'assistant', content: 'ok', timestamp: 2 },
+    );
+    mockProvider.generateShort.mockResolvedValue("I'm sorry I cannot help with that");
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'later', action: 'assist' });
+
+    await vi.waitFor(() => {
+      expect(mockProvider.generateShort).toHaveBeenCalled();
+    });
+    expect((service as any).conversation.memory.text).toContain('Keep this');
   });
 });
 

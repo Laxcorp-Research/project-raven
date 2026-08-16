@@ -64,7 +64,12 @@ declare global {
       storeGet: (key: string) => Promise<unknown>;
       storeSet: (key: string, value: unknown) => Promise<boolean>;
       storeSaveMany: (settings: Record<string, unknown>) => Promise<boolean>;
-      apiKeysSave: (deepgramKey: string, anthropicKey: string, openaiKey?: string) => Promise<boolean>;
+      apiKeysSave: (
+        deepgramKey: string,
+        anthropicKey: string,
+        openaiKey?: string,
+        extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+      ) => Promise<boolean>;
       apiKeysHas: () => Promise<boolean>;
       apiKeysClear: () => Promise<boolean>;
       planIsFree: () => Promise<boolean>;
@@ -124,7 +129,9 @@ declare global {
         error?: string;
       } | null>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
-      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string }>;
+      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; throttled?: boolean }>;
+      validateAssemblyAIKey: (apiKey: string) => Promise<{ valid: boolean; error?: string }>;
+      validateRecallKey: (apiKey: string, apiUrl?: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;
       quitApp: () => Promise<void>;
       relaunchApp: () => Promise<void>;
