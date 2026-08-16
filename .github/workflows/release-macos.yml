@@ -110,12 +110,61 @@ jobs:
 
       - name: Build webrtcdsp GStreamer plugin
         run: |
-          chmod +x src/native/aec/build-webrtcdsp-plugin.sh src/native/aec/build-deps.sh
-          if [ -f src/native/aec/deps/lib/gstreamer-1.0/libgstwebrtcdsp.dylib ]; then
+          DEPS_DIR="$GITHUB_WORKSPACE/src/native/aec/deps"
+          PLUGIN_DIR="$DEPS_DIR/lib/gstreamer-1.0"
+          if [ -f "$PLUGIN_DIR/libgstwebrtcdsp.dylib" ]; then
             echo "webrtcdsp plugin already present"
             exit 0
           fi
-          src/native/aec/build-webrtcdsp-plugin.sh
+
+          echo "=== deps/lib ==="
+          ls -la "$DEPS_DIR/lib" || true
+          ls -la "$DEPS_DIR/lib/pkgconfig" || true
+
+          export PKG_CONFIG_PATH="$DEPS_DIR/lib/pkgconfig:$PKG_CONFIG_PATH"
+          if ! pkg-config --exists webrtc-audio-processing-1; then
+            echo "webrtc-audio-processing-1.pc missing"
+            exit 1
+          fi
+
+          GST_VERSION=$(pkg-config --modversion gstreamer-1.0)
+          SRC_DIR="/tmp/gst-mono-${GST_VERSION}"
+          if [ ! -d "$SRC_DIR/subprojects/gst-plugins-bad/ext/webrtcdsp" ]; then
+            git clone --depth 1 --branch "$GST_VERSION" \
+              https://gitlab.freedesktop.org/gstreamer/gstreamer.git "$SRC_DIR"
+          fi
+          WEBRTCDSP_SRC="$SRC_DIR/subprojects/gst-plugins-bad/ext/webrtcdsp"
+          BUILD_DIR="/tmp/webrtcdsp-plugin-build"
+          mkdir -p "$BUILD_DIR"
+          cat > "$BUILD_DIR/config.h" << EOF
+#ifndef __GST_WEBRTCDSP_CONFIG_H__
+#define __GST_WEBRTCDSP_CONFIG_H__
+#define HAVE_WEBRTC1 1
+#define PACKAGE "gst-plugins-bad"
+#define VERSION "$GST_VERSION"
+#define GST_LICENSE "LGPL"
+#define GST_PACKAGE_NAME "GStreamer Bad Plug-ins"
+#define GST_PACKAGE_ORIGIN "https://gstreamer.freedesktop.org"
+#endif
+EOF
+
+          # Meson webrtc-audio-processing v1.3 installs one static lib + abseil,
+          # not the split -lcommon_audio layout the older script expected.
+          c++ -std=c++17 -shared -fPIC \
+            -DHAVE_CONFIG_H \
+            -I"$BUILD_DIR" \
+            $(pkg-config --cflags webrtc-audio-processing-1 gstreamer-1.0 gstreamer-base-1.0 gstreamer-audio-1.0 gstreamer-bad-audio-1.0) \
+            "$WEBRTCDSP_SRC/gstwebrtcdsp.cpp" \
+            "$WEBRTCDSP_SRC/gstwebrtcechoprobe.cpp" \
+            "$WEBRTCDSP_SRC/gstwebrtcdspplugin.cpp" \
+            -o "$BUILD_DIR/libgstwebrtcdsp.dylib" \
+            $(pkg-config --libs gstreamer-1.0 gstreamer-base-1.0 gstreamer-audio-1.0 gstreamer-bad-audio-1.0) \
+            $(pkg-config --libs --static webrtc-audio-processing-1) \
+            -framework Foundation -framework CoreFoundation
+
+          mkdir -p "$PLUGIN_DIR"
+          cp "$BUILD_DIR/libgstwebrtcdsp.dylib" "$PLUGIN_DIR/"
+          echo "Installed $PLUGIN_DIR/libgstwebrtcdsp.dylib"
 
       - name: Install JS dependencies
         run: npm ci
