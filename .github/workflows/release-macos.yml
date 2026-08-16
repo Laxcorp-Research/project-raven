@@ -136,20 +136,17 @@ jobs:
           WEBRTCDSP_SRC="$SRC_DIR/subprojects/gst-plugins-bad/ext/webrtcdsp"
           BUILD_DIR="/tmp/webrtcdsp-plugin-build"
           mkdir -p "$BUILD_DIR"
-          cat > "$BUILD_DIR/config.h" << EOF
-#ifndef __GST_WEBRTCDSP_CONFIG_H__
-#define __GST_WEBRTCDSP_CONFIG_H__
-#define HAVE_WEBRTC1 1
-#define PACKAGE "gst-plugins-bad"
-#define VERSION "$GST_VERSION"
-#define GST_LICENSE "LGPL"
-#define GST_PACKAGE_NAME "GStreamer Bad Plug-ins"
-#define GST_PACKAGE_ORIGIN "https://gstreamer.freedesktop.org"
-#endif
-EOF
+          printf '%s\n' \
+            '#ifndef __GST_WEBRTCDSP_CONFIG_H__' \
+            '#define __GST_WEBRTCDSP_CONFIG_H__' \
+            '#define HAVE_WEBRTC1 1' \
+            '#define PACKAGE "gst-plugins-bad"' \
+            "#define VERSION \"$GST_VERSION\"" \
+            '#define GST_LICENSE "LGPL"' \
+            '#define GST_PACKAGE_NAME "GStreamer Bad Plug-ins"' \
+            '#define GST_PACKAGE_ORIGIN "https://gstreamer.freedesktop.org"' \
+            '#endif' > "$BUILD_DIR/config.h"
 
-          # Meson webrtc-audio-processing v1.3 installs one static lib + abseil,
-          # not the split -lcommon_audio layout the older script expected.
           c++ -std=c++17 -shared -fPIC \
             -DHAVE_CONFIG_H \
             -I"$BUILD_DIR" \
