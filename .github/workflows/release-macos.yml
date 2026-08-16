@@ -68,7 +68,7 @@ jobs:
 
       - name: Install Homebrew build deps
         run: |
-          brew install meson ninja cmake pkg-config gstreamer
+          brew install meson ninja cmake pkg-config gstreamer abseil
 
       - name: Record GStreamer version
         id: gst
@@ -151,6 +151,7 @@ jobs:
             -DHAVE_CONFIG_H \
             -I"$BUILD_DIR" \
             $(pkg-config --cflags webrtc-audio-processing-1 gstreamer-1.0 gstreamer-base-1.0 gstreamer-audio-1.0 gstreamer-bad-audio-1.0) \
+            -I/opt/homebrew/include \
             "$WEBRTCDSP_SRC/gstwebrtcdsp.cpp" \
             "$WEBRTCDSP_SRC/gstwebrtcechoprobe.cpp" \
             "$WEBRTCDSP_SRC/gstwebrtcdspplugin.cpp" \
