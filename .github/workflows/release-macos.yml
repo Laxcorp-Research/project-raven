@@ -9,9 +9,9 @@ name: Release macOS
 # app via right-click → Open the first time (Gatekeeper).
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # Manual only. Auto-running on tag push emailed failures whenever the
+  # tagged commit still imported src/pro (public v2.3.9) or the YAML
+  # briefly failed to parse and GitHub treated it as on: push.
   workflow_dispatch:
     inputs:
       tag:
@@ -19,9 +19,9 @@ on:
         required: true
         default: 'v2.3.9'
       ref:
-        description: 'Git ref to build (empty = the release tag)'
+        description: 'Git ref to build (empty = main)'
         required: false
-        default: ''
+        default: 'main'
 
 concurrency:
   group: release-electron
@@ -47,7 +47,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.tag }}"
             REF="${{ github.event.inputs.ref }}"
-            if [ -z "$REF" ]; then REF="$TAG"; fi
+            if [ -z "$REF" ]; then REF="main"; fi
           else
             TAG="${GITHUB_REF_NAME}"
             REF="${GITHUB_REF}"

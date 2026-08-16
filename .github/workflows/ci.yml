@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches:
-      - staging
-      - production
       - main
   pull_request:
 
