@@ -72,52 +72,7 @@ declare global {
       ) => Promise<boolean>;
       apiKeysHas: () => Promise<boolean>;
       apiKeysClear: () => Promise<boolean>;
-      planIsFree: () => Promise<boolean>;
-      planIsPro: () => Promise<boolean>;
       resetAll: () => Promise<boolean>;
-      // Auth (pro mode)
-      authIsBackendConfigured: () => Promise<boolean>;
-      authIsAuthenticated: () => Promise<boolean>;
-      authGetCurrentUser: () => Promise<{
-        id: string;
-        email: string;
-        name: string | null;
-        avatarUrl: string | null;
-        plan: 'FREE' | 'PRO';
-        subscriptionStatus: string;
-        onboardedAt: string | null;
-      } | null>;
-      authStartBrowserLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
-      authCancelBrowserLogin: () => Promise<{ success: boolean }>;
-      authLogin: (email: string, password: string) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
-      authSignup: (email: string, password: string, name: string) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
-      authStartGoogleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
-      authStartAppleLogin: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null }; error?: string }>;
-      authLogout: () => Promise<{ success: boolean }>;
-      authDeleteAccount: () => Promise<{ success: boolean; error?: string }>;
-      authExportData: () => Promise<{ success: boolean; path?: string; cancelled?: boolean; error?: string }>;
-      onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => () => void;
-      onAuthSessionExpired: (callback: (data: { reason: string }) => void) => () => void;
-      onSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
-      offSubscriptionMayChange?: (callback: (event: unknown) => void) => void;
-      authFetchProfile: () => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; onboardedAt?: string | null }; error?: string }>;
-      authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) => Promise<{ success: boolean; user?: { id: string; email: string; name: string | null; avatarUrl: string | null; preferences?: Record<string, unknown> }; error?: string }>;
-      authMarkOnboarded: () => Promise<{ success: boolean; onboardedAt?: string | null; error?: string }>;
-      authGetSubscription: () => Promise<{ plan: string; status: string; currentPeriodEnd: string | null }>;
-      authGetManagedKeys: () => Promise<{ deepgram: string; plan: string } | null>;
-      authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => Promise<{ success: boolean; error?: string }>;
-      authOpenBillingPortal: () => Promise<{ success: boolean; error?: string }>;
-      proxyGetUsage: () => Promise<{
-        plan: string;
-        used: number;
-        limit: number | null;
-        remaining: number | null;
-        sessionsUsed: number;
-        sessionLimit: number | null;
-        sessionMaxSeconds: number | null;
-        resetAt: string | null;
-      }>;
-      proxyCheckSession: () => Promise<{ allowed: boolean; plan: string; sessionMaxSeconds: number | null; sessionsUsed: number; sessionLimit: number | null; resetAt: string | null }>;
       onSessionLimit: (callback: (data: { type: string }) => void) => () => void;
       proxyAnalyzeSession: (params: { transcript: string; features: string[]; sessionId?: string }) => Promise<{
         sessionId?: string;
@@ -278,11 +233,6 @@ declare global {
         limitInfo?: { used: number; limit: number; resetAt: string };
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
       }) => void) => () => void;
-      syncGetStatus: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number }>;
-      syncTrigger: () => Promise<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number; merged: number }>;
-      syncGetLog: () => Promise<Array<{ timestamp: string; status: string; sessionsSynced: number; durationMs: number }>>;
-      onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => void) => () => void;
-      onSyncConnectionState: (callback: (data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => void) => () => void;
       permissionsGetStatus: () => Promise<{ microphone: string; screen: string; accessibility: string }>;
       permissionsRequestMicrophone: () => Promise<boolean>;
       permissionsOpenScreenRecording: () => Promise<boolean>;
@@ -300,12 +250,6 @@ declare global {
       onHotkeyScrollDown: (callback: () => void) => () => void;
       onHotkeyMove: (callback: (direction: 'up' | 'down' | 'left' | 'right') => void) => () => void;
       analyticsTrack: (name: string, properties?: Record<string, unknown>) => Promise<void>;
-      // Server-attributed client event. Renderer fires this on
-      // user actions that matter for support / funnel analysis
-      // (recording attempts, checkout opens, etc.). The main
-      // process buffers + batches + ships to /api/events. Pro-
-      // only at the send layer; on OSS the call resolves to
-      // { accepted: false } and nothing is sent.
       trackClientEvent: (
         name: string,
         args?: { sessionId?: string; metadata?: Record<string, unknown> },

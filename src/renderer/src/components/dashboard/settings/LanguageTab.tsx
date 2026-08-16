@@ -64,14 +64,12 @@ export function LanguageTab() {
     setTranscriptionLang(value)
     setTranscriptionDropdownOpen(false)
     await window.raven.storeSet('transcriptionLanguage', value)
-    try { await window.raven.authUpdateProfile({ preferences: { transcriptionLanguage: value } }) } catch { /* free mode */ }
   }
 
   const handleOutputLangChange = async (value: string) => {
     setOutputLang(value)
     setOutputDropdownOpen(false)
     await window.raven.storeSet('outputLanguage', value)
-    try { await window.raven.authUpdateProfile({ preferences: { outputLanguage: value } }) } catch { /* free mode */ }
   }
 
   // Debounced save - don't round-trip to the server on every keystroke.
@@ -86,11 +84,6 @@ export function LanguageTab() {
     vocabSaveTimerRef.current = setTimeout(async () => {
       try {
         await window.raven.storeSet('vocabulary', raw)
-        try {
-          await window.raven.authUpdateProfile({
-            preferences: { vocabulary: splitVocab(raw) },
-          })
-        } catch { /* free mode or offline - local store is still authoritative */ }
         setVocabularySaveState('saved')
         setTimeout(() => setVocabularySaveState('idle'), 1500)
       } catch (err) {

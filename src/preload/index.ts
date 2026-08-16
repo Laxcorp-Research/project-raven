@@ -14,8 +14,6 @@ contextBridge.exposeInMainWorld('raven', {
   ) => ipcRenderer.invoke('store:save-api-keys', deepgramKey, anthropicKey, openaiKey, extras),
   apiKeysHas: () => ipcRenderer.invoke('store:has-api-keys'),
   apiKeysClear: () => ipcRenderer.invoke('store:clear-api-keys'),
-  planIsFree: () => ipcRenderer.invoke('store:is-free-mode'),
-  planIsPro: () => ipcRenderer.invoke('store:is-pro-mode'),
   resetAll: () => ipcRenderer.invoke('store:reset-all'),
   validateApiKeys: (deepgramKey: string, anthropicKey: string) =>
     ipcRenderer.invoke('validate-api-keys', deepgramKey, anthropicKey),
@@ -288,54 +286,10 @@ contextBridge.exposeInMainWorld('raven', {
   analyticsSetEnabled: (enabled: boolean) =>
     ipcRenderer.invoke('analytics:set-enabled', enabled),
   analyticsIsEnabled: () => ipcRenderer.invoke('analytics:is-enabled'),
-  // Server-attributed client events (Pro only - main-process
-  // gate handles OSS). Always-defined to keep renderer code
-  // free of mode branches; in OSS this resolves to a silent
-  // accepted=false response.
   trackClientEvent: (
     name: string,
     args?: { sessionId?: string; metadata?: Record<string, unknown> },
   ) => ipcRenderer.invoke('client-event:track', name, args),
-  // Auth (pro mode - handlers registered dynamically by proLoader)
-  authIsBackendConfigured: () => ipcRenderer.invoke('auth:is-backend-configured'),
-  authIsAuthenticated: () => ipcRenderer.invoke('auth:is-authenticated'),
-  authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
-  authStartBrowserLogin: () => ipcRenderer.invoke('auth:start-browser-login'),
-  authCancelBrowserLogin: () => ipcRenderer.invoke('auth:cancel-browser-login'),
-  authLogin: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
-  authSignup: (email: string, password: string, name: string) =>
-    ipcRenderer.invoke('auth:signup', email, password, name),
-  authStartGoogleLogin: () => ipcRenderer.invoke('auth:start-google-login'),
-  authStartAppleLogin: () => ipcRenderer.invoke('auth:start-apple-login'),
-  authLogout: () => ipcRenderer.invoke('auth:logout'),
-  authDeleteAccount: () => ipcRenderer.invoke('auth:delete-account'),
-  authExportData: () => ipcRenderer.invoke('auth:export-data'),
-  onAuthLoginCompleted: (callback: (data: { success: boolean; user?: unknown }) => void) => {
-    const handler = (_event: unknown, data: { success: boolean; user?: unknown }) => callback(data)
-    ipcRenderer.on('auth:login-completed', handler)
-    return () => ipcRenderer.removeListener('auth:login-completed', handler)
-  },
-  onAuthSessionExpired: (callback: (data: { reason: string }) => void) => {
-    const handler = (_event: unknown, data: { reason: string }) => callback(data)
-    ipcRenderer.on('auth:session-expired', handler)
-    return () => ipcRenderer.removeListener('auth:session-expired', handler)
-  },
-  onSubscriptionMayChange: (callback: (event: unknown) => void) => {
-    ipcRenderer.on('auth:subscription-may-change', callback)
-  },
-  offSubscriptionMayChange: (callback: (event: unknown) => void) => {
-    ipcRenderer.removeListener('auth:subscription-may-change', callback)
-  },
-  authFetchProfile: () => ipcRenderer.invoke('auth:fetch-profile'),
-  authUpdateProfile: (updates: { name?: string; avatarUrl?: string; preferences?: Record<string, unknown> }) =>
-    ipcRenderer.invoke('auth:update-profile', updates),
-  authMarkOnboarded: () => ipcRenderer.invoke('auth:mark-onboarded'),
-  authGetSubscription: () => ipcRenderer.invoke('auth:get-subscription'),
-  authGetManagedKeys: () => ipcRenderer.invoke('auth:get-managed-keys'),
-  authOpenCheckout: (plan: 'PRO', interval?: 'monthly' | 'yearly') => ipcRenderer.invoke('auth:open-checkout', plan, interval),
-  authOpenBillingPortal: () => ipcRenderer.invoke('auth:open-billing-portal'),
-  proxyGetUsage: () => ipcRenderer.invoke('proxy:get-usage'),
-  proxyCheckSession: () => ipcRenderer.invoke('proxy:check-session'),
   onSessionLimit: (callback: (data: { type: string }) => void) => {
     const handler = (_event: unknown, data: { type: string }) => callback(data)
     ipcRenderer.on('audio:session-limit', handler)
@@ -343,26 +297,6 @@ contextBridge.exposeInMainWorld('raven', {
   },
   proxyAnalyzeSession: (params: { transcript: string; features: string[]; sessionId?: string }) =>
     ipcRenderer.invoke('proxy:analyze-session', params),
-  // Sync (pro mode - handlers registered dynamically by proLoader)
-  syncGetStatus: () => ipcRenderer.invoke('sync:get-status'),
-  syncTrigger: () => ipcRenderer.invoke('sync:trigger'),
-  syncGetLog: () => ipcRenderer.invoke('sync:get-log'),
-  onSyncProgress: (callback: (data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => void) => {
-    const handler = (_event: unknown, data: { phase: string; synced: number; total: number; done: boolean; error?: boolean }) => callback(data)
-    ipcRenderer.on('sync:progress', handler)
-    return () => ipcRenderer.removeListener('sync:progress', handler)
-  },
-  // Phase 2 M5: realtime WS connection state. Driven by
-  // src/pro/main/wsConnector.ts on every connect / reconnect /
-  // disconnect transition. Header.tsx uses this to recolour the
-  // cloud icon so the user knows whether cross-device sync is
-  // currently live (connected), in flight (reconnecting), or
-  // dark (disconnected - safety-net only).
-  onSyncConnectionState: (callback: (data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => void) => {
-    const handler = (_event: unknown, data: { state: 'connected' | 'reconnecting' | 'disconnected' }) => callback(data)
-    ipcRenderer.on('sync:connection-state', handler)
-    return () => ipcRenderer.removeListener('sync:connection-state', handler)
-  },
   // Permissions
   permissionsGetStatus: () => ipcRenderer.invoke('permissions:get-status'),
   permissionsRequestMicrophone: () => ipcRenderer.invoke('permissions:request-microphone'),
@@ -423,11 +357,6 @@ contextBridge.exposeInMainWorld('raven', {
       // Ctrl+\ hide). useMousePassthrough re-arms mouse-event forwarding
       // so the overlay stays grabbable instead of bleeding clicks through.
       'overlay:shown',
-      // Fired by src/pro/main/deepLink.ts when the user returns from the
-      // Dodo Payments checkout flow via the raven://billing-success deep
-      // link. BillingTab refreshes its subscription state on this event
-      // so the UI flips from FREE → PRO without a manual restart.
-      'billing:success',
     ]
     if (!ALLOWED_CHANNELS.includes(channel)) {
       return () => {}

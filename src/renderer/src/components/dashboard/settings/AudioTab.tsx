@@ -78,7 +78,6 @@ export function AudioTab() {
     const newValue = !captureSystemAudio
     setCaptureSystemAudio(newValue)
     await window.raven.storeSet('captureSystemAudio', newValue)
-    try { await window.raven.authUpdateProfile({ preferences: { captureSystemAudio: newValue } }) } catch { /* free mode */ }
   }
 
   const startMicTest = async (deviceId?: string) => {

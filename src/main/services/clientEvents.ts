@@ -52,7 +52,6 @@
 
 import { app, ipcMain } from 'electron'
 import { createLogger } from '../logger'
-import { isProMode } from '../store'
 
 const log = createLogger('ClientEvents')
 
@@ -150,27 +149,7 @@ export function initClientEvents(): void {
     },
   )
 
-  if (!isProMode()) {
-    log.debug('OSS mode - client events disabled (IPC bridge still mounted for renderer simplicity)')
-    return
-  }
-  flushTimer = setInterval(() => {
-    void flush()
-  }, FLUSH_INTERVAL_MS)
-  // Don't keep the Node event loop alive purely for this timer.
-  // If the app is otherwise idle (no audio, no UI), shutdown
-  // should proceed without waiting for our 10s tick.
-  if (flushTimer && typeof flushTimer.unref === 'function') flushTimer.unref()
-
-  // Lifecycle event - lets the admin dashboard tell apart "user
-  // installed and never launched again" from "user launched but
-  // never finished onboarding". One of the cheapest, highest-
-  // signal events to instrument.
-  trackEvent('app_launched', {
-    metadata: { platform: PLATFORM, version: VERSION },
-  })
-
-  log.debug('Client events initialized')
+  log.debug('Client events stay on-device (no hosted backend)')
 }
 
 /**
@@ -222,59 +201,7 @@ export function trackEvent(
  * tick.
  */
 async function flush(): Promise<void> {
-  if (flushInFlight) return
-  if (buffer.length === 0) return
-  // Note: no `if (!isProMode()) return` here. The gate that
-  // matters is the dynamic-import + isAuthenticated() pair
-  // below: on OSS the pro/main/authService import path doesn't
-  // exist and the import throws, the catch block drops the
-  // batch, and the only side effect is a debug log.  Putting an
-  // isProMode() short-circuit here would re-introduce the same
-  // race-condition class as the (now removed) one in
-  // trackEvent: a renderer-fired event could be buffered between
-  // pro-mode flips and never escape.
-
-  // Snapshot the buffer and clear it; new events enqueued during
-  // the in-flight POST go into a fresh array.
-  const batch = buffer
   buffer = []
-  flushInFlight = true
-  try {
-    const { isAuthenticated, _apiRequest: apiRequest } = await import(
-      /* @vite-ignore */ '../../pro/main/authService'
-    )
-    if (!isAuthenticated()) {
-      // Don't drop the events on the floor if the user just isn't
-      // signed in yet - put them back in front of any new events
-      // queued during the import. Next flush tries again. Cap to
-      // MAX_BUFFER at the head so a long unauthenticated window
-      // can't grow memory.
-      buffer = [...batch, ...buffer].slice(-MAX_BUFFER)
-      return
-    }
-    const payload = {
-      events: batch.map((e) => ({
-        name: e.name,
-        sessionId: e.sessionId ?? null,
-        platform: PLATFORM,
-        version: VERSION,
-        metadata: e.metadata ?? null,
-      })),
-    }
-    await apiRequest<{ accepted: number }>('/api/events', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
-  } catch (err) {
-    // Best effort. Don't requeue - retrying after a network
-    // error is the kind of behavior that turns a transient
-    // outage into an event-storm thunder when the backend
-    // recovers. Log at debug so it doesn't drown legitimate
-    // signal.
-    log.debug('flush failed (best-effort, batch dropped):', err)
-  } finally {
-    flushInFlight = false
-  }
 }
 
 /**

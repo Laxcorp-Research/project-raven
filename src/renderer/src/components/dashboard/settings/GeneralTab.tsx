@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAppMode } from '../../../hooks/useAppMode'
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
@@ -9,7 +8,6 @@ interface UpdateState {
 }
 
 export function GeneralTab() {
-  const { isPro } = useAppMode()
   const [stealth, setStealth] = useState(false)
   const [openOnLogin, setOpenOnLogin] = useState(false)
   const [appVersion, setAppVersion] = useState('...')
@@ -39,7 +37,6 @@ export function GeneralTab() {
   const handleStealth = async (enabled: boolean) => {
     setStealth(enabled)
     await window.raven.windowSetStealth(enabled)
-    try { await window.raven.authUpdateProfile({ preferences: { stealthEnabled: enabled } }) } catch { /* free mode */ }
   }
 
   const handleOpenOnLogin = async (enabled: boolean) => {
@@ -161,8 +158,7 @@ export function GeneralTab() {
           </button>
         </div>
 
-        {/* Version - only shown in pro mode (open-source users run from source) */}
-        {isPro && <div className="flex items-center justify-between py-4">
+        <div className="flex items-center justify-between py-4">
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -217,7 +213,7 @@ export function GeneralTab() {
                       : 'Check for updates'}
             </button>
           )}
-        </div>}
+        </div>
       </div>
     </div>
   )

@@ -351,32 +351,6 @@ describe('AudioManager', () => {
     })
   })
 
-  describe('audio:start-recording (pro mode)', () => {
-    beforeEach(() => {
-      mockIsProMode.mockReturnValue(true)
-    })
-
-    it('allows recording in pro mode when session check passes or pro module unavailable', async () => {
-      const handler = mockIpcHandlers['audio:start-recording']
-      const result = await handler({})
-
-      // In open-source builds, src/pro/ doesn't exist - pro session check
-      // fails gracefully and allows a grace session. In premium builds,
-      // the check would enforce limits. Either way, recording should start.
-      expect(result).toMatchObject({ success: true })
-    })
-
-    it('starts recording without a backend session check', async () => {
-      const handler = mockIpcHandlers['audio:start-recording']
-      const result = await handler({}) as { success: boolean; error?: string; code?: string }
-
-      expect(result.success).toBe(true)
-      expect(result.code).toBeUndefined()
-      expect(manager.getIsRecording()).toBe(true)
-      expect(mockStartCapture).toHaveBeenCalled()
-    })
-  })
-
   describe('audio:stop-recording', () => {
     it('stops an active recording', async () => {
       const startHandler = mockIpcHandlers['audio:start-recording']
@@ -741,16 +715,6 @@ describe('AudioManager', () => {
       await (manager as any).startDeepgramFallback()
 
       expect((manager as any).activeProvider).toBeNull()
-    })
-  })
-
-  describe('rollbackSessionCount', () => {
-    it('handles rollback error gracefully', async () => {
-      vi.doMock('../../pro/main/authService', () => ({
-        _apiRequest: vi.fn().mockRejectedValue(new Error('network error')),
-      }))
-
-      await expect((manager as any).rollbackSessionCount()).resolves.not.toThrow()
     })
   })
 

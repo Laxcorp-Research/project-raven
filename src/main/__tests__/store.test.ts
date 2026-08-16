@@ -290,23 +290,13 @@ describe('store', () => {
   })
 
   describe('isFreeMode / isProMode', () => {
-    it('isFreeMode returns true when mode is free', () => {
-      mockGet.mockReturnValue('free')
+    it('isFreeMode is always true even if store mode is pro', () => {
+      mockGet.mockReturnValue('pro')
       expect(isFreeMode()).toBe(true)
     })
 
-    it('isFreeMode returns false when mode is pro', () => {
+    it('isProMode is always false even if store mode is pro', () => {
       mockGet.mockReturnValue('pro')
-      expect(isFreeMode()).toBe(false)
-    })
-
-    it('isProMode returns true when mode is pro', () => {
-      mockGet.mockReturnValue('pro')
-      expect(isProMode()).toBe(true)
-    })
-
-    it('isProMode returns false when mode is free', () => {
-      mockGet.mockReturnValue('free')
       expect(isProMode()).toBe(false)
     })
   })

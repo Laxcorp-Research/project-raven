@@ -946,29 +946,13 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
   // Pro mode noop handlers registration
   // ============================
 
-  describe('pro mode noop handlers (free mode)', () => {
-    it('registers auth and proxy noop handlers when not pro', () => {
-      // Re-register with isProMode returning false
-      Object.keys(handlers).forEach((k) => delete handlers[k])
-      mockIsProMode.mockReturnValue(false)
-      registerIpcHandlers()
-
-      expect(handlers['auth:is-authenticated']).toBeDefined()
-      expect(handlers['auth:is-authenticated']()).toBe(false)
-
-      expect(handlers['auth:get-current-user']).toBeDefined()
-      expect(handlers['auth:get-current-user']()).toBeNull()
-
-      expect(handlers['auth:is-backend-configured']).toBeDefined()
-      expect(handlers['auth:is-backend-configured']()).toBe(false)
-    })
-
-    it('does not register noop handlers in pro mode', () => {
-      Object.keys(handlers).forEach((k) => delete handlers[k])
-      mockIsProMode.mockReturnValue(true)
-      registerIpcHandlers()
-
+  describe('hosted Pro IPC is gone', () => {
+    it('does not register auth, billing, or sync handlers', () => {
       expect(handlers['auth:is-authenticated']).toBeUndefined()
+      expect(handlers['auth:get-current-user']).toBeUndefined()
+      expect(handlers['auth:open-checkout']).toBeUndefined()
+      expect(handlers['sync:trigger']).toBeUndefined()
+      expect(handlers['proxy:get-usage']).toBeUndefined()
     })
   })
 })

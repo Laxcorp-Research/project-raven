@@ -4,8 +4,7 @@
  */
 
 import { createLogger } from '../logger'
-import { isProMode } from '../store'
-import { getFastProvider, getProSystemProvider } from './ai/providerFactory'
+import { getFastProvider } from './ai/providerFactory'
 
 const log = createLogger('Insights')
 
@@ -83,9 +82,7 @@ export async function analyzeSession(params: {
 
   let provider
   try {
-    provider = isProMode()
-      ? await getProSystemProvider()
-      : await getFastProvider()
+    provider = await getFastProvider()
   } catch (err) {
     const message = err instanceof Error ? err.message : 'No AI provider configured'
     return { error: message }

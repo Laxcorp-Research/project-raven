@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, LogOut, Power, RefreshCw, AlertTriangle, Cloud, WifiOff } from 'lucide-react'
+import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, Power, RefreshCw, WifiOff } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
-import { useAppMode } from '../../hooks/useAppMode'
 
 interface SearchResult {
   id: string
@@ -49,7 +48,6 @@ function getInitials(name: string): string {
 }
 
 export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, initialUserProfile, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
-  const { isPro } = useAppMode()
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -61,27 +59,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialUserProfile?.avatarUrl || null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const [syncStatus, setSyncStatus] = useState<{ lastSyncAt: string | null; queueSize: number; consecutiveFailures: number } | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
-  // Phase 2 M5: realtime WS connection state driven by
-  // src/pro/main/wsConnector.ts. 'connected' = events flow
-  // sub-second; 'reconnecting' = transient drop, expect events
-  // again momentarily; 'disconnected' = WS gave up (auth dead or
-  // explicit logout), the 60-min periodic safety net is the only
-  // cross-device freshness path. Distinct from the existing
-  // `syncStatus` which tracks the periodic-sync timer's health.
-  //
-  // Initial 'disconnected' is the honest default: the WS
-  // connector starts in 'disconnected' state until the first
-  // open succeeds. The status broadcast fires on every
-  // transition so the user sees it flip to 'reconnecting' then
-  // 'connected' within a couple seconds of login on a normal
-  // network. OSS users (isPro = false) never get a transition
-  // event because the connector is gated on auth, so they stay
-  // at the harmless 'disconnected' default forever - which is
-  // correct (there's no cloud to be connected to in OSS mode).
-  const [wsState, setWsState] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected')
   const [isOnline, setIsOnline] = useState(navigator.onLine)
 
   useEffect(() => {
@@ -96,65 +73,14 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   }, [])
 
   useEffect(() => {
-    // Phase 2 M5: subscribe to realtime WS connection state. The
-    // listener exists for both Pro and OSS users because the
-    // preload always exposes the channel - but only Pro users
-    // will see meaningful transitions (OSS mode keeps the WS
-    // connector dormant; state stays 'disconnected').
-    //
-    // We deliberately do NOT call any sync API to query the
-    // initial state on mount because the wsConnector broadcasts
-    // its state on every transition AND the BrowserWindow is
-    // already present by the time the connector starts (boot
-    // path goes proLoader -> startWsConnector AFTER the
-    // dashboard window opens). The first 'reconnecting' or
-    // 'connected' broadcast flips us out of the 'disconnected'
-    // default within a couple seconds.
-    if (!window.raven?.onSyncConnectionState) return
-    const unsub = window.raven.onSyncConnectionState((data) => {
-      setWsState(data.state)
-    })
-    return unsub
+    void loadProfile()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const loadSyncStatus = useCallback(async () => {
-    if (!isPro) return
-    try {
-      const status = await window.raven.syncGetStatus()
-      setSyncStatus(status)
-    } catch { /* sync not available */ }
-  }, [isPro])
-
-  useEffect(() => {
-    loadProfile()
-    loadSyncStatus()
-    // loadProfile is a plain async function declared below, not wrapped in
-    // useCallback - intentionally re-created every render, and only
-    // invoked on mount + isPro change. Adding it to deps would either
-    // require wrapping (unrelated refactor) or cause spurious reloads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro, loadSyncStatus])
-
   async function loadProfile() {
-    let name = displayName
-    let email = userEmail
-    let oauthAvatar: string | null = avatarUrl
-
-    try {
-      const authUser = await window.raven.authGetCurrentUser()
-      if (authUser) {
-        name = authUser.name || ''
-        email = authUser.email || ''
-        oauthAvatar = authUser.avatarUrl || null
-      }
-    } catch { /* not in pro mode or not authenticated */ }
-
-    if (!name) {
-      name = ((await window.raven.storeGet('displayName')) as string) || ''
-    }
-
+    const name = ((await window.raven.storeGet('displayName')) as string) || displayName
     setDisplayName(name)
-    setUserEmail(email)
+    setUserEmail(userEmail)
 
     const picPath = (await window.raven.storeGet('profilePicturePath')) as string
     if (picPath) {
@@ -163,7 +89,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       setAvatarUrl(null)
     } else {
       setProfilePicData(null)
-      setAvatarUrl(oauthAvatar)
     }
   }
 
@@ -175,10 +100,8 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
       clearInterval(interval)
       window.removeEventListener('profile-updated', onProfileUpdated)
     }
-    // Same reasoning as the effect above: loadProfile isn't memoized, and
-    // the polling interval should only reset when isPro changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro])
+  }, [])
 
   const hasAvatar = avatarUrl || profilePicData
   const avatarSrc = avatarUrl || profilePicData
@@ -270,88 +193,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
               <WifiOff size={13} />
               <span>Offline</span>
-            </div>
-          )}
-
-          {/* Cloud sync */}
-          {isPro && (
-            <div className="relative group">
-              <button
-                onClick={async () => {
-                  if (syncing) return
-                  setSyncing(true)
-                  setSyncFeedback(null)
-                  try {
-                    const result = await window.raven.syncTrigger()
-                    await loadSyncStatus()
-                    const merged = result?.merged || 0
-                    setSyncFeedback(merged > 0 ? `Synced ${merged} session${merged > 1 ? 's' : ''}` : 'All synced')
-                    setTimeout(() => setSyncFeedback(null), 3000)
-                  } catch (err) {
-                    const msg = err instanceof Error ? err.message : 'Unknown error'
-                    const feedback = msg.includes('401') || msg.includes('auth')
-                      ? 'Sync failed - please sign in again'
-                      : msg.includes('fetch') || msg.includes('network') || !navigator.onLine
-                      ? 'Sync failed - no internet connection'
-                      : `Sync failed - ${msg.slice(0, 40)}`
-                    setSyncFeedback(feedback)
-                    setTimeout(() => setSyncFeedback(null), 5000)
-                  }
-                  setSyncing(false)
-                }}
-                disabled={syncing}
-                className={`p-2.5 rounded-full transition-colors ${
-                  // Priority order:
-                  //   1. consecutiveFailures >= 3 - the periodic-sync layer
-                  //      has given up. RED + AlertTriangle. This signals a
-                  //      hard problem (auth dead, server unreachable for
-                  //      long enough that 3 sync cycles failed) and
-                  //      supersedes whatever WS thinks.
-                  //   2. syncFeedback toast active. Toast wins for its 3-5
-                  //      second display window then clears.
-                  //   3. WS state. The Phase 2 M5 visualisation: connected
-                  //      = subtle blue tint (events flowing); reconnecting
-                  //      = amber pulse (transient drop, expect events soon);
-                  //      disconnected = neutral grey (either OSS mode or
-                  //      WS gave up but periodic-sync is still trying).
-                  syncStatus && syncStatus.consecutiveFailures >= 3
-                    ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                    : syncFeedback === 'All synced' || syncFeedback?.startsWith('Synced')
-                    ? 'bg-green-50 text-green-600'
-                    : syncFeedback?.startsWith('Sync failed')
-                    ? 'bg-red-50 text-red-600'
-                    : wsState === 'connected'
-                    ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                    : wsState === 'reconnecting'
-                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-              >
-                {syncing ? (
-                  <RefreshCw size={18} className="animate-spin" />
-                ) : syncStatus && syncStatus.consecutiveFailures >= 3 ? (
-                  <AlertTriangle size={18} />
-                ) : wsState === 'reconnecting' ? (
-                  // Spinning RefreshCw signals "transient drop, working
-                  // on it" - matches the user's mental model from the
-                  // syncing-in-progress state above.
-                  <RefreshCw size={18} className="animate-spin" />
-                ) : (
-                  <Cloud size={18} />
-                )}
-              </button>
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                {syncing
-                  ? 'Syncing...'
-                  : syncFeedback
-                  || (syncStatus && syncStatus.consecutiveFailures >= 3
-                    ? `Sync failing (${syncStatus.consecutiveFailures} attempts) - click to retry`
-                    : wsState === 'connected'
-                    ? 'Connected - changes sync instantly'
-                    : wsState === 'reconnecting'
-                    ? 'Reconnecting to cloud...'
-                    : 'Sync to cloud')}
-              </div>
             </div>
           )}
 
@@ -459,19 +300,6 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                 </div>
 
                 <div className="border-t border-gray-200 py-1.5">
-                  {isPro && userEmail && (
-                    <button
-                      onClick={async () => {
-                        setUserMenuOpen(false)
-                        await window.raven.authLogout()
-                        window.location.reload()
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3 transition-colors"
-                    >
-                      <LogOut size={16} className="text-gray-400 shrink-0" />
-                      <span>Sign out</span>
-                    </button>
-                  )}
                   <button
                     onClick={() => {
                       setUserMenuOpen(false)

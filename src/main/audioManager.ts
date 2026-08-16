@@ -6,7 +6,7 @@
  */
 
 import { BrowserWindow, ipcMain } from 'electron'
-import { getSetting, isProMode } from './store'
+import { getSetting } from './store'
 import { chooseNativeSttStrategy } from './services/transcriptProviderRouting'
 import { TranscriptionService } from './transcriptionService'
 import { sessionManager } from './services/sessionManager'
@@ -367,10 +367,7 @@ export class AudioManager {
     this.recordingStartTime = null
     this.broadcastRecordingState(false, session?.id || null)
 
-    if (opts.reason === 'TRANSCRIPTION_FAILED' && isProMode()) {
-      this.rollbackSessionCount().catch((err) =>
-        log.warn('Failed to roll back session count after transcription failure:', err)
-      )
+    if (opts.reason === 'TRANSCRIPTION_FAILED') {
       this.broadcastTranscriptionConnectionState({
         phase: 'failed',
         provider: null,
@@ -582,67 +579,6 @@ export class AudioManager {
     return this.isRecording
   }
 
-  private async checkAndStartProSession(): Promise<{
-    allowed: boolean
-    error?: string
-    code?: string
-    sessionMaxSeconds?: number
-    sessionsUsed?: number
-    sessionLimit?: number
-    resetAt?: string
-  }> {
-    try {
-      const { _apiRequest } = await import(
-        /* @vite-ignore */ '../pro/main/authService'
-      )
-      const apiRequest = _apiRequest as <T>(path: string, options?: RequestInit) => Promise<T>
-
-      const result = await apiRequest<Record<string, unknown>>(
-        '/api/proxy/start-session',
-        { method: 'POST' }
-      )
-
-      return {
-        allowed: result.allowed as boolean ?? true,
-        error: result.error as string | undefined,
-        code: result.code as string | undefined,
-        sessionMaxSeconds: result.sessionMaxSeconds as number | undefined,
-        sessionsUsed: result.sessionsUsed as number | undefined,
-        sessionLimit: result.sessionLimit as number | undefined,
-        resetAt: result.resetAt as string | undefined,
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Session check failed'
-      const lower = message.toLowerCase()
-      const isSessionLimit = lower.includes('session limit')
-        || lower.includes('daily session')
-      if (isSessionLimit) {
-        return { allowed: false, error: message, code: 'SESSION_LIMIT' }
-      }
-      // Auth-class failures must NOT fall into the "backend unreachable"
-      // grace path - they're a different failure mode. The backend IS
-      // reachable; we just don't have a valid token. Granting grace
-      // here lets a logged-out user start a recording that can't
-      // possibly transcribe (caught in staging: Recall/AssemblyAI/
-      // Deepgram all return 401 with no token, and the audio pipeline
-      // runs for 38s before auto-stopping on provider exhaustion -
-      // user sees a "Listening..." indicator capturing silence).
-      // Deny + surface a clear re-auth code so the UI can redirect to
-      // login.
-      const isAuthError = lower.includes('missing authorization token')
-        || lower.includes('session expired')
-        || lower.includes('unauthorized')
-      if (isAuthError) {
-        log.warn('Session check blocked - auth required:', message)
-        return { allowed: false, error: 'Please sign in to start a recording.', code: 'AUTH_REQUIRED' }
-      }
-      // True network / backend outage - keep the grace path so a flaky
-      // connection doesn't lock the user out mid-meeting.
-      log.warn('Session check failed (backend may be unreachable) - allowing grace session:', message)
-      return { allowed: true, sessionMaxSeconds: 120, code: 'BACKEND_UNAVAILABLE' }
-    }
-  }
-
   private startSessionTimer(maxSeconds: number): void {
     this.clearSessionTimer()
     log.info(`Free-tier session timer started: ${maxSeconds}s`)
@@ -700,19 +636,6 @@ export class AudioManager {
         maxRetries: 3,
         nextRetryAt: null,
       })
-    }
-  }
-
-  private async rollbackSessionCount(): Promise<void> {
-    try {
-      const { _apiRequest } = await import(
-        /* @vite-ignore */ '../pro/main/authService'
-      )
-      const apiRequest = _apiRequest as <T>(path: string, options?: RequestInit) => Promise<T>
-      await apiRequest('/api/proxy/rollback-session', { method: 'POST' })
-      log.info('Session count rolled back after transcription failure')
-    } catch (err) {
-      log.warn('Session rollback request failed:', err)
     }
   }
 

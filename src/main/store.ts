@@ -284,11 +284,12 @@ export function clearApiKeys(): void {
 // ---- Plan Helpers ----
 
 export function isFreeMode(): boolean {
-  return store.get('mode') === 'free';
+  return true
 }
 
+/** Hosted Pro is gone. Always false so a leftover caller cannot enable it. */
 export function isProMode(): boolean {
-  return store.get('mode') === 'pro';
+  return false
 }
 
 // ---- Reset ----

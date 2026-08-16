@@ -438,38 +438,6 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  if (!isProMode()) {
-    const noopNull = () => null
-    const noopFalse = () => false
-    const noopObj = () => ({})
-    const noopResult = () => ({ success: false })
-    ipcMain.handle('auth:is-backend-configured', noopFalse)
-    ipcMain.handle('auth:is-authenticated', noopFalse)
-    ipcMain.handle('auth:get-current-user', noopNull)
-    ipcMain.handle('auth:start-browser-login', noopResult)
-    ipcMain.handle('auth:cancel-browser-login', noopResult)
-    ipcMain.handle('auth:login', noopResult)
-    ipcMain.handle('auth:signup', noopResult)
-    ipcMain.handle('auth:start-google-login', noopResult)
-    ipcMain.handle('auth:start-apple-login', noopResult)
-    ipcMain.handle('auth:logout', noopResult)
-    ipcMain.handle('auth:delete-account', noopResult)
-    ipcMain.handle('auth:export-data', noopResult)
-    ipcMain.handle('auth:fetch-profile', noopResult)
-    ipcMain.handle('auth:update-profile', noopResult)
-    ipcMain.handle('auth:get-subscription', () => ({ plan: 'FREE', status: 'ACTIVE', currentPeriodEnd: null }))
-    ipcMain.handle('auth:get-managed-keys', noopNull)
-    ipcMain.handle('auth:open-checkout', noopResult)
-    ipcMain.handle('auth:open-billing-portal', noopResult)
-    ipcMain.handle('proxy:get-usage', () => ({ plan: 'FREE', used: 0, limit: 5, remaining: 5, sessionsUsed: 0, sessionLimit: null, sessionMaxSeconds: 120, resetAt: null }))
-    ipcMain.handle('proxy:check-session', () => ({ allowed: true, plan: 'FREE', sessionMaxSeconds: 120, sessionsUsed: 0, sessionLimit: null, resetAt: null }))
-    ipcMain.handle('proxy:start-session', () => ({ allowed: true, sessionMaxSeconds: 120 }))
-    ipcMain.handle('proxy:get-transcription-token', noopNull)
-    ipcMain.handle('sync:get-status', () => ({ lastSyncAt: null, queueSize: 0, consecutiveFailures: 0 }))
-    ipcMain.handle('sync:trigger', noopObj)
-    ipcMain.handle('sync:get-log', () => [])
-  }
-
   ipcMain.handle('recall:is-available', () => false)
   ipcMain.handle('recall:get-detected-meetings', () => [])
   ipcMain.handle('recall:get-state', () => ({ status: 'idle' }))

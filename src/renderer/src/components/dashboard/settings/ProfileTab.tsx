@@ -1,158 +1,33 @@
 import { useState, useEffect } from 'react'
-import { useAppMode } from '../../../hooks/useAppMode'
 import { ImageCropModal } from './ImageCropModal'
 
-/**
- * Downscale a (cropped) avatar data URL to a small JPEG so it can be stored
- * inline on the user record server-side without bloating the row or the
- * /me payload. Avatars render at <=80px, so 256px is plenty; JPEG q0.85 on a
- * 256px image lands in the tens of KB. A white matte avoids transparent
- * areas turning black under JPEG. Best-effort - callers fall back to the
- * original on failure.
- */
-async function resizeAvatarDataUrl(dataUrl: string, maxDim = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
-      const w = Math.max(1, Math.round(img.width * scale))
-      const h = Math.max(1, Math.round(img.height * scale))
-      const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        reject(new Error('no 2d context'))
-        return
-      }
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, w, h)
-      ctx.drawImage(img, 0, 0, w, h)
-      resolve(canvas.toDataURL('image/jpeg', 0.85))
-    }
-    img.onerror = () => reject(new Error('failed to load image for resize'))
-    img.src = dataUrl
-  })
-}
-
 export function ProfileTab() {
-  const { isPro } = useAppMode()
   const [displayName, setDisplayName] = useState('')
   const [savedName, setSavedName] = useState('')
-  const [userEmail, setUserEmail] = useState('')
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [profilePicData, setProfilePicData] = useState<string | null>(null)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null)
-  const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [resetLinkSent, setResetLinkSent] = useState(false)
-  const [userPlan, setUserPlan] = useState<string>('FREE')
-  const [subStatus, setSubStatus] = useState<string>('ACTIVE')
-  const [exporting, setExporting] = useState(false)
-  const [exportStatus, setExportStatus] = useState<{ kind: 'saved'; path: string } | { kind: 'error'; message: string } | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [waitingForCancel, setWaitingForCancel] = useState(false)
 
   useEffect(() => {
-    loadProfile()
-    // loadProfile is a plain async fn; only re-run when isPro flips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPro])
-
-  useEffect(() => {
-    if (!waitingForCancel) return
-    const interval = setInterval(async () => {
-      try {
-        const sub = await window.raven.authGetSubscription()
-        if (sub?.plan) setUserPlan(sub.plan)
-        if (sub?.status) setSubStatus(sub.status)
-        if (sub?.status === 'CANCELED' || sub?.plan === 'FREE') {
-          setWaitingForCancel(false)
-        }
-      } catch { /* ignore */ }
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [waitingForCancel])
-
-  function applyUser(user: { name: string | null; email: string; avatarUrl?: string | null }) {
-    setDisplayName(user.name || '')
-    setSavedName(user.name || '')
-    setUserEmail(user.email || '')
-    setAvatarUrl((user.avatarUrl as string) || null)
-    setIsAuthenticated(true)
-  }
+    void loadProfile()
+  }, [])
 
   async function loadProfile() {
-    // Track whether ANY auth source produced a user record. Using a
-    // local variable instead of reading the `displayName`/`userEmail`
-    // React state at the end of this function. The React state is
-    // captured by closure at function-entry time and stays as the
-    // initial empty strings even after applyUser() schedules state
-    // updates - so a closure-based fallback would incorrectly fire
-    // `setIsAuthenticated(false)` AFTER applyUser already set it
-    // true, producing a Pro-view -> OSS-view flicker right after the
-    // Settings panel opens. Reported live by user 2026-05-11 on the
-    // dev:pro:staging session: Profile tab briefly showed Account
-    // Email + Password & Security + Delete Account sections, then
-    // they all disappeared a moment later and the OSS-minimal view
-    // took over.
-    let applied = false
-
-    try {
-      const cached = await window.raven.authGetCurrentUser()
-      if (cached) {
-        applyUser(cached)
-        applied = true
-      }
-    } catch { /* not pro */ }
-
     const picPath = (await window.raven.storeGet('profilePicturePath')) as string
     if (picPath) {
       const data = await window.raven.profileGetPictureData(picPath)
       setProfilePicData(data)
     }
-
-    try {
-      const sub = await window.raven.authGetSubscription()
-      if (sub?.plan) setUserPlan(sub.plan)
-      if (sub?.status) setSubStatus(sub.status)
-    } catch { /* free mode */ }
-
-    try {
-      const result = await window.raven.authFetchProfile()
-      if (result.success && result.user) {
-        applyUser(result.user as { name: string | null; email: string; avatarUrl?: string | null })
-        applied = true
-      }
-    } catch { /* network error - cached data is fine */ }
-
-    // Only fall back to the local-only / open-source "Display Name
-    // from electron-store" path if NO auth source produced a user.
-    // Without this guard the fallback always ran (because the
-    // closure values were stale-empty), which is what produced the
-    // 2026-05-11 flicker bug.
-    if (!applied) {
-      const name = (await window.raven.storeGet('displayName')) as string
-      setDisplayName(name || '')
-      setSavedName(name || '')
-      setIsAuthenticated(false)
-    }
+    const name = (await window.raven.storeGet('displayName')) as string
+    setDisplayName(name || '')
+    setSavedName(name || '')
   }
 
   async function handleSave() {
     setSaving(true)
     const trimmed = displayName.trim()
-
-    if (isAuthenticated) {
-      try {
-        await window.raven.authUpdateProfile({ name: trimmed })
-      } catch { /* fall back to local-only */ }
-    }
     await window.raven.storeSet('displayName', trimmed)
-
     setSavedName(trimmed)
     setSaving(false)
     setSaved(true)
@@ -173,17 +48,6 @@ export function ProfileTab() {
     if (path) {
       const data = await window.raven.profileGetPictureData(path)
       setProfilePicData(data)
-      setAvatarUrl(null)
-      // Persist the avatar on the user record (resized small) so it survives
-      // logout/login/reinstall and never leaks across accounts. The local
-      // file above is only a fast-display cache that is cleared on logout;
-      // the server copy is the source of truth shown on the next login.
-      if (isAuthenticated) {
-        try {
-          const resized = await resizeAvatarDataUrl(croppedDataUrl)
-          await window.raven.authUpdateProfile({ avatarUrl: resized })
-        } catch { /* best-effort: the local cache still shows it this session */ }
-      }
       window.dispatchEvent(new Event('profile-updated'))
     }
   }
@@ -191,18 +55,6 @@ export function ProfileTab() {
   async function handleRemovePicture() {
     await window.raven.profileRemovePicture()
     setProfilePicData(null)
-    // Also clear the server-persisted copy from view so the avatar + Remove
-    // button disappear immediately (after a re-login the custom avatar lives
-    // in avatarUrl, not profilePicData).
-    setAvatarUrl(null)
-    // Clear the server-persisted avatar too, otherwise it would reappear on
-    // the next login. Empty string lets a later OAuth login repopulate the
-    // provider picture, which is the expected "custom avatar removed" result.
-    if (isAuthenticated) {
-      try {
-        await window.raven.authUpdateProfile({ avatarUrl: '' })
-      } catch { /* best-effort */ }
-    }
     window.dispatchEvent(new Event('profile-updated'))
   }
 
@@ -216,19 +68,10 @@ export function ProfileTab() {
   }
 
   const hasChanges = displayName.trim() !== savedName
-  // A custom avatar is removable whether it's the fresh local cache
-  // (profilePicData, set this session) or the server-persisted copy shown
-  // after a re-login (avatarUrl holding our inlined data:image URL). An
-  // external https provider picture (Google/OAuth) is NOT a custom avatar,
-  // so Remove stays hidden for it - matching the pre-server-persistence
-  // behavior. Without the data: check the Remove button vanished after
-  // logging back in (the local cache is cleared on logout).
-  const hasCustomPic = !!profilePicData || (!!avatarUrl && avatarUrl.startsWith('data:'))
-  const avatarSrc = profilePicData || avatarUrl
+  const hasCustomPic = !!profilePicData
 
   return (
     <div className="space-y-8">
-      {/* Profile Picture */}
       <div>
         <h4 className="text-sm font-semibold text-gray-900 mb-1">Profile Picture</h4>
         <p className="text-sm text-gray-500 mb-4">
@@ -237,12 +80,11 @@ export function ProfileTab() {
 
         <div className="flex items-center gap-5">
           <div className="relative group">
-            {avatarSrc ? (
+            {profilePicData ? (
               <img
-                src={avatarSrc}
+                src={profilePicData}
                 alt="Profile"
                 className="w-20 h-20 rounded-full object-cover border-2 border-gray-200"
-                referrerPolicy="no-referrer"
               />
             ) : (
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-semibold border-2 border-gray-200">
@@ -274,7 +116,6 @@ export function ProfileTab() {
         </div>
       </div>
 
-      {/* Display Name */}
       <div>
         <h4 className="text-sm font-semibold text-gray-900 mb-3">Display Name</h4>
         <div className="flex items-center gap-3">
@@ -302,98 +143,6 @@ export function ProfileTab() {
         </div>
       </div>
 
-      {/* Account Email (pro only) */}
-      {isAuthenticated && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-900 mb-1">Account Email</h4>
-          <p className="text-sm text-gray-500 mb-3">
-            Your email cannot be changed. Please contact support if you need assistance.
-          </p>
-          <div className="px-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-700 max-w-xs">
-            {userEmail}
-          </div>
-        </div>
-      )}
-
-      {/* Password & Security (pro only) */}
-      {isAuthenticated && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-900 mb-1">Password & Security</h4>
-          <p className="text-sm text-gray-500 mb-3">Secure your account with a password</p>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 max-w-lg">
-            <div>
-              <p className="text-sm font-medium text-gray-900">Account password</p>
-              <p className="text-xs text-gray-500 mt-0.5">Set a password to access your account. Must be at least 8 characters.</p>
-            </div>
-            <button
-              onClick={() => { setShowPasswordModal(true); setResetLinkSent(false) }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shrink-0 ml-4"
-            >
-              Update
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Export Data (GDPR / CCPA "right to portability") */}
-      {isAuthenticated && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-900 mb-1">Export your data</h4>
-          <p className="text-sm text-gray-500 mb-3">
-            Download a JSON copy of everything we store about you - profile,
-            sessions, custom modes, context files, and usage history. Sensitive
-            fields like password hashes and refresh tokens are excluded.
-          </p>
-          <button
-            onClick={async () => {
-              setExporting(true)
-              setExportStatus(null)
-              try {
-                const result = await window.raven.authExportData()
-                if (result.success && result.path) {
-                  setExportStatus({ kind: 'saved', path: result.path })
-                } else if (!result.cancelled) {
-                  setExportStatus({ kind: 'error', message: result.error || 'Export failed' })
-                }
-              } finally {
-                setExporting(false)
-              }
-            }}
-            disabled={exporting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            {exporting ? 'Exporting…' : 'Download my data'}
-          </button>
-          {exportStatus?.kind === 'saved' && (
-            <p className="mt-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1.5 inline-block">
-              Saved to {exportStatus.path}
-            </p>
-          )}
-          {exportStatus?.kind === 'error' && (
-            <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 inline-block">
-              {exportStatus.message}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Delete Account (pro only) */}
-      {isAuthenticated && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-900 mb-1">Delete Account</h4>
-          <p className="text-sm text-gray-500 mb-3">
-            Delete your account and all associated data. This action cannot be undone.
-          </p>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="px-4 py-2 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            Delete my account
-          </button>
-        </div>
-      )}
-
-      {/* Where profile is used */}
       <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
         <h4 className="text-sm font-semibold text-gray-700 mb-2">Where your profile is used</h4>
         <ul className="text-sm text-gray-500 space-y-1.5">
@@ -416,115 +165,6 @@ export function ProfileTab() {
         </ul>
       </div>
 
-      {/* Update Password Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)} />
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Update password</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              This will send a password reset link to your email address.
-            </p>
-            {resetLinkSent && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-                Reset link sent to {userEmail}. Check your inbox.
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setShowPasswordModal(false)}
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => setResetLinkSent(true)}
-                disabled={resetLinkSent}
-                className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
-                  resetLinkSent
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-900 text-white hover:bg-gray-800'
-                }`}
-              >
-                {resetLinkSent ? 'Link sent' : 'Send reset link'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Account Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowDeleteModal(false)} />
-          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete account</h3>
-            <p className="text-sm text-gray-500 mb-2">
-              This action cannot be undone. This will permanently delete your account and all of its data.
-            </p>
-            {userPlan !== 'FREE' && subStatus !== 'CANCELED' ? (
-              <>
-                <p className="text-sm text-red-600 mb-4">
-                  Please cancel your subscription first before deleting your account.
-                </p>
-                {waitingForCancel && (
-                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Waiting for subscription cancellation...
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => { setShowDeleteModal(false); setWaitingForCancel(false) }}
-                    className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await window.raven.authOpenBillingPortal()
-                      setWaitingForCancel(true)
-                    }}
-                    className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                  >
-                    {waitingForCancel ? 'Open billing portal again' : 'Manage subscription'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between mt-6">
-                <button
-                  onClick={() => { setShowDeleteModal(false); setWaitingForCancel(false) }}
-                  className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={deleting}
-                  onClick={async () => {
-                    setDeleting(true)
-                    try {
-                      await window.raven.authDeleteAccount()
-                      await window.raven.authLogout()
-                      window.location.reload()
-                    } catch {
-                      setDeleting(false)
-                    }
-                  }}
-                  className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {deleting ? 'Deleting...' : 'Delete my account permanently'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Image Crop Modal */}
       {cropImageSrc && (
         <ImageCropModal
           imageDataUrl={cropImageSrc}

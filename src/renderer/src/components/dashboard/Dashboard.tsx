@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Cloud } from 'lucide-react'
 import { createLogger } from '../../lib/logger'
 import { Header } from './Header'
-import { useAppMode } from '../../hooks/useAppMode'
 
 const log = createLogger('Dashboard')
 import { SessionList } from './SessionList'
@@ -34,21 +32,17 @@ interface SessionDetailData {
 
 interface DashboardProps {
   initialUserProfile?: { name: string; email: string; avatarUrl: string | null } | null
-  initialSubscription?: { plan: string; status: string; currentPeriodEnd: string | null } | null
 }
 
-export function Dashboard({ initialUserProfile, initialSubscription }: DashboardProps = {}) {
-  const { isPro } = useAppMode()
+export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [syncProgress, setSyncProgress] = useState<{ synced: number; total: number; done: boolean; error?: boolean } | null>(null)
   const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'general' | 'billing' | undefined>(undefined)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'general' | undefined>(undefined)
   const [showOverlayTour, setShowOverlayTour] = useState(false)
-  const [subscription, setSubscription] = useState(initialSubscription)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
 
@@ -143,57 +137,6 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   }, [])
 
   useEffect(() => {
-    if (initialSubscription) setSubscription(initialSubscription)
-  }, [initialSubscription])
-
-  useEffect(() => {
-    if (!isPro || subscription) return
-    window.raven.authGetSubscription?.().then((sub) => {
-      if (sub) setSubscription(sub)
-    }).catch(() => {})
-  }, [isPro, subscription])
-
-  // Without this, the top-level ON_HOLD banner would stay visible until
-  // the user restarts the app, even after they fix their payment method
-  // through the portal. BillingTab already listens for this event to
-  // refresh itself; the banner lives a layer up so it needs its own
-  // subscription refresh.
-  useEffect(() => {
-    if (!isPro) return
-    const unsub = window.raven.on('billing:success', () => {
-      window.raven.authGetSubscription?.().then((sub) => {
-        if (sub) setSubscription(sub)
-      }).catch(() => {})
-    })
-    return unsub
-  }, [isPro])
-
-  useEffect(() => {
-    if (!isPro) return
-    try {
-      const unsub = window.raven.onSyncProgress((data) => {
-        if (data.done) {
-          // Keep the actual synced count (not data.total) so the
-          // terminal frame is truthful. Before the 2026-05-11 fix the
-          // success path collapsed `synced` to `data.total` on done,
-          // which on the new auth_expired/error/network_error paths
-          // (where synced may be < total) would render the false
-          // text "Uploaded N sessions to cloud" even though the
-          // backend rejected the batch. error:true now keeps the
-          // partial count and lets the UI render "Sync interrupted".
-          setTimeout(() => setSyncProgress(null), 3000)
-          setSyncProgress({ synced: data.synced, total: data.total, done: true, error: data.error })
-        } else {
-          setSyncProgress({ synced: data.synced, total: data.total, done: false })
-        }
-      })
-      return unsub
-    } catch {
-      // sync not available
-    }
-  }, [isPro])
-
-  useEffect(() => {
     if (!activeSession) {
       setRecordingDuration(0)
       return
@@ -233,32 +176,6 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
   const handleOpenSettings = () => {
     setSettingsInitialTab(undefined)
     setSettingsOpen(true)
-  }
-
-  const handleOpenBilling = () => {
-    setSettingsInitialTab('billing')
-    setSettingsOpen(true)
-  }
-
-  // Lapsed subscribers (ON_HOLD / CANCELED / INACTIVE with a paid plan
-  // on file) skip the Settings modal and go straight to the Dodo
-  // customer portal. Routing them through Settings first only showed
-  // a plan-picker card with a default interval that didn't match what
-  // they actually had (e.g. their real sub is Monthly, our card
-  // defaulted to Yearly), which was confusing. The portal shows the
-  // authoritative plan + payment method directly. Falls back to the
-  // Settings view if the portal IPC fails so the user isn't stuck.
-  const handleResumeSubscription = async () => {
-    try {
-      const result = await window.raven.authOpenBillingPortal()
-      if (!result.success) {
-        log.error('Failed to open billing portal:', result.error)
-        handleOpenBilling()
-      }
-    } catch (error) {
-      log.error('Failed to open billing portal:', error)
-      handleOpenBilling()
-    }
   }
 
   const handleSessionSelect = async (session: { id: string }) => {
@@ -318,79 +235,7 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
         onSessionSelect={handleSessionSelect}
       />
 
-      {isPro && <UpdateBanner />}
-
-      {syncProgress && (
-        <div className={`shrink-0 flex items-center gap-3 px-4 py-2 border-b ${
-          syncProgress.error
-            ? 'bg-amber-50 border-amber-100'
-            : 'bg-blue-50 border-blue-100'
-        }`}>
-          <Cloud size={16} className={`shrink-0 ${syncProgress.error ? 'text-amber-600' : 'text-blue-500'}`} />
-          <div className="flex-1 min-w-0">
-            <div className={`flex items-center justify-between text-xs mb-1 ${
-              syncProgress.error ? 'text-amber-700' : 'text-blue-700'
-            }`}>
-              <span>
-                {syncProgress.error
-                  ? `Sync interrupted${syncProgress.synced > 0 ? ` - uploaded ${syncProgress.synced} of ${syncProgress.total}` : ''}. Will retry shortly.`
-                  : syncProgress.done
-                  ? `Uploaded ${syncProgress.total} session${syncProgress.total > 1 ? 's' : ''} to cloud`
-                  : `Uploading sessions to cloud... ${syncProgress.synced} of ${syncProgress.total}`}
-              </span>
-              <span className={syncProgress.error ? 'text-amber-600' : 'text-blue-500'}>
-                {syncProgress.error
-                  ? 'Paused'
-                  : syncProgress.done
-                  ? 'Done'
-                  : `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%`}
-              </span>
-            </div>
-            <div className={`w-full h-1 rounded-full overflow-hidden ${
-              syncProgress.error ? 'bg-amber-100' : 'bg-blue-100'
-            }`}>
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  syncProgress.error
-                    ? 'bg-amber-500'
-                    : syncProgress.done
-                    ? 'bg-green-500'
-                    : 'bg-blue-500'
-                }`}
-                style={{ width: `${Math.round((syncProgress.synced / syncProgress.total) * 100)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Show the same Upgrade banner whenever the user is effectively
-          on the free tier - either they've always been FREE, or their
-          paid subscription is in a non-ACTIVE state (ON_HOLD, CANCELED,
-          INACTIVE). The backend already treats non-ACTIVE as FREE for
-          session length and daily caps, so lapsed users already have
-          the free-tier experience; one banner reflects that uniformly.
-          Copy stays generic so it reads naturally for first-time
-          upgraders and lapsed users alike. */}
-      {isPro
-        && !isRecording
-        && subscription
-        && (subscription.plan === 'FREE' || subscription.status !== 'ACTIVE') && (
-        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white">
-          <div className="flex items-center gap-2 min-w-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
-            </svg>
-            <span className="text-sm font-medium truncate">Unlock unlimited sessions, AI responses, and meeting insights.</span>
-          </div>
-          <button
-            onClick={subscription.plan !== 'FREE' ? handleResumeSubscription : handleOpenBilling}
-            className="px-3 py-1 bg-white text-purple-700 text-xs font-semibold rounded-md hover:bg-white/90 transition-colors shrink-0 ml-3"
-          >
-            {subscription.plan !== 'FREE' ? 'Resume Pro' : 'Upgrade to Pro'}
-          </button>
-        </div>
-      )}
+      <UpdateBanner />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {selectedSession ? (
@@ -430,13 +275,6 @@ export function Dashboard({ initialUserProfile, initialSubscription }: Dashboard
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => { setSettingsOpen(false); setSettingsInitialTab(undefined) }}
-        // Pass the CURRENT subscription state, not the initial prop. The
-        // state stays in sync via billing:success refresh, focus-based
-        // refresh, and the auth:subscription-may-change poller. Passing
-        // the raw prop (which never updates post-mount) would show stale
-        // data for up to the first render of BillingTab before its own
-        // refetch lands.
-        initialSubscription={subscription}
         initialTab={settingsInitialTab}
       />
 

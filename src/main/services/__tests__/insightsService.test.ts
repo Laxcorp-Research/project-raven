@@ -11,30 +11,18 @@ vi.mock('../../logger', () => ({
   }),
 }))
 
-vi.mock('../../store', () => ({
-  isProMode: vi.fn(() => false),
-}))
-
 vi.mock('../ai/providerFactory', () => ({
   getFastProvider: vi.fn(),
-  getProSystemProvider: vi.fn(),
 }))
 
-import { isProMode } from '../../store'
-import { getFastProvider, getProSystemProvider } from '../ai/providerFactory'
+import { getFastProvider } from '../ai/providerFactory'
 import { analyzeSession } from '../insightsService'
 
 describe('analyzeSession', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     generateShort.mockResolvedValue('{"overall_sentiment":{"sentiment":"neutral"}}')
-    vi.mocked(isProMode).mockReturnValue(false)
     vi.mocked(getFastProvider).mockResolvedValue({
-      name: 'anthropic',
-      generateShort,
-      streamResponse: vi.fn(),
-    } as never)
-    vi.mocked(getProSystemProvider).mockResolvedValue({
       name: 'anthropic',
       generateShort,
       streamResponse: vi.fn(),
@@ -94,17 +82,13 @@ describe('analyzeSession', () => {
     expect(result.error).toBeUndefined()
   })
 
-  it('uses the Pro system provider in hosted Pro mode instead of BYOK', async () => {
-    vi.mocked(isProMode).mockReturnValue(true)
-    generateShort.mockResolvedValueOnce('sentiment-json')
-
-    const result = await analyzeSession({
-      transcript: 'hi',
-      features: ['sentiment'],
-    })
-
-    expect(getProSystemProvider).toHaveBeenCalled()
-    expect(getFastProvider).not.toHaveBeenCalled()
-    expect(result.sentiment).toBe('sentiment-json')
+  it('providerFactory source does not define hosted Pro providers', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const src = fs.readFileSync(path.resolve(__dirname, '../ai/providerFactory.ts'), 'utf8')
+    expect(src).not.toMatch(/export async function getProProvider/)
+    expect(src).not.toMatch(/export async function getProFastProvider/)
+    expect(src).not.toMatch(/export async function getProSystemProvider/)
+    expect(src).not.toMatch(/backendProxyProvider/)
   })
 })

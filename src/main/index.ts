@@ -66,7 +66,6 @@ import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
 import { ensureActiveMode, createDefaultMode, migrateGeneralAssistantPromptV21 } from './services/builtinModes'
 import { generateSessionSummary } from './services/summaryService'
-import { initializeProFeatures } from './proLoader'
 import { initializeVendorFeatures, shutdownVendorFeatures } from './services/vendorFeatures'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
@@ -76,7 +75,6 @@ import { inflightHandle, cooldownHandle } from './ipcThrottle'
 import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus } from './permissions'
 import { createLogger } from './logger'
-import { isProMode } from './store'
 import { trustSystemCAs } from './trustSystemCAs'
 
 const log = createLogger('Raven')
@@ -146,44 +144,6 @@ ipcMain.on('sentry:capture-renderer-error', (_event, payload: {
     captureException(err)
   } catch { /* best effort - we don't want error reporting to throw */ }
 })
-
-// Buffer any deep link URL that arrives before the async handler is registered
-let earlyOpenUrl: string | null = null
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  earlyOpenUrl = url
-})
-
-// Register raven:// protocol + macOS open-url listener early (before app.whenReady)
-async function initDeepLinksEarly(): Promise<void> {
-  try {
-    const { registerProtocol, registerOpenUrlHandler, handleDeepLink } = await import(
-      /* @vite-ignore */ '../pro/main/deepLink'
-    )
-    registerProtocol()
-    registerOpenUrlHandler()
-    // Drain any URL that arrived before the handler was ready
-    if (earlyOpenUrl) {
-      handleDeepLink(earlyOpenUrl)
-      earlyOpenUrl = null
-    }
-  } catch {
-    // src/pro/ not present (open-source build) - skip silently
-  }
-}
-void initDeepLinksEarly()
-
-// Single-instance lock + second-instance handler - must run AFTER app is ready
-async function initDeepLinksReady(): Promise<void> {
-  try {
-    const { setupDeepLinkHandlers } = await import(
-      /* @vite-ignore */ '../pro/main/deepLink'
-    )
-    setupDeepLinkHandlers()
-  } catch {
-    // src/pro/ not present - skip
-  }
-}
 
 cooldownHandle('desktop:get-sources', 1000, async () => {
   try {
@@ -361,14 +321,8 @@ function boot(): void {
 
   audioManager.setWindows(dashboard, overlay)
 
-  const isPro = isProMode()
-  const onboardingDone = isPro
-    ? (getSetting('proOnboardingComplete') || getSetting('onboardingComplete'))
-    : getSetting('onboardingComplete')
-
-  const isFullyReady = isPro
-    ? !!onboardingDone && !!getSetting('auth_tokens')
-    : !!onboardingDone && hasApiKeys()
+  const onboardingDone = getSetting('onboardingComplete')
+  const isFullyReady = !!onboardingDone && hasApiKeys()
   const shouldEnableOverlay = isFullyReady
 
   if (shouldEnableOverlay) {
@@ -417,10 +371,6 @@ function boot(): void {
   createTray()
   initAutoUpdater()
   initAnalytics()
-  // Server-attributed product events. Ships to both OSS and
-  // Pro (the module is itself isProMode-gated so OSS is a
-  // hard no-op). See src/main/services/clientEvents.ts for
-  // the privacy + buffering design.
   initClientEvents()
 }
 
@@ -429,40 +379,8 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null)
   }
 
-  // Determine app mode:
-  // 1. Explicit env var (dev scripts: RAVEN_MODE=pro or RAVEN_MODE=free)
-  // 2. Packaged app: check for .raven-pro marker file in resources
-  // 3. Default: free (open-source)
-  let appMode: 'pro' | 'free' = 'free'
-  if (process.env.RAVEN_MODE === 'pro') {
-    appMode = 'pro'
-  } else if (!process.env.RAVEN_MODE && app.isPackaged) {
-    try {
-      const markerPath = join(process.resourcesPath, '.raven-pro')
-      if (existsSync(markerPath)) appMode = 'pro'
-    } catch { /* not present - stay free */ }
-  }
-  saveSetting('mode', appMode)
-  log.info(`App mode: ${appMode}`)
-
-  // First packaged run: clear stale dev settings (dev and packaged share the same store path)
-  if (app.isPackaged && appMode === 'pro') {
-    const initVersion = store.get('_packagedInit' as keyof import('./store').LocalSettings) as string | undefined
-    if (!initVersion) {
-      log.info('First packaged run - clearing stale dev settings')
-      store.set('proOnboardingComplete' as keyof import('./store').LocalSettings, false)
-      store.set('proOnboardingStep' as keyof import('./store').LocalSettings, '')
-      store.set('onboardingComplete' as keyof import('./store').LocalSettings, false)
-      store.set('stealthEnabled' as keyof import('./store').LocalSettings, false)
-      store.delete('auth_tokens' as keyof import('./store').LocalSettings)
-      store.delete('auth_user' as keyof import('./store').LocalSettings)
-      store.delete('cachedUserProfile' as keyof import('./store').LocalSettings)
-      store.delete('cachedSubscription' as keyof import('./store').LocalSettings)
-      store.delete('sync_queue' as keyof import('./store').LocalSettings)
-      store.delete('backendUrl' as keyof import('./store').LocalSettings)
-      store.set('_packagedInit' as keyof import('./store').LocalSettings, app.getVersion())
-    }
-  }
+  saveSetting('mode', 'free')
+  log.info('App mode: free')
 
   // Initialize database
   databaseService.initialize()
@@ -475,9 +393,7 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   registerSystemAudioHandlers()
   registerPermissionHandlers()
-  void initializeProFeatures()
   void initializeVendorFeatures()
-  void initDeepLinksReady()
   boot()
 
   // Session IPC handlers
@@ -527,16 +443,6 @@ app.whenReady().then(() => {
       // leaves the tombstone unconfirmed and the periodic sync cycle
       // retries until the server actually loses the row. See the
       // modes counterpart for the long-form rationale.
-      if (isProMode()) {
-        import(/* @vite-ignore */ '../pro/main/syncService')
-          .then(async ({ deleteSessionFromBackend }) => {
-            const confirmed = await deleteSessionFromBackend(id)
-            if (confirmed) {
-              databaseService.confirmSessionTombstone(id)
-            }
-          })
-          .catch((err) => ipcLog.warn('Failed to delete session from backend:', err))
-      }
     }
     return deleted
   })
@@ -596,10 +502,7 @@ app.whenReady().then(() => {
   // ==================== MODE IPC HANDLERS ====================
 
   function syncModeToCloud(): void {
-    if (!isProMode()) return
-    import(/* @vite-ignore */ '../pro/main/syncService')
-      .then(({ pushModesToCloud }) => pushModesToCloud())
-      .catch((err) => ipcLog.warn('Mode sync failed:', err))
+    // Local-only. Hosted sync was removed with Pro.
   }
 
   // Fire the backend DELETE and, if it succeeds, confirm the tombstone
@@ -611,16 +514,8 @@ app.whenReady().then(() => {
   // (dev HMR interruption, 5xx, offline at delete time) silently left
   // the server with an orphan row that pull would resurrect on next
   // boot.
-  function deleteModeFromCloud(modeId: string): void {
-    if (!isProMode()) return
-    import(/* @vite-ignore */ '../pro/main/syncService')
-      .then(async ({ deleteModeFromBackend }) => {
-        const confirmed = await deleteModeFromBackend(modeId)
-        if (confirmed) {
-          databaseService.confirmModeTombstone(modeId)
-        }
-      })
-      .catch((err) => ipcLog.warn('Mode delete sync failed:', err))
+  function deleteModeFromCloud(_modeId: string): void {
+    // Local-only. Hosted sync was removed with Pro.
   }
 
   ipcMain.handle('modes:get-all', async () => {
@@ -712,16 +607,7 @@ app.whenReady().then(() => {
   // Key convention matches backend/src/seed.ts MODE_PROMPTS: bare keys
   // like 'interview', 'sales', 'meeting', 'job-search', 'learning',
   // 'general'. The client strips its `tpl-` prefix before calling.
-  ipcMain.handle('prompts:fetch-mode-template', async (_event, key: string) => {
-    if (!isProMode()) return null
-    try {
-      const { getServerModePrompt } = await import('../pro/main/promptService')
-      return await getServerModePrompt(key)
-    } catch (error) {
-      ipcLog.debug('prompts:fetch-mode-template error:', error)
-      return null
-    }
-  })
+  ipcMain.handle('prompts:fetch-mode-template', async () => null)
 
   // ---- Context / RAG ----
 
@@ -758,12 +644,6 @@ app.whenReady().then(() => {
         sender.send('context:upload-progress', { stage, current, total })
       })
 
-      if (isProMode()) {
-        import(/* @vite-ignore */ '../pro/main/syncService')
-          .then(({ pushContextToCloud }) => pushContextToCloud(modeId))
-          .catch((err) => ipcLog.warn('Context cloud sync failed:', err))
-      }
-
       return { success: true, file: result }
     } catch (error: unknown) {
       ipcLog.error('context:upload-file error:', error)
@@ -795,17 +675,6 @@ app.whenReady().then(() => {
       // tombstone so the sync retry loop stops hammering. On failure
       // leave it unconfirmed and let runSyncCycle retry. See the
       // mode/session equivalents for the full rationale.
-      if (isProMode() && result) {
-        import(/* @vite-ignore */ '../pro/main/syncService')
-          .then(async ({ deleteContextFileFromCloud }) => {
-            const confirmed = await deleteContextFileFromCloud(modeId, fileId)
-            if (confirmed) {
-              databaseService.confirmContextFileTombstone(fileId)
-            }
-          })
-          .catch((err) => ipcLog.warn('Context cloud delete failed:', err))
-      }
-
       return result
     } catch (error) {
       ipcLog.error('context:delete-file error:', error)
@@ -1143,12 +1012,6 @@ app.whenReady().then(() => {
     }
   })
 
-  app.on('browser-window-focus', () => {
-    if (!isProMode()) return
-    import(/* @vite-ignore */ '../pro/main/syncService')
-      .then(({ triggerBackgroundSync }) => triggerBackgroundSync())
-      .catch(() => {})
-  })
 })
 
 app.on('before-quit', () => {

@@ -290,35 +290,6 @@ export function OverlayWindow() {
       })
     })
 
-    const unsubAuthExpired = window.raven.onAuthSessionExpired?.(() => {
-      requestInFlightRef.current = false
-      setIsLoadingResponse(false)
-      setActiveResponseId(null)
-      activeResponseIdRef.current = null
-      // Stable ID so multiple near-simultaneous expiry events (e.g.
-      // claudeService + authService.clearAuth firing in the same cycle,
-      // or two parallel sync calls both hitting 401 within the same
-      // millisecond where Date.now() collides) de-dupe into a single
-      // "Session expired" card instead of stacking. The main process
-      // now hides the overlay on expiry anyway, but keep this defensive
-      // in case the overlay is surfaced again before login.
-      const EXPIRED_ID = 'auth-expired'
-      setResponses((prev) => {
-        const existing = prev.find((r) => r.id === EXPIRED_ID)
-        if (existing) return prev
-        return [
-          ...prev,
-          {
-            id: EXPIRED_ID,
-            content: 'Your session has expired. Please sign in again from the dashboard to continue using AI features.',
-            action: 'Session Expired',
-            badgeVariant: 'system' as const,
-            hasScreenshot: false,
-          },
-        ]
-      })
-    }) ?? (() => {})
-
     return () => {
       unsubStealth()
       unsubRecording()
@@ -326,7 +297,6 @@ export function OverlayWindow() {
       unsubClaude()
       unsubAi()
       unsubSessionLimit()
-      unsubAuthExpired()
       clearHideXTimer()
       cleanupResize()
       if (copiedResetTimerRef.current) {
@@ -519,10 +489,6 @@ export function OverlayWindow() {
     setStealthEnabled(next)
     try {
       await window.raven.windowSetStealth(next)
-      // Sync the privacy preference across devices. Local store is
-      // written by the main-process setStealthMode() handler above,
-      // so we only need to push to the server here.
-      try { await window.raven.authUpdateProfile({ preferences: { stealthEnabled: next } }) } catch { /* free mode */ }
     } catch {
       setStealthEnabled(!next)
     }
@@ -557,7 +523,6 @@ export function OverlayWindow() {
     const next = !incognitoMode
     setIncognitoMode(next)
     await window.raven.storeSet('incognitoMode', next)
-    try { await window.raven.authUpdateProfile({ preferences: { incognitoMode: next } }) } catch { /* free mode */ }
   }, [incognitoMode])
 
   const handleAssist = async () => {
