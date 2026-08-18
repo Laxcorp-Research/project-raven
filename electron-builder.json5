@@ -42,6 +42,10 @@
     },
     "extraResources": [
       {
+        "from": "resources/tray",
+        "to": "tray"
+      },
+      {
         "from": "src/native/swift/AudioCapture/.build/release/audiocapture",
         "to": "swift/audiocapture"
       },
@@ -78,6 +82,12 @@
     ],
     "artifactName": "${productName}-Windows-${version}-Setup.${ext}",
     "extraResources": [
+      // Same mapping as top-level extraResources. Keep it on the
+      // Windows list so a pack cannot drop tray PNGs (empty Tray).
+      {
+        "from": "resources/tray",
+        "to": "tray"
+      },
       {
         "from": "src/native/windows/raven-windows-audio.win32-x64-msvc.node",
         "to": "raven-windows-audio.win32-x64-msvc.node"
