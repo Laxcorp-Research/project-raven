@@ -21,6 +21,15 @@
     "dist",
     "dist-electron"
   ],
+  // Tray PNGs are read from process.resourcesPath/tray when packaged
+  // (src/main/trayManager.ts). Omitting this ships a fallback empty icon.
+  "extraResources": [
+    {
+      "from": "resources/tray",
+      "to": "tray"
+    }
+  ],
+  "afterPack": "./scripts/afterPack-mac-identity.cjs",
   "mac": {
     "icon": "build/icon.icns",
     "target": [
@@ -28,6 +37,9 @@
       "zip"
     ],
     "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    "extendInfo": {
+      "NSScreenCaptureUsageDescription": "This app needs Screen Recording to capture system audio and screenshots."
+    },
     "extraResources": [
       {
         "from": "src/native/swift/AudioCapture/.build/release/audiocapture",

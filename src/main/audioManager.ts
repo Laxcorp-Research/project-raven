@@ -205,6 +205,7 @@ export class AudioManager {
         language: getSetting('transcriptionLanguage') as string,
         hasAssemblyKey: !!getSetting('assemblyaiApiKey'),
         hasDeepgramKey: !!getSetting('deepgramApiKey'),
+        preferredProvider: getSetting('sttProvider'),
       })
 
       if (sttStrategy === 'assembly-retry') {
@@ -344,6 +345,10 @@ export class AudioManager {
     this.stopSilenceWatchdog()
     this.broadcastTranscriptionConnectionState({ phase: 'idle', provider: null, retryCount: 0, maxRetries: 3, nextRetryAt: null })
 
+    // Drop STT before tearing down capture. stopCapture used to reset the
+    // echo gate while isRecording was still true, so the last speaker
+    // burst after SIGTERM was labeled You ("That's creating now.").
+    this.isRecording = false
     stopCapture()
 
     if (this.activeProvider) {
@@ -729,6 +734,7 @@ export class AudioManager {
     this.clearSessionTimer()
     this.clearTranscriptionRetryLoop()
 
+    this.isRecording = false
     stopCapture()
 
     if (this.activeProvider) {

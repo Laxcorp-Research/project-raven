@@ -133,7 +133,17 @@ public:
             return false;
         }
 
-        g_object_set(webrtcdsp_, "probe", "echoprobe", nullptr);
+        // Must be set before PAUSED. Defaults leak speaker audio into Deepgram:
+        // AGC (gain-control) boosted residual echo (out RMS > mic RMS), and
+        // ScreenCaptureKit's delay vs the mic needs delay-agnostic + a long filter.
+        g_object_set(webrtcdsp_,
+            "probe", "echoprobe",
+            "echo-cancel", TRUE,
+            "delay-agnostic", TRUE,
+            "extended-filter", TRUE,
+            "echo-suppression-level", 3, // high — prefer killing YouTube over double-talk
+            "gain-control", FALSE,       // AGC was amplifying residual echo into STT
+            nullptr);
 
         GstCaps* caps = gst_caps_new_simple("audio/x-raw",
             "format", G_TYPE_STRING, kAudioFormat,

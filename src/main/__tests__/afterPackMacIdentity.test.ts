@@ -1,0 +1,63 @@
+/**
+ * Regression: unsigned Mac builds left Identifier=Electron so Screen
+ * Recording stayed denied after the user toggled Raven ON in Settings.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createRequire } from 'module'
+import * as nodePath from 'path'
+
+const require_ = createRequire(import.meta.url)
+const HOOK_PATH = nodePath.join(process.cwd(), 'scripts', 'afterPack-mac-identity.cjs')
+
+interface AfterPackCJS {
+  (context: {
+    electronPlatformName: string
+    appOutDir: string
+    packager: { appInfo: { productFilename: string } }
+  }): Promise<void>
+  _adhocSignMacApp: (
+    appPath: string,
+    deps: {
+      execFileSync: (cmd: string, args: string[], options: unknown) => void
+      existsSync: (p: string) => boolean
+    },
+  ) => void
+  _BUNDLE_ID: string
+}
+
+const hook = require_(HOOK_PATH) as AfterPackCJS
+
+describe('scripts/afterPack-mac-identity.cjs', () => {
+  let execFileSync: ReturnType<typeof vi.fn>
+  let existsSync: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    execFileSync = vi.fn()
+    existsSync = vi.fn(() => true)
+  })
+
+  it('uses the Raven bundle id, not Electron', () => {
+    expect(hook._BUNDLE_ID).toBe('com.laxcorpresearch.raven')
+  })
+
+  it('adhoc-signs the .app with --identifier and without --deep', () => {
+    hook._adhocSignMacApp('/tmp/Raven.app', { execFileSync, existsSync })
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'codesign',
+      ['--force', '--sign', '-', '--identifier', 'com.laxcorpresearch.raven', '/tmp/Raven.app'],
+      expect.any(Object),
+    )
+    const args = execFileSync.mock.calls[0][1] as string[]
+    expect(args).not.toContain('--deep')
+  })
+
+  it('throws when the .app is missing (would otherwise ship Identifier=Electron)', () => {
+    existsSync.mockReturnValue(false)
+    expect(() => hook._adhocSignMacApp('/tmp/missing.app', { execFileSync, existsSync })).toThrow(
+      /not found/,
+    )
+    expect(execFileSync).not.toHaveBeenCalled()
+  })
+})

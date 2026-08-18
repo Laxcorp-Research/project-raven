@@ -10,6 +10,7 @@ import { SettingsModal } from './SettingsModal'
 import { SearchResultsView } from './SearchResultsView'
 import { UpdateBanner } from './UpdateBanner'
 import { OverlayTour } from '../OverlayTour'
+import { detectMacPlatform } from '../../lib/shortcutLabels'
 
 interface TranscriptEntry {
   id: string
@@ -212,14 +213,17 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
     }
   }
 
+  const isMac = detectMacPlatform()
+
   return (
     <div className="flex flex-col h-screen bg-white">
-      {/* Custom title bar - draggable, centered title */}
+      {/* Mac: empty drag strip under hiddenInset traffic lights. Windows:
+          keep the existing frameless title label — do not add a spacer. */}
       <div
         className="flex items-center justify-center shrink-0 h-9 bg-white border-b border-gray-100 text-xs font-medium text-gray-400 select-none"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        Raven
+        {isMac ? null : 'Raven'}
       </div>
       <Header
         stealth={stealth}

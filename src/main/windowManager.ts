@@ -1,4 +1,5 @@
 import { app, BrowserWindow, screen, nativeTheme } from 'electron'
+import { createLogger } from './logger'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { getSetting, saveSetting } from './store'
@@ -6,6 +7,8 @@ import { applyOverlayToolWindowStyle } from './windowsOverlayStyle'
 import { DASHBOARD_DEFAULT_WIDTH, DASHBOARD_DEFAULT_HEIGHT, DASHBOARD_MIN_WIDTH, DASHBOARD_MIN_HEIGHT } from './constants'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const log = createLogger('WindowManager')
+const CSP_APPLIED = Symbol.for('raven.cspApplied')
 
 let dashboardWindow: BrowserWindow | null = null
 let overlayWindow: BrowserWindow | null = null
@@ -23,9 +26,16 @@ export function registerStealthTrayCallbacks(hide: () => void, show: () => void)
   stealthTrayCallbacks.show = show
 }
 
-/** Apply Content-Security-Policy headers to restrict renderer capabilities. */
+/** Apply Content-Security-Policy headers to restrict renderer capabilities.
+ *  Unpackaged (`npm run dev`) skips this: Vite needs eval/HMR, and registering
+ *  the header hook twice on the shared session crashes Chromium's network
+ *  service, which leaves both windows blank. Packaged installs it once. */
 function applyCSP(win: BrowserWindow): void {
-  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+  if (!app.isPackaged) return
+  const session = win.webContents.session as Electron.Session & { [CSP_APPLIED]?: boolean }
+  if (session[CSP_APPLIED]) return
+  session[CSP_APPLIED] = true
+  session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -48,6 +58,58 @@ function applyCSP(win: BrowserWindow): void {
       },
     })
   })
+}
+
+const DEV_LOAD_RETRY_MS = 2500
+const DEV_LOAD_MAX_RETRIES = 8
+
+let reloadDashboard: (() => void) | null = null
+let reloadOverlay: (() => void) | null = null
+
+/** Vite is rewritten to 127.0.0.1; the old localhost-only allowlist
+ *  cancelled that navigation and left both windows on about:blank. */
+export function isAllowedRendererNavigation(url: string): boolean {
+  if (!url) return false
+  if (url.startsWith('file://')) return true
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
+}
+
+function attachRendererDiagnostics(win: BrowserWindow, label: string, retryLoad: () => void): void {
+  if (app.isPackaged || process.env.VITEST) return
+  let loaded = false
+  let retries = 0
+
+  const markLoaded = (): void => {
+    if (isAllowedRendererNavigation(win.webContents.getURL())) loaded = true
+  }
+
+  win.webContents.on('did-fail-load', (_event, code, desc, url) => {
+    log.error(`${label} did-fail-load`, { code, desc, url })
+  })
+  win.webContents.on('render-process-gone', (_event, details) => {
+    log.error(`${label} render-process-gone`, details)
+  })
+  win.webContents.on('did-finish-load', markLoaded)
+  win.webContents.on('did-navigate', markLoaded)
+
+  const tick = (): void => {
+    if (loaded || win.isDestroyed()) return
+    if (retries >= DEV_LOAD_MAX_RETRIES) {
+      log.error(`${label} still blank after ${retries} load retries`)
+      return
+    }
+    retries++
+    log.warn(`${label} load hung, retrying original URL (${retries}/${DEV_LOAD_MAX_RETRIES})`)
+    retryLoad()
+    setTimeout(tick, DEV_LOAD_RETRY_MS)
+  }
+  setTimeout(tick, DEV_LOAD_RETRY_MS)
 }
 
 /** Block Ctrl/Cmd +/-/0 and pinch-to-zoom so the app feels native. */
@@ -110,14 +172,20 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     minHeight: DASHBOARD_MIN_HEIGHT,
     show: false,
     title: 'Raven',
+    backgroundColor: '#ffffff',
     ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' as const }
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          // Pin the traffic lights into the 36px drag strip so they do
+          // not sit on the logo row below. Windows stays frameless.
+          trafficLightPosition: { x: 16, y: 12 },
+        }
       : { frame: false }),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: app.isPackaged,
       webSecurity: true,
       allowRunningInsecureContent: false,
     }
@@ -125,6 +193,14 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
 
   applyCSP(dashboardWindow)
   disableZoom(dashboardWindow)
+
+  const loadDashboard = (): void => {
+    if (!dashboardWindow || dashboardWindow.isDestroyed()) return
+    if (rendererURL) dashboardWindow.loadURL(rendererURL)
+    else dashboardWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+  reloadDashboard = loadDashboard
+  attachRendererDiagnostics(dashboardWindow, 'dashboard', loadDashboard)
 
   if (process.platform === 'win32') {
     dashboardWindow.webContents.setBackgroundThrottling(false)
@@ -153,7 +229,7 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
   }
 
   dashboardWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('file://') && !url.startsWith('http://localhost')) {
+    if (!isAllowedRendererNavigation(url)) {
       event.preventDefault()
     }
   })
@@ -221,11 +297,7 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     nativeTheme.removeListener('updated', applyTheme)
   })
 
-  if (rendererURL) {
-    dashboardWindow.loadURL(rendererURL)
-  } else {
-    dashboardWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  loadDashboard()
 
   return dashboardWindow
 }
@@ -241,6 +313,7 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     height,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -261,7 +334,7 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: app.isPackaged,
       webSecurity: true,
       allowRunningInsecureContent: false,
     }
@@ -269,6 +342,14 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
 
   applyCSP(overlayWindow)
   disableZoom(overlayWindow)
+
+  const loadOverlay = (): void => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return
+    if (rendererURL) overlayWindow.loadURL(`${rendererURL}#overlay`)
+    else overlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'overlay' })
+  }
+  reloadOverlay = loadOverlay
+  attachRendererDiagnostics(overlayWindow, 'overlay', loadOverlay)
 
   if (process.platform === 'darwin') {
     overlayWindow.setOpacity(0.99)
@@ -307,11 +388,12 @@ export function createOverlayWindow(preloadPath: string, rendererURL: string | n
     overlayHasShownOnce = true
   })
 
-  // Load the overlay route
-  if (rendererURL) {
-    overlayWindow.loadURL(`${rendererURL}#overlay`)
+  // Unpackaged: don't race the dashboard's first Vite request. Dual loadURL
+  // at boot is what hung Chromium's network service into a blank window.
+  if (!app.isPackaged && !process.env.VITEST) {
+    setTimeout(loadOverlay, 400)
   } else {
-    overlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'overlay' })
+    loadOverlay()
   }
 
   return overlayWindow
@@ -421,4 +503,32 @@ export function setStealthMode(enabled: boolean): void {
   }
 
   saveSetting('stealthEnabled', enabled)
+}
+
+/** Rewrite Vite's localhost URL to IPv4. Chromium on macOS can hang or
+ *  crash its network service on `localhost` (::1), leaving a blank window. */
+export function ipv4RendererURL(url: string | null): string | null {
+  if (!url) return null
+  return url.replace(/:\/\/localhost(?=[:/]|$)/, '://127.0.0.1')
+}
+
+/** Re-navigate both windows. Used after Chromium's network service crashes
+ *  during `npm run dev` (the first load of localhost hangs and both windows
+ *  stay blank). */
+export function reloadAllWindows(): void {
+  reloadDashboard?.()
+  reloadOverlay?.()
+}
+
+export function shouldReloadAfterChildProcessGone(details: {
+  type?: string
+  reason?: string
+  serviceName?: string
+}): boolean {
+  // Vite HMR kills Electron helpers with reason 'killed'. Don't reload then.
+  if (details.reason === 'killed') return false
+  return (
+    details.type === 'Network' ||
+    details.serviceName === 'network.mojom.NetworkService'
+  )
 }

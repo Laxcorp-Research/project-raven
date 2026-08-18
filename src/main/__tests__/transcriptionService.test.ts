@@ -309,6 +309,51 @@ describe('TranscriptionService', () => {
       expect(entries[1].speaker).toBe('them')
     })
 
+    it('keeps later mic utterances as You even if Deepgram mints a new speaker_id after a pause', () => {
+      const hello = {
+        channel: {
+          alternatives: [{
+            transcript: 'Hello. Hi. How are you?',
+            words: [{ speaker: 0 }],
+          }],
+        },
+        is_final: true,
+      }
+      const rest = {
+        channel: {
+          alternatives: [{
+            transcript: "So let's start something.",
+            words: [{ speaker: 1 }],
+          }],
+        },
+        is_final: true,
+      }
+
+      ;(service as any).handleTranscriptResult(hello, 'mic')
+      ;(service as any).handleTranscriptResult(rest, 'mic')
+
+      const entries = service.getTranscriptEntries()
+      expect(entries).toHaveLength(1)
+      expect(entries[0].speaker).toBe('you')
+      expect(entries[0].text).toContain("So let's start something.")
+    })
+
+    it('never labels system-audio transcripts as You', () => {
+      const data = {
+        channel: {
+          alternatives: [{
+            transcript: 'from the speakers',
+            words: [{ speaker: 0 }],
+          }],
+        },
+        is_final: true,
+      }
+
+      ;(service as any).handleTranscriptResult(data, 'system')
+
+      expect(service.getTranscriptEntries()[0].speaker).toBe('them')
+    })
+
     it('stores interim as currentInterim', () => {
       const data = {
         channel: { alternatives: [{ transcript: 'Still speaking...' }] },

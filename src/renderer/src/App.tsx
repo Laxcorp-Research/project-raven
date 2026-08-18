@@ -82,7 +82,14 @@ function App(): JSX.Element {
   }
 
   if (view === 'permissions-gate') {
-    return <PermissionsGate onAllGranted={() => setView('dashboard')} />
+    return (
+      <PermissionsGate
+        onAllGranted={() => {
+          setView('dashboard')
+          void window.raven.windowShowOverlay()
+        }}
+      />
+    )
   }
 
   if (view === 'onboarding-free') {

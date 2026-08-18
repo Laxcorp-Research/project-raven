@@ -6,6 +6,13 @@ export default defineConfig({
   build: {
     outDir: 'dist/renderer',
   },
+  // Electron's network service on macOS can hang or crash on `localhost`
+  // (::1). Bind IPv4 so `npm run dev` actually paints the dashboard.
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+  },
   plugins: [
     react(),
     electron({

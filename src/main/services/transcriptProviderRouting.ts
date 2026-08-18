@@ -1,47 +1,28 @@
 /**
  * Client-side STT routing previously owned by the backend proxy.
- * Picks AssemblyAI Universal-3 Pro for the six European languages it
- * actually supports; everything else (including auto-detect) goes to
- * Deepgram nova-3.
+ * Language + user preference live in src/shared/sttCapabilities.ts so the
+ * Language settings UI uses the same pick as recording.
  */
 
-export const U3_RT_PRO_LANGUAGES = new Set(['en', 'es', 'fr', 'de', 'pt', 'it'])
+import {
+  pickTranscriptProvider,
+  type TranscriptProviderConfig,
+} from '../../shared/sttCapabilities'
+
+export {
+  U3_RT_PRO_LANGUAGES,
+  pickTranscriptProvider,
+  chooseNativeSttStrategy,
+  assemblyaiSupportsLanguage,
+  parseSttProviderPreference,
+  effectiveSttEngine,
+  type TranscriptProviderConfig,
+  type NativeSttStrategy,
+  type SttProviderPreference,
+} from '../../shared/sttCapabilities'
+
 export const MANDATORY_KEYTERMS = ['Raven'] as const
 export const MAX_KEYTERMS = 100
-
-export type TranscriptProviderConfig =
-  | { kind: 'assemblyai'; speechModel: 'u3-rt-pro' }
-  | { kind: 'deepgram'; model: 'nova-3'; language: string }
-
-export type NativeSttStrategy = 'assembly-retry' | 'deepgram' | 'none'
-
-/**
- * Native-capture STT pick. Language routing wins when the routed
- * provider is keyed. If the user only has the other vendor key, use
- * that rather than failing the session.
- */
-export function chooseNativeSttStrategy(opts: {
-  language: string | undefined
-  hasAssemblyKey: boolean
-  hasDeepgramKey: boolean
-}): NativeSttStrategy {
-  const routed = pickTranscriptProvider(opts.language)
-  if (routed.kind === 'assemblyai' && opts.hasAssemblyKey) return 'assembly-retry'
-  if (opts.hasDeepgramKey) return 'deepgram'
-  if (opts.hasAssemblyKey) return 'assembly-retry'
-  return 'none'
-}
-
-export function pickTranscriptProvider(language: string | undefined): TranscriptProviderConfig {
-  if (!language || language === 'multi') {
-    return { kind: 'deepgram', model: 'nova-3', language: 'multi' }
-  }
-  const normalized = language.toLowerCase().split(/[-_]/)[0] ?? ''
-  if (U3_RT_PRO_LANGUAGES.has(normalized)) {
-    return { kind: 'assemblyai', speechModel: 'u3-rt-pro' }
-  }
-  return { kind: 'deepgram', model: 'nova-3', language: normalized }
-}
 
 export function sanitizeKeyterms(userTerms: readonly string[] | undefined): string[] {
   const seen = new Set<string>()

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
 import { createLogger } from '../lib/logger'
+import { detectMacPlatform } from '../lib/shortcutLabels'
 
 const log = createLogger('PermissionsGate')
 
@@ -19,18 +20,18 @@ interface PermissionsGateProps {
  * since. Unlike the onboarding permission step, this view blocks the
  * rest of the app until everything is granted - no "skip for now".
  *
- * Polls status every 2s so the user can grant via System Settings in
- * another window and come straight back to this screen finding a
- * green checkmark, without having to relaunch Raven.
+ * Polls mic + accessibility every 2s. Screen Recording on macOS does
+ * not apply to a running process — after enabling it in System Settings
+ * the user must Quit & Reopen (banner below).
  */
 const isWindows =
   typeof navigator !== 'undefined' && navigator.platform.includes('Win')
+const isMac = detectMacPlatform()
 
 export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Element {
   const [mic, setMic] = useState<PermissionState>('unknown')
   const [screen, setScreen] = useState<PermissionState>('unknown')
   const [accessibility, setAccessibility] = useState<PermissionState>('unknown')
-  const [screenNeedsRestart, setScreenNeedsRestart] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hasCompletedRef = useRef(false)
 
@@ -77,11 +78,9 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
       const hasPerm = await window.raven.systemAudioHasPermission()
       if (hasPerm) {
         setScreen('granted')
-        setScreenNeedsRestart(false)
         return
       }
       await window.raven.permissionsOpenScreenRecording()
-      setScreenNeedsRestart(true)
     } catch (err) {
       log.warn('Screen grant failed:', err)
     }
@@ -102,6 +101,12 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
 
   return (
     <div className="flex flex-col h-screen bg-white">
+      {isMac && (
+        <div
+          className="shrink-0 h-9"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        />
+      )}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <img src={ravenFullLogo} alt="Raven" className="h-6" />
         <span className="text-xs text-gray-400">Permissions needed</span>
@@ -152,7 +157,7 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
               )}
             />
 
-            {screenNeedsRestart && screen !== 'granted' && (
+            {screen === 'denied' && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-amber-500">
                   <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />

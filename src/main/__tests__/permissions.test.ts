@@ -41,6 +41,7 @@ vi.mock('../logger', () => ({
 
 import {
   getPermissionStatus,
+  permissionsAllowOverlay,
   requestAccessibilityAccess,
   requestMicrophoneAccess,
   checkPermissionsForRecording,
@@ -86,6 +87,35 @@ describe('permissions', () => {
       const status = getPermissionStatus()
 
       expect(status.accessibility).toBe('denied')
+    })
+  })
+
+  describe('permissionsAllowOverlay', () => {
+    const granted = {
+      microphone: 'granted' as const,
+      screen: 'granted' as const,
+      accessibility: 'granted' as const,
+    }
+
+    it('is true on Windows even when macOS-only statuses are denied', () => {
+      expect(
+        permissionsAllowOverlay(
+          { ...granted, screen: 'denied', accessibility: 'denied' },
+          'win32',
+        ),
+      ).toBe(true)
+    })
+
+    it('is false on macOS when screen recording is denied', () => {
+      expect(permissionsAllowOverlay({ ...granted, screen: 'denied' }, 'darwin')).toBe(false)
+    })
+
+    it('is false on macOS when accessibility is denied', () => {
+      expect(permissionsAllowOverlay({ ...granted, accessibility: 'denied' }, 'darwin')).toBe(false)
+    })
+
+    it('is true on macOS only when mic, screen, and accessibility are granted', () => {
+      expect(permissionsAllowOverlay(granted, 'darwin')).toBe(true)
     })
   })
 

@@ -43,6 +43,8 @@ export interface LocalSettings {
   theme: 'light' | 'dark' | 'system';
   openOnLogin: boolean;
   transcriptionLanguage: string;
+  /** Which STT engine to try. `auto` follows language routing. */
+  sttProvider: 'auto' | 'assemblyai' | 'deepgram';
   outputLanguage: string;
   // User's custom vocabulary for transcription (comma-separated string
   // stored locally, parsed into string[] when passed to the backend as
@@ -86,6 +88,7 @@ const STORE_DEFAULTS: LocalSettings = {
   theme: 'system',
   openOnLogin: false,
   transcriptionLanguage: 'en',
+  sttProvider: 'auto',
   outputLanguage: 'en',
   vocabulary: '',
   aiProvider: 'anthropic',
@@ -164,6 +167,7 @@ export function getAllSettings(): LocalSettings {
     theme: store.get('theme'),
     openOnLogin: store.get('openOnLogin'),
     transcriptionLanguage: store.get('transcriptionLanguage'),
+    sttProvider: store.get('sttProvider'),
     outputLanguage: store.get('outputLanguage'),
     vocabulary: store.get('vocabulary'),
     aiProvider: store.get('aiProvider'),

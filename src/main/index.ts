@@ -55,7 +55,10 @@ import {
   setStealthMode,
   setOverlayEnabled,
   showOverlayWindow,
-  registerStealthTrayCallbacks
+  registerStealthTrayCallbacks,
+  reloadAllWindows,
+  shouldReloadAfterChildProcessGone,
+  ipv4RendererURL,
 } from './windowManager'
 import { getSetting, getStore, saveSetting, hasApiKeys } from './store'
 import { OVERLAY_SHOW_DELAY_MS, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, DEEPGRAM_KEEPALIVE_MS } from './constants'
@@ -73,7 +76,7 @@ import { initAnalytics, shutdownAnalytics } from './analytics'
 import { initClientEvents, shutdownClientEvents } from './services/clientEvents'
 import { inflightHandle, cooldownHandle } from './ipcThrottle'
 import { initSentry, captureException } from './sentry'
-import { registerPermissionHandlers, getPermissionStatus } from './permissions'
+import { registerPermissionHandlers, getPermissionStatus, permissionsAllowOverlay } from './permissions'
 import { createLogger } from './logger'
 import { trustSystemCAs } from './trustSystemCAs'
 
@@ -305,7 +308,7 @@ function registerGlobalHotkeys(
 }
 
 function boot(): void {
-  const rendererURL = process.env.VITE_DEV_SERVER_URL || null
+  const rendererURL = ipv4RendererURL(process.env.VITE_DEV_SERVER_URL || null)
 
   log.debug('Preload path:', preloadPath)
   log.debug('Renderer URL:', rendererURL)
@@ -324,25 +327,39 @@ function boot(): void {
   const onboardingDone = getSetting('onboardingComplete')
   const isFullyReady = !!onboardingDone && hasApiKeys()
   const shouldEnableOverlay = isFullyReady
+  // Fullscreen overlay + leftover stealth covers the dashboard. On macOS
+  // wait until mic/screen/accessibility are granted (PermissionsGate).
+  const shouldShowOverlayNow =
+    shouldEnableOverlay &&
+    permissionsAllowOverlay(getPermissionStatus()) &&
+    // Unpackaged: never auto-raise the fullscreen overlay. A transparent
+    // or failed overlay covers the dashboard and looks like a blank screen.
+    app.isPackaged
 
   if (shouldEnableOverlay) {
     setOverlayEnabled(true)
-    dashboard.on('ready-to-show', () => {
-      setTimeout(() => {
-        // Windows: show via showOverlayWindow (showInactive) so the
-        // now-focusable overlay doesn't steal focus on launch and arms
-        // mouse-move forwarding. macOS keeps its existing show().
-        if (process.platform === 'win32') showOverlayWindow()
-        else overlay.show()
-      }, OVERLAY_SHOW_DELAY_MS)
-    })
+    if (shouldShowOverlayNow) {
+      dashboard.on('ready-to-show', () => {
+        setTimeout(() => {
+          // Windows: show via showOverlayWindow (showInactive) so the
+          // now-focusable overlay doesn't steal focus on launch and arms
+          // mouse-move forwarding. macOS keeps its existing show().
+          if (process.platform === 'win32') showOverlayWindow()
+          else overlay.show()
+        }, OVERLAY_SHOW_DELAY_MS)
+      })
 
-    const stealthEnabled = getSetting('stealthEnabled')
-    if (stealthEnabled) {
-      setStealthMode(true)
+      const stealthEnabled = getSetting('stealthEnabled')
+      if (stealthEnabled) {
+        setStealthMode(true)
+      }
     }
 
     registerGlobalHotkeys(dashboard, overlay)
+  }
+
+  if (!shouldShowOverlayNow) {
+    overlay.hide()
   }
 
   ipcMain.on('onboarding:completed', async () => {
@@ -381,6 +398,17 @@ app.whenReady().then(() => {
 
   saveSetting('mode', 'free')
   log.info('App mode: free')
+
+  let lastNetworkReloadAt = 0
+  app.on('child-process-gone', (_event, details) => {
+    log.error('child-process-gone', details)
+    if (!shouldReloadAfterChildProcessGone(details)) return
+    const now = Date.now()
+    if (now - lastNetworkReloadAt < 3000) return
+    lastNetworkReloadAt = now
+    log.warn('Network service died — reloading windows')
+    reloadAllWindows()
+  })
 
   // Initialize database
   databaseService.initialize()

@@ -40,6 +40,20 @@ export function getPermissionStatus(): PermissionStatus {
   return { microphone: 'granted', screen: 'granted', accessibility: 'granted' }
 }
 
+/** Overlay is fullscreen always-on-top. Do not show it on macOS until the
+ *  permissions gate can close — a failed/blank overlay covers the dashboard. */
+export function permissionsAllowOverlay(
+  status: PermissionStatus,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'darwin') return true
+  return (
+    status.microphone === 'granted' &&
+    status.screen === 'granted' &&
+    status.accessibility === 'granted'
+  )
+}
+
 export function requestAccessibilityAccess(): boolean {
   if (process.platform !== 'darwin') return true
   log.info('Requesting Accessibility permission...')
