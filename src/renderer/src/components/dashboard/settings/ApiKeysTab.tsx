@@ -286,7 +286,7 @@ export function ApiKeysTab() {
             </button>
           </div>
         </div>
-        <p className="text-xs text-gray-400">Real-time speech-to-text. Fallback when AssemblyAI is unset or fails.</p>
+        <p className="text-xs text-gray-400">Real-time speech-to-text. Fallback when AssemblyAI is unset or fails. Pick the engine under Language.</p>
       </div>
 
       <div className="space-y-2">

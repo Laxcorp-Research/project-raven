@@ -50,14 +50,6 @@ export class TranscriptionService {
   private apiKey: string = '';
   private transcriptEntries: TranscriptEntry[] = [];
   private isActive = false;
-  // With Deepgram diarize=true, the mic stream may contain multiple
-  // speaker IDs when remote voices bleed through the local mic (e.g.,
-  // FaceTime audio played through the speaker is picked up by the
-  // microphone). Whichever speaker ID shows up FIRST on the mic
-  // stream is assumed to be the local user - heuristic, but better
-  // than labeling everything "you". Reset between recording sessions
-  // in start().
-  private localMicSpeakerId: number | null = null;
 
   setWindows(dashboard: BrowserWindow | null, overlay: BrowserWindow | null): void {
     this.dashboardWindow = dashboard;
@@ -76,9 +68,6 @@ export class TranscriptionService {
 
     log.info('Starting both connections...');
     this.isActive = true;
-    // Reset diarization state for the new session - last session's
-    // "speaker 0" is not the same person as this session's.
-    this.localMicSpeakerId = null;
 
     const [micResult, systemResult] = await Promise.all([
       this.startConnection('mic'),
@@ -116,13 +105,10 @@ export class TranscriptionService {
         smart_format: 'true',
         interim_results: 'true',
         punctuate: 'true',
-        // Speaker diarization. On the mic stream this lets us tell
-        // apart the local user from remote voices that leak through
-        // (FaceTime, in-person meetings where the other party is
-        // audible through the mic). Without it, everything on mic is
-        // labeled "you" and both sides of a FaceTime call merge.
-        // nova-3 supports diarize for all languages it transcribes.
-        diarize: 'true',
+        // Diarize is unused for You/Them: those labels are capture
+        // source (mic vs system), not Deepgram speaker_id. A pause on
+        // the same person mints a new id and used to flip You → Them.
+        diarize: 'false',
         sample_rate: String(AUDIO_SAMPLE_RATE),
         channels: String(AUDIO_CHANNELS),
         encoding: 'linear16',
@@ -282,26 +268,10 @@ export class TranscriptionService {
     const isFinal = !!data.is_final;
     const state = source === 'mic' ? this.micConnection : this.systemConnection;
 
-    // Speaker attribution. System-stream audio is always the remote
-    // party, regardless of diarize output (OS system audio is by
-    // definition not the local user). Mic stream uses diarize: the
-    // first speaker_id seen wins the "you" label; any different
-    // speaker_id after that is a remote voice leaking through the
-    // microphone (FaceTime speaker feedback, in-person, etc.).
-    let speaker: 'you' | 'them' = source === 'mic' ? 'you' : 'them';
-    if (source === 'mic') {
-      const words = data.channel?.alternatives?.[0]?.words;
-      const firstWordSpeaker = words?.[0]?.speaker;
-      if (typeof firstWordSpeaker === 'number') {
-        if (this.localMicSpeakerId === null) {
-          this.localMicSpeakerId = firstWordSpeaker;
-          log.info(`Mic stream: registered speaker_id ${firstWordSpeaker} as local user`);
-        } else if (firstWordSpeaker !== this.localMicSpeakerId) {
-          speaker = 'them';
-          log.debug(`Mic stream: speaker_id ${firstWordSpeaker} != local (${this.localMicSpeakerId}), tagging as 'them'`);
-        }
-      }
-    }
+    // You = mic capture, Them = system-audio capture. Deepgram
+    // speaker_id is ignored: a pause on the same talker often mints a
+    // new id, which used to retag the rest of the user's sentence as Them.
+    const speaker: 'you' | 'them' = source === 'mic' ? 'you' : 'them';
 
     if (isFinal) {
       const now = Date.now();

@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { createLogger } from '../../../lib/logger'
+import {
+  ASSEMBLYAI_LIVE_LANGUAGE_LABELS,
+  assemblyaiSupportsLanguage,
+  effectiveSttEngine,
+  parseSttProviderPreference,
+  type SttProviderPreference,
+} from '../../../../../shared/sttCapabilities'
 
 const log = createLogger('Settings:Language')
 
@@ -17,6 +24,9 @@ function splitVocab(raw: string): string[] {
 export function LanguageTab() {
   const [transcriptionLang, setTranscriptionLang] = useState('en')
   const [outputLang, setOutputLang] = useState('en')
+  const [sttProvider, setSttProvider] = useState<SttProviderPreference>('auto')
+  const [hasAssemblyKey, setHasAssemblyKey] = useState(false)
+  const [hasDeepgramKey, setHasDeepgramKey] = useState(false)
   const [vocabulary, setVocabulary] = useState('')
   const [vocabularySaveState, setVocabularySaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [transcriptionDropdownOpen, setTranscriptionDropdownOpen] = useState(false)
@@ -31,9 +41,15 @@ export function LanguageTab() {
         const tLang = (await window.raven.storeGet('transcriptionLanguage')) as string
         const oLang = (await window.raven.storeGet('outputLanguage')) as string
         const vocab = (await window.raven.storeGet('vocabulary')) as string
+        const stt = parseSttProviderPreference(await window.raven.storeGet('sttProvider'))
+        const dgKey = (await window.raven.storeGet('deepgramApiKey')) as string
+        const aaiKey = (await window.raven.storeGet('assemblyaiApiKey')) as string
         if (tLang) setTranscriptionLang(tLang)
         if (oLang) setOutputLang(oLang)
         if (vocab) setVocabulary(vocab)
+        setSttProvider(stt)
+        setHasDeepgramKey(!!dgKey?.trim())
+        setHasAssemblyKey(!!aaiKey?.trim())
       } catch (error) {
         log.error('Failed to load language settings:', error)
       }
@@ -70,6 +86,11 @@ export function LanguageTab() {
     setOutputLang(value)
     setOutputDropdownOpen(false)
     await window.raven.storeSet('outputLanguage', value)
+  }
+
+  const handleSttProviderChange = async (value: SttProviderPreference) => {
+    setSttProvider(value)
+    await window.raven.storeSet('sttProvider', value)
   }
 
   // Debounced save - don't round-trip to the server on every keystroke.
@@ -139,6 +160,18 @@ export function LanguageTab() {
     return languages.find((l) => l.value === value)?.label || value
   }
 
+  const assemblyLangOk = assemblyaiSupportsLanguage(transcriptionLang)
+  const assemblySelectable = assemblyLangOk && hasAssemblyKey
+  const deepgramSelectable = hasDeepgramKey
+  const willUse = effectiveSttEngine({
+    language: transcriptionLang,
+    hasAssemblyKey,
+    hasDeepgramKey,
+    preferredProvider: sttProvider,
+  })
+  const willUseLabel =
+    willUse === 'assemblyai' ? 'AssemblyAI' : willUse === 'deepgram' ? 'Deepgram' : 'no engine (add an API key)'
+
   return (
     <div className="space-y-6 max-w-xl">
       <p className="text-sm text-gray-500">
@@ -198,6 +231,62 @@ export function LanguageTab() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center shrink-0">
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-gray-900">Speech-to-text engine</div>
+            <div className="text-xs text-gray-500">
+              Which service transcribes the meeting. Availability depends on the language above.
+            </div>
+          </div>
+        </div>
+
+        <div role="radiogroup" aria-label="Speech-to-text engine" className="space-y-2">
+          <SttRadio
+            value="auto"
+            selected={sttProvider}
+            onSelect={handleSttProviderChange}
+            title="Automatic"
+            description={`AssemblyAI for ${ASSEMBLYAI_LIVE_LANGUAGE_LABELS}. Deepgram for auto-detect and every other language.`}
+          />
+          <SttRadio
+            value="assemblyai"
+            selected={sttProvider}
+            onSelect={handleSttProviderChange}
+            disabled={!assemblySelectable}
+            title="AssemblyAI"
+            description={`Universal-3 Pro. ${ASSEMBLYAI_LIVE_LANGUAGE_LABELS}.`}
+            hint={
+              !hasAssemblyKey
+                ? 'Add an AssemblyAI key in API Keys to use this engine.'
+                : !assemblyLangOk
+                  ? 'Not available for this language. Switch to a supported language or use Deepgram.'
+                  : undefined
+            }
+          />
+          <SttRadio
+            value="deepgram"
+            selected={sttProvider}
+            onSelect={handleSttProviderChange}
+            disabled={!deepgramSelectable}
+            title="Deepgram"
+            description="nova-3. Works with every language in the list, including auto-detect."
+            hint={!hasDeepgramKey ? 'Add a Deepgram key in API Keys to use this engine.' : undefined}
+          />
+        </div>
+
+        <p className="text-xs text-gray-500">
+          Next recording will use <span className="font-medium text-gray-700">{willUseLabel}</span>
+          {sttProvider === 'assemblyai' && willUse === 'deepgram' && ' (AssemblyAI is not available for this language).'}
+          {sttProvider !== 'auto' && willUse === 'assemblyai' && ' — falls back to Deepgram if AssemblyAI cannot connect.'}
+        </p>
       </div>
 
       <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
@@ -300,5 +389,51 @@ export function LanguageTab() {
         </p>
       </div>
     </div>
+  )
+}
+
+function SttRadio({
+  value,
+  selected,
+  onSelect,
+  disabled = false,
+  title,
+  description,
+  hint,
+}: {
+  value: SttProviderPreference
+  selected: SttProviderPreference
+  onSelect: (value: SttProviderPreference) => void
+  disabled?: boolean
+  title: string
+  description: string
+  hint?: string
+}) {
+  const checked = selected === value
+  return (
+    <label
+      className={`flex gap-3 p-3 rounded-lg border bg-white ${
+        disabled
+          ? 'border-gray-200 opacity-60 cursor-not-allowed'
+          : checked
+            ? 'border-blue-400 ring-1 ring-blue-400 cursor-pointer'
+            : 'border-gray-200 hover:border-gray-300 cursor-pointer'
+      }`}
+    >
+      <input
+        type="radio"
+        name="sttProvider"
+        value={value}
+        checked={checked}
+        disabled={disabled}
+        onChange={() => onSelect(value)}
+        className="mt-1 accent-blue-600"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-gray-900">{title}</span>
+        <span className="block text-xs text-gray-500 mt-0.5">{description}</span>
+        {hint && <span className="block text-xs text-amber-700 mt-1">{hint}</span>}
+      </span>
+    </label>
   )
 }

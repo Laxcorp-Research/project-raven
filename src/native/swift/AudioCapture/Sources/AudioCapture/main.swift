@@ -10,6 +10,68 @@ enum AudioSource: String {
     case mic = "mic"
 }
 
+/// Streaming linear resampler to 16 kHz Int16.
+///
+/// The old per-callback `Int(count * ratio)` truncated leftover fractional
+/// source samples every CoreAudio period (~0.67 samples at 48 kHz / 512).
+/// That lagged the mic clock ~4 ms/s, AEC drift crossed 200 ms, and
+/// speaker playback leaked into the "You" transcript. Carry phase across
+/// buffers the same way the Windows rubato resampler does.
+struct StreamingResampler {
+    let inRate: Double
+    let outRate: Double
+    private var buffer: [Float] = []
+    private var readPos: Double = 0
+
+    init(inRate: Double, outRate: Double = 16000) {
+        self.inRate = max(inRate, 1)
+        self.outRate = max(outRate, 1)
+    }
+
+    mutating func push(_ incoming: [Float]) -> [Int16] {
+        if incoming.isEmpty { return [] }
+        buffer.append(contentsOf: incoming)
+        let step = inRate / outRate
+        var out: [Int16] = []
+        while readPos + 1.0 < Double(buffer.count) {
+            let i = Int(readPos)
+            let frac = Float(readPos - Double(i))
+            let sample = buffer[i] * (1 - frac) + buffer[i + 1] * frac
+            let clamped = max(-1.0, min(1.0, sample))
+            out.append(Int16(clamped * 32767.0))
+            readPos += step
+        }
+        let consumed = Int(readPos)
+        if consumed > 0 {
+            let drop = min(consumed, buffer.count)
+            if drop > 0 {
+                buffer.removeFirst(drop)
+                readPos -= Double(drop)
+            }
+        }
+        return out
+    }
+}
+
+func downmixToMono(interleaved: [Float], channels: Int) -> [Float] {
+    if channels <= 1 { return interleaved }
+    let frames = interleaved.count / channels
+    var mono = [Float](repeating: 0, count: frames)
+    for f in 0..<frames {
+        var sum: Float = 0
+        let base = f * channels
+        for c in 0..<channels {
+            sum += interleaved[base + c]
+        }
+        mono[f] = sum / Float(channels)
+    }
+    return mono
+}
+
+func int16Data(_ samples: [Int16]) -> Data {
+    samples.withUnsafeBufferPointer { Data(buffer: $0) }
+}
+
 // MARK: - Mic Capture (AUHAL AudioUnit - non-disruptive)
 //
 // Uses CoreAudio's low-level AUHAL (Hardware Abstraction Layer) AudioUnit
@@ -26,8 +88,8 @@ enum AudioSource: String {
 final class MicCapture {
     private var audioUnit: AudioUnit?
     private var onData: ((Data) -> Void)?
-    private let targetSampleRate: Double = 16000
     private var hwSampleRate: Double = 48000
+    private var resampler = StreamingResampler(inRate: 48000)
     private let processingQueue = DispatchQueue(label: "mic.processing", qos: .userInteractive)
 
     func start(onData: @escaping (Data) -> Void) throws {
@@ -60,6 +122,7 @@ final class MicCapture {
                 userInfo: [NSLocalizedDescriptionKey: "Cannot read device sample rate"])
         }
         hwSampleRate = nominalRate
+        resampler = StreamingResampler(inRate: nominalRate)
 
         // 3. Read hardware buffer frame size (we match it, never change it)
         var hwBufferSize: UInt32 = 0
@@ -225,37 +288,14 @@ final class MicCapture {
         ))
         rawBuf.deallocate()
 
-        let capturedHwRate = self.hwSampleRate
-        let capturedTargetRate = self.targetSampleRate
         let capturedOnData = self.onData
 
         // Resample and convert on a non-realtime thread
-        processingQueue.async {
-            guard let onData = capturedOnData else { return }
-
-            let ratio = capturedTargetRate / capturedHwRate
-            let outputCount = Int(Double(frameCount) * ratio)
-
-            var int16Samples = [Int16](repeating: 0, count: outputCount)
-            for i in 0..<outputCount {
-                let srcIdx = Double(i) / ratio
-                let srcInt = Int(srcIdx)
-                let frac = Float(srcIdx - Double(srcInt))
-
-                let sample: Float
-                if srcInt + 1 < frameCount {
-                    sample = floatArray[srcInt] * (1 - frac) + floatArray[srcInt + 1] * frac
-                } else if srcInt < frameCount {
-                    sample = floatArray[srcInt]
-                } else {
-                    sample = 0
-                }
-
-                int16Samples[i] = Int16(max(-1.0, min(1.0, sample)) * 32767.0)
-            }
-
-            let data = int16Samples.withUnsafeBufferPointer { Data(buffer: $0) }
-            onData(data)
+        processingQueue.async { [weak self] in
+            guard let self, let onData = capturedOnData else { return }
+            let int16Samples = self.resampler.push(floatArray)
+            if int16Samples.isEmpty { return }
+            onData(int16Data(int16Samples))
         }
     }
 
@@ -297,6 +337,8 @@ class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     private var isRunning = false
     private let callback: (Data) -> Void
     private var captureStarted = false
+    private var resampler = StreamingResampler(inRate: 48000)
+    private var resamplerInRate: Double = 48000
     
     init(callback: @escaping (Data) -> Void) {
         self.callback = callback
@@ -402,6 +444,7 @@ class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return }
         
         let sampleRate = asbd.pointee.mSampleRate
+        let channels = max(1, Int(asbd.pointee.mChannelsPerFrame))
         let bytesPerSample = asbd.pointee.mBitsPerChannel / 8
         let isFloat = (asbd.pointee.mFormatFlags & kAudioFormatFlagIsFloat) != 0
         
@@ -412,36 +455,15 @@ class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
         } else {
             return
         }
-        
-        // Downsample to 16kHz using linear interpolation (matches mic resampling)
-        let targetRate: Double = 16000
-        let resampleRatio = targetRate / sampleRate
-        let outputCount = Int(Double(floatSamples.count) * resampleRatio)
-        var downsampled = [Int16]()
-        downsampled.reserveCapacity(outputCount)
-        
-        for i in 0..<outputCount {
-            let srcIdx = Double(i) / resampleRatio
-            let srcInt = Int(srcIdx)
-            let frac = Float(srcIdx - Double(srcInt))
-            
-            let sample: Float
-            if srcInt + 1 < floatSamples.count {
-                sample = floatSamples[srcInt] * (1 - frac) + floatSamples[srcInt + 1] * frac
-            } else if srcInt < floatSamples.count {
-                sample = floatSamples[srcInt]
-            } else {
-                sample = 0
-            }
-            
-            downsampled.append(Int16(max(-1.0, min(1.0, sample)) * 32767.0))
+
+        let mono = downmixToMono(interleaved: floatSamples, channels: channels)
+        if sampleRate != resamplerInRate && sampleRate > 0 {
+            resampler = StreamingResampler(inRate: sampleRate)
+            resamplerInRate = sampleRate
         }
-        
-        let bytes = downsampled.withUnsafeBufferPointer { buffer in
-            Data(bytes: buffer.baseAddress!, count: buffer.count * 2)
-        }
-        
-        callback(bytes)
+        let downsampled = resampler.push(mono)
+        if downsampled.isEmpty { return }
+        callback(int16Data(downsampled))
     }
     
     func stream(_ stream: SCStream, didStopWithError error: Error) {

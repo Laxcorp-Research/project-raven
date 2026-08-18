@@ -53,7 +53,8 @@ vi.mock('../logger', () => ({
 }))
 
 import { createTray, updateTrayRecordingState, setTrayVisibility, setTrayOnboarding, destroyTray } from '../trayManager'
-import { Tray, nativeImage } from 'electron'
+import { Tray, nativeImage, app } from 'electron'
+import { join } from 'path'
 
 describe('trayManager', () => {
   const originalPlatform = process.platform
@@ -73,6 +74,7 @@ describe('trayManager', () => {
 
   afterEach(() => {
     setPlatform(originalPlatform)
+    app.isPackaged = false
   })
 
   describe('createTray', () => {
@@ -82,6 +84,21 @@ describe('trayManager', () => {
       expect(Tray).toHaveBeenCalledOnce()
       expect(mockTrayInstance.setToolTip).toHaveBeenCalledWith('Raven')
       expect(mockTrayInstance.setContextMenu).toHaveBeenCalled()
+    })
+
+    it('loads packaged tray icons from process.resourcesPath/tray', () => {
+      app.isPackaged = true
+      Object.defineProperty(process, 'resourcesPath', {
+        value: '/Fake.app/Contents/Resources',
+        configurable: true,
+      })
+
+      createTray()
+
+      expect(mockCreateFromPath).toHaveBeenCalledWith(
+        join('/Fake.app/Contents/Resources', 'tray', 'iconTemplate.png'),
+      )
+      app.isPackaged = false
     })
 
     it('does not create duplicate tray', () => {

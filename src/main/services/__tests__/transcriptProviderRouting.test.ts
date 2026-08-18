@@ -6,6 +6,8 @@ import {
   buildProviderBody,
   parseVocabulary,
   buildSdkUploadBody,
+  assemblyaiSupportsLanguage,
+  parseSttProviderPreference,
 } from '../transcriptProviderRouting'
 
 describe('pickTranscriptProvider', () => {
@@ -74,6 +76,59 @@ describe('chooseNativeSttStrategy', () => {
       hasAssemblyKey: false,
       hasDeepgramKey: false,
     })).toBe('none')
+  })
+
+  it('uses Deepgram when the user prefers it even if Assembly is the language default', () => {
+    expect(chooseNativeSttStrategy({
+      language: 'en',
+      hasAssemblyKey: true,
+      hasDeepgramKey: true,
+      preferredProvider: 'deepgram',
+    })).toBe('deepgram')
+  })
+
+  it('uses Assembly when the user prefers it and the language is supported', () => {
+    expect(chooseNativeSttStrategy({
+      language: 'en',
+      hasAssemblyKey: true,
+      hasDeepgramKey: true,
+      preferredProvider: 'assemblyai',
+    })).toBe('assembly-retry')
+  })
+
+  it('does not use Assembly for auto-detect even when the user prefers it', () => {
+    expect(chooseNativeSttStrategy({
+      language: 'multi',
+      hasAssemblyKey: true,
+      hasDeepgramKey: true,
+      preferredProvider: 'assemblyai',
+    })).toBe('deepgram')
+  })
+
+  it('falls back to Deepgram when Assembly is preferred but that key is missing', () => {
+    expect(chooseNativeSttStrategy({
+      language: 'en',
+      hasAssemblyKey: false,
+      hasDeepgramKey: true,
+      preferredProvider: 'assemblyai',
+    })).toBe('deepgram')
+  })
+})
+
+describe('assemblyaiSupportsLanguage', () => {
+  it('is true only for the six Universal-3 realtime languages', () => {
+    expect(assemblyaiSupportsLanguage('en')).toBe(true)
+    expect(assemblyaiSupportsLanguage('es-MX')).toBe(true)
+    expect(assemblyaiSupportsLanguage('multi')).toBe(false)
+    expect(assemblyaiSupportsLanguage('hi')).toBe(false)
+  })
+})
+
+describe('parseSttProviderPreference', () => {
+  it('defaults unknown values to auto', () => {
+    expect(parseSttProviderPreference('deepgram')).toBe('deepgram')
+    expect(parseSttProviderPreference('nope')).toBe('auto')
+    expect(parseSttProviderPreference(undefined)).toBe('auto')
   })
 })
 

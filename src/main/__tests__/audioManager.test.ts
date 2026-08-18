@@ -219,6 +219,23 @@ describe('AudioManager', () => {
       expect(mockTranscriptionService.start).toHaveBeenCalled()
     })
 
+    it('uses Deepgram on English when the user prefers Deepgram and both keys exist', async () => {
+      mockGetSetting.mockImplementation((key: string) => {
+        if (key === 'deepgramApiKey') return 'dg-test-key'
+        if (key === 'assemblyaiApiKey') return 'aai-key'
+        if (key === 'transcriptionLanguage') return 'en'
+        if (key === 'sttProvider') return 'deepgram'
+        return ''
+      })
+
+      const handler = mockIpcHandlers['audio:start-recording']
+      const result = await handler({})
+
+      expect(result).toEqual({ success: true })
+      expect(mockTranscriptionService.setApiKey).toHaveBeenCalledWith('dg-test-key')
+      expect(mockTranscriptionService.start).toHaveBeenCalled()
+    })
+
     it('returns error when recording is already in progress', async () => {
       const handler = mockIpcHandlers['audio:start-recording']
       await handler({})
@@ -500,6 +517,28 @@ describe('AudioManager', () => {
       expect(mockSessionManager.endSession).toHaveBeenCalled()
     })
 
+    it('drops leftover mic as You before stopCapture on shutdown', async () => {
+      const startHandler = mockIpcHandlers['audio:start-recording']
+      await startHandler({})
+
+      const pipeline = mockSetProcessedAudioCallback.mock.calls[0][0] as (
+        buffer: Buffer,
+        source: 'mic' | 'system',
+      ) => void
+      mockTranscriptionService.sendAudio.mockClear()
+      mockStopCapture.mockImplementation(() => {
+        expect(manager.getIsRecording()).toBe(false)
+        pipeline(Buffer.from("That's creating now."), 'mic')
+      })
+
+      try {
+        await manager.shutdown()
+        expect(mockTranscriptionService.sendAudio).not.toHaveBeenCalled()
+      } finally {
+        mockStopCapture.mockReset()
+      }
+    })
+
     it('does nothing when not recording', async () => {
       await manager.shutdown()
 
@@ -537,6 +576,30 @@ describe('AudioManager', () => {
 
       expect(mockTranscriptionService.stop).toHaveBeenCalled()
       expect(mockTranscriptionService.clearTranscript).toHaveBeenCalled()
+    })
+
+    it('does not transcribe leftover helper audio as You while stopCapture runs', async () => {
+      const startHandler = mockIpcHandlers['audio:start-recording']
+      await startHandler({})
+      expect(manager.getIsRecording()).toBe(true)
+
+      const pipeline = mockSetProcessedAudioCallback.mock.calls[0][0] as (
+        buffer: Buffer,
+        source: 'mic' | 'system',
+      ) => void
+      mockTranscriptionService.sendAudio.mockClear()
+      mockStopCapture.mockImplementation(() => {
+        expect(manager.getIsRecording()).toBe(false)
+        pipeline(Buffer.from("That's creating now."), 'mic')
+      })
+
+      try {
+        const stopHandler = mockIpcHandlers['audio:stop-recording']
+        await stopHandler()
+        expect(mockTranscriptionService.sendAudio).not.toHaveBeenCalled()
+      } finally {
+        mockStopCapture.mockReset()
+      }
     })
   })
 

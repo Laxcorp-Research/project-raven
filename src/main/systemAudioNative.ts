@@ -4,7 +4,9 @@
  *
  * Integrates GStreamer-based AEC pipeline (webrtcechoprobe/webrtcdsp)
  * for echo cancellation - the same pipeline Cluely uses via Recall.ai.
- * GStreamer handles synchronization, resampling, gain control, and buffering.
+ * GStreamer handles synchronization, resampling, and buffering.
+ * ResidualEchoGate drops mic chunks that still match recent system PCM
+ * after AEC (YouTube on speakers otherwise lands in "You").
  */
 
 import { ipcMain, systemPreferences } from 'electron'
@@ -15,6 +17,7 @@ import { join } from 'path'
 import { createRequire } from 'module'
 import { createLogger } from './logger'
 import { getSetting } from './store'
+import { ResidualEchoGate } from './residualEchoGate'
 
 const log = createLogger('SystemAudio')
 
@@ -51,6 +54,13 @@ let windowsSystemCaptureActive = false
  */
 let captureStderrTail = ''
 const CAPTURE_STDERR_TAIL_MAX = 2048
+const residualEchoGate = new ResidualEchoGate()
+let residualEchoDrops = 0
+let residualSpeechPasses = 0
+/** Once stop is requested, leftover stdout from the helper must not
+ *  reach STT. Resetting the echo gate first used to let speaker audio
+ *  land in You as the session closed. */
+let captureStopping = false
 
 interface CaptureExitReason {
   code: number | null
@@ -312,7 +322,7 @@ function runHealthCheck(): void {
     if (reason) {
       aecBypassed = true
       lastBypassTime = Date.now()
-      log.warn(`AEC BYPASSED: ${reason}`)
+      log.warn(`AEC BYPASSED: ${reason} (transcription still uses AEC output, not raw mic)`)
     }
   } else {
     const holdoffElapsed = Date.now() - lastBypassTime >= AEC_REENABLE_HOLDOFF_MS
@@ -364,21 +374,32 @@ function pushSystemAudio(audioData: Buffer): void {
 }
 
 /**
- * Push mic audio through the AEC pipeline and pull clean output.
- * When bypassed, still feeds the pipeline (so the AEC filter can
- * re-converge) but returns the raw mic audio for transcription.
+ * Choose which mic PCM goes to Deepgram as "You".
+ *
+ * AEC is the only thing that strips speaker playback (YouTube, Zoom) from
+ * the microphone. Returning the raw capture while AEC is running — empty
+ * pull, "bypass", or warmup — is what put the same YouTube line in both
+ * You and Them on macOS. Skip the tick instead; never substitute raw.
  */
-function processAndPullMicAudio(audioData: Buffer): Buffer {
-  if (!aecInitialized || !aecModule) return audioData
+export function selectMicPcmForTranscription(
+  aecReady: boolean,
+  rawMic: Buffer,
+  cleanedChunks: Buffer[],
+): Buffer | null {
+  if (!aecReady) {
+    return rawMic.length > 0 ? rawMic : null
+  }
+  if (cleanedChunks.length === 0) return null
+  if (cleanedChunks.length === 1) return cleanedChunks[0]
+  return Buffer.concat(cleanedChunks)
+}
+
+function processAndPullMicAudio(audioData: Buffer): Buffer | null {
+  if (!aecInitialized || !aecModule) {
+    return selectMicPcmForTranscription(false, audioData, [])
+  }
   try {
     aecModule.pushMicAudio(audioData)
-
-    if (aecBypassed) {
-      // Drain pipeline output in C++ without allocating JS Buffers.
-      // Keeps the adaptive filter running and prevents backpressure.
-      aecModule.drainOutput()
-      return audioData
-    }
 
     const chunks: Buffer[] = []
     let cleaned = aecModule.pullCleanMic()
@@ -387,12 +408,10 @@ function processAndPullMicAudio(audioData: Buffer): Buffer {
       cleaned = aecModule.pullCleanMic()
     }
 
-    if (chunks.length === 0) return audioData
-    if (chunks.length === 1) return chunks[0]
-    return Buffer.concat(chunks)
+    return selectMicPcmForTranscription(true, audioData, chunks)
   } catch (err) {
     log.error('AEC mic processing error:', err)
-    return audioData
+    return selectMicPcmForTranscription(true, audioData, [])
   }
 }
 
@@ -474,8 +493,12 @@ function loadWindowsModule(): WindowsAudioModule | null {
  * Called directly by AudioManager - no renderer round-trip needed.
  */
 export function startCapture(): boolean {
+  captureStopping = false
   systemChunkCount = 0
   micChunkCount = 0
+  residualEchoDrops = 0
+  residualSpeechPasses = 0
+  residualEchoGate.reset()
   aecBypassed = false
   initAec()
   if (isMac) return startMacCapture()
@@ -487,15 +510,17 @@ export function startCapture(): boolean {
  * Stop native audio capture + tear down AEC pipeline.
  */
 export function stopCapture(): boolean {
+  captureStopping = true
   stopHealthMonitor()
+  const stopped = isMac ? stopMacCapture() : isWindows ? stopWindowsCapture() : false
   destroyAec()
-  if (isMac) return stopMacCapture()
-  if (isWindows) return stopWindowsCapture()
-  return false
+  residualEchoGate.reset()
+  return stopped
 }
 
 
 function handleSystemChunk(audioData: Buffer): void {
+  if (captureStopping) return
   if (getSetting('captureSystemAudio') === false) return
 
   systemChunkCount++
@@ -504,6 +529,7 @@ function handleSystemChunk(audioData: Buffer): void {
   }
 
   pushSystemAudio(audioData)
+  residualEchoGate.pushSystemPcm(audioData)
 
   if (processedAudioCallback) {
     processedAudioCallback(audioData, 'system')
@@ -511,16 +537,34 @@ function handleSystemChunk(audioData: Buffer): void {
 }
 
 function handleMicChunk(audioData: Buffer): void {
+  if (captureStopping) return
   micChunkCount++
   if (micChunkCount <= 5 || micChunkCount % 100 === 0) {
     log.debug(`Mic chunk #${micChunkCount}, bytes: ${audioData.length}`)
   }
 
   const cleanMicData = processAndPullMicAudio(audioData)
+  const toSend = residualEchoGate.takeMicForStt(audioData, cleanMicData)
 
-  if (processedAudioCallback) {
-    processedAudioCallback(cleanMicData, 'mic')
+  if (residualEchoGate.lastDecision === 'echo' || residualEchoGate.lastDecision === 'hold') {
+    residualEchoDrops++
+    if (residualEchoDrops <= 5 || residualEchoDrops % 50 === 0) {
+      log.info(
+        `Dropped mic as speaker echo (n=${residualEchoDrops}, corr=${residualEchoGate.lastAbsCorr.toFixed(2)}, why=${residualEchoGate.lastDecision})`,
+      )
+    }
+  } else if (residualEchoGate.lastDecision === 'speech') {
+    residualSpeechPasses++
+    if (residualSpeechPasses <= 5 || residualSpeechPasses % 50 === 0) {
+      log.info(
+        `Kept mic talk-over (n=${residualSpeechPasses}, corr=${residualEchoGate.lastAbsCorr.toFixed(2)}, cleanRms=${residualEchoGate.lastCleanRms.toFixed(0)})`,
+      )
+    }
   }
+
+  if (!processedAudioCallback || !toSend || toSend.length === 0) return
+
+  processedAudioCallback(toSend, 'mic')
 }
 
 export function registerSystemAudioHandlers(): void {

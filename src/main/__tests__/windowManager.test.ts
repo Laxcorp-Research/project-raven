@@ -10,6 +10,8 @@ const { mockBrowserWindowInstance, mockWebRequestHandlers: _mockWebRequestHandle
       setZoomLevel: vi.fn(),
       setVisualZoomLevelLimits: vi.fn(),
       setWindowOpenHandler: vi.fn(),
+      reload: vi.fn(),
+      executeJavaScript: vi.fn(() => Promise.resolve('{}')),
       session: {
         webRequest: {
           onHeadersReceived: vi.fn(),
@@ -92,6 +94,10 @@ import {
   showOverlayWindow,
   setStealthMode,
   registerStealthTrayCallbacks,
+  reloadAllWindows,
+  shouldReloadAfterChildProcessGone,
+  ipv4RendererURL,
+  isAllowedRendererNavigation,
 } from '../windowManager'
 import { app } from 'electron'
 
@@ -103,11 +109,16 @@ describe('windowManager', () => {
     mockGetSetting.mockReturnValue(null)
     mockBrowserWindowInstance.isDestroyed.mockReturnValue(false)
     mockBrowserWindowInstance.isVisible.mockReturnValue(false)
+    ;(app as { isPackaged: boolean }).isPackaged = false
+    delete (mockBrowserWindowInstance.webContents.session as Record<symbol, unknown>)[
+      Symbol.for('raven.cspApplied')
+    ]
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
   })
 
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    ;(app as { isPackaged: boolean }).isPackaged = false
   })
 
   describe('clampOverlayBoundsToDisplay', () => {
@@ -189,6 +200,90 @@ describe('windowManager', () => {
       expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:3000')
     })
 
+    it('pins traffic lights into the drag strip on macOS', () => {
+      const previous = process.platform
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      try {
+        createDashboardWindow('/preload.js', null)
+
+        expect(BrowserWindow).toHaveBeenCalledWith(
+          expect.objectContaining({
+            titleBarStyle: 'hiddenInset',
+            trafficLightPosition: { x: 16, y: 12 },
+          }),
+        )
+        const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as Record<string, unknown>
+        expect(opts.frame).toBeUndefined()
+      } finally {
+        Object.defineProperty(process, 'platform', { value: previous, configurable: true })
+      }
+    })
+
+    it('skips CSP header injection when unpackaged so Vite can load', () => {
+      createDashboardWindow('/preload.js', 'http://localhost:5173')
+      createOverlayWindow('/preload.js', 'http://localhost:5173')
+
+      expect(
+        mockBrowserWindowInstance.webContents.session.webRequest.onHeadersReceived,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('installs CSP once per session when packaged', () => {
+      ;(app as { isPackaged: boolean }).isPackaged = true
+      createDashboardWindow('/preload.js', null)
+      createOverlayWindow('/preload.js', null)
+
+      expect(
+        mockBrowserWindowInstance.webContents.session.webRequest.onHeadersReceived,
+      ).toHaveBeenCalledTimes(1)
+    })
+
+    it('paints a solid dashboard background so a failed load is not a transparent hole', () => {
+      createDashboardWindow('/preload.js', null)
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ backgroundColor: '#ffffff' }),
+      )
+    })
+
+    it('disables renderer sandbox when unpackaged so Vite can load', () => {
+      createDashboardWindow('/preload.js', 'http://localhost:5173')
+
+      const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as {
+        webPreferences: { sandbox: boolean }
+      }
+      expect(opts.webPreferences.sandbox).toBe(false)
+    })
+
+    it('keeps renderer sandbox on packaged builds', () => {
+      ;(app as { isPackaged: boolean }).isPackaged = true
+      createDashboardWindow('/preload.js', null)
+
+      const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as {
+        webPreferences: { sandbox: boolean }
+      }
+      expect(opts.webPreferences.sandbox).toBe(true)
+    })
+
+    it('keeps frameless Windows chrome (no Mac traffic-light inset)', () => {
+      const previous = process.platform
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      try {
+        createDashboardWindow('/preload.js', null)
+
+        expect(BrowserWindow).toHaveBeenCalledWith(
+          expect.objectContaining({
+            frame: false,
+          }),
+        )
+        const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as Record<string, unknown>
+        expect(opts.titleBarStyle).toBeUndefined()
+        expect(opts.trafficLightPosition).toBeUndefined()
+      } finally {
+        Object.defineProperty(process, 'platform', { value: previous, configurable: true })
+      }
+    })
+
     it('loads file when no rendererURL', () => {
       createDashboardWindow('/preload.js', null)
 
@@ -234,14 +329,19 @@ describe('windowManager', () => {
       expect(mockSaveSetting).toHaveBeenCalledWith('dashboardBounds', expect.any(Object))
     })
 
-    it('sets will-navigate handler to block external URLs', () => {
-      createDashboardWindow('/preload.js', null)
-
-      expect(mockBrowserWindowInstance.webContents.on).toHaveBeenCalled()
-      const willNavigateCall = mockBrowserWindowInstance.webContents.on.mock.calls.find(
+    it('allows Vite 127.0.0.1 navigations (ipv4 rewrite) and blocks the rest', () => {
+      createDashboardWindow('/preload.js', 'http://127.0.0.1:5173/')
+      const handler = mockBrowserWindowInstance.webContents.on.mock.calls.find(
         (c: unknown[]) => c[0] === 'will-navigate',
-      )
-      expect(willNavigateCall).toBeDefined()
+      )?.[1] as (event: { preventDefault: () => void }, url: string) => void
+
+      const allow = vi.fn()
+      handler({ preventDefault: allow }, 'http://127.0.0.1:5173/')
+      expect(allow).not.toHaveBeenCalled()
+
+      const block = vi.fn()
+      handler({ preventDefault: block }, 'https://evil.example/')
+      expect(block).toHaveBeenCalled()
     })
 
     it('sets window open handler to deny', () => {
@@ -306,6 +406,17 @@ describe('windowManager', () => {
       expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:3000#overlay')
     })
 
+    it('uses a fully transparent background so a failed load does not cover the dashboard in white', () => {
+      createOverlayWindow('/preload.js', null)
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transparent: true,
+          backgroundColor: '#00000000',
+        }),
+      )
+    })
+
     it('loads file when no rendererURL', () => {
       createOverlayWindow('/preload.js', null)
 
@@ -324,6 +435,75 @@ describe('windowManager', () => {
       createOverlayWindow('/preload.js', null)
 
       expect(mockBrowserWindowInstance.webContents.setBackgroundThrottling).toHaveBeenCalledWith(false)
+    })
+  })
+
+  describe('isAllowedRendererNavigation', () => {
+    it('allows file, localhost, and 127.0.0.1 so the Vite ipv4 rewrite can paint', () => {
+      expect(isAllowedRendererNavigation('file:///tmp/index.html')).toBe(true)
+      expect(isAllowedRendererNavigation('http://localhost:5173/')).toBe(true)
+      expect(isAllowedRendererNavigation('http://127.0.0.1:5173/#overlay')).toBe(true)
+    })
+
+    it('rejects about:blank and external URLs (blank-window / open-redirect)', () => {
+      expect(isAllowedRendererNavigation('about:blank')).toBe(false)
+      expect(isAllowedRendererNavigation('https://evil.example/')).toBe(false)
+    })
+  })
+
+  describe('ipv4RendererURL', () => {
+    it('rewrites Vite localhost to 127.0.0.1 so Chromium does not hang on ::1', () => {
+      expect(ipv4RendererURL('http://localhost:5173/')).toBe('http://127.0.0.1:5173/')
+    })
+
+    it('leaves packaged file URLs and IPv4 URLs unchanged', () => {
+      expect(ipv4RendererURL(null)).toBeNull()
+      expect(ipv4RendererURL('http://127.0.0.1:5173/')).toBe('http://127.0.0.1:5173/')
+    })
+  })
+
+  describe('shouldReloadAfterChildProcessGone', () => {
+    it('reloads after the Chromium network utility crashes', () => {
+      expect(
+        shouldReloadAfterChildProcessGone({
+          type: 'Utility',
+          reason: 'crashed',
+          serviceName: 'network.mojom.NetworkService',
+        }),
+      ).toBe(true)
+    })
+
+    it('does not reload when Vite kills helpers during HMR', () => {
+      expect(
+        shouldReloadAfterChildProcessGone({
+          type: 'Utility',
+          reason: 'killed',
+          serviceName: 'network.mojom.NetworkService',
+        }),
+      ).toBe(false)
+    })
+
+    it('does not reload for GPU crashes', () => {
+      expect(
+        shouldReloadAfterChildProcessGone({
+          type: 'GPU',
+          reason: 'crashed',
+          serviceName: 'GPU',
+        }),
+      ).toBe(false)
+    })
+  })
+
+  describe('reloadAllWindows', () => {
+    it('re-navigates dashboard and overlay to the original URL (reload of about:blank stays blank)', () => {
+      createDashboardWindow('/preload.js', 'http://127.0.0.1:5173/')
+      createOverlayWindow('/preload.js', 'http://127.0.0.1:5173/')
+      mockBrowserWindowInstance.loadURL.mockClear()
+
+      reloadAllWindows()
+
+      expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173/')
+      expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173/#overlay')
     })
   })
 
