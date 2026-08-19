@@ -46,7 +46,7 @@ function applyCSP(win: BrowserWindow): void {
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://lh3.googleusercontent.com",
             "font-src 'self' data:",
-            "connect-src 'self' https://api.useraven.ai https://api-staging.useraven.ai https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com",
+            "connect-src 'self' https://api.useraven.ai https://api-staging.useraven.ai https://api.deepgram.com wss://api.deepgram.com https://api.anthropic.com https://api.openai.com https://opencode.ai",
             "media-src 'self' blob:",
             "worker-src 'self' blob:",
             "object-src 'none'",

@@ -1,11 +1,13 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-const { mockCreate } = vi.hoisted(() => ({
+const { mockCreate, mockOpenAIConstructor } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
+  mockOpenAIConstructor: vi.fn(),
 }))
 
 vi.mock('openai', () => ({
-  default: vi.fn(function () {
+  default: vi.fn(function (config) {
+    mockOpenAIConstructor(config)
     return {
       chat: {
         completions: {
@@ -17,11 +19,14 @@ vi.mock('openai', () => ({
 }))
 
 import { OpenAIProvider } from '../services/ai/openaiProvider'
+import { OPENCODE_GO_BASE_URL, OpenCodeGoProvider } from '../services/ai/openCodeGoProvider'
 
 describe('OpenAIProvider', () => {
   let provider: OpenAIProvider
 
   beforeEach(() => {
+    mockCreate.mockReset()
+    mockOpenAIConstructor.mockReset()
     provider = new OpenAIProvider('sk-openai-test', 'gpt-5.2')
   })
 
@@ -269,5 +274,49 @@ describe('OpenAIProvider', () => {
 
       expect(onError).toHaveBeenCalledWith('AI error: Network error')
     })
+  })
+})
+
+describe('OpenCodeGoProvider', () => {
+  beforeEach(() => {
+    mockCreate.mockReset()
+    mockOpenAIConstructor.mockReset()
+  })
+
+  it('uses OpenCode Go as an OpenAI-compatible chat completions provider', async () => {
+    const provider = new OpenCodeGoProvider('oc-go-test', 'kimi-k3')
+    mockCreate.mockResolvedValueOnce({
+      choices: [{ message: { content: '  Go response  ' } }],
+    })
+
+    const result = await provider.generateShort({ prompt: 'Test' })
+
+    expect(provider.name).toBe('opencode-go')
+    expect(result).toBe('Go response')
+    expect(mockOpenAIConstructor).toHaveBeenCalledWith({
+      apiKey: 'oc-go-test',
+      baseURL: OPENCODE_GO_BASE_URL,
+    })
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'kimi-k3',
+        messages: [{ role: 'user', content: 'Test' }],
+      })
+    )
+  })
+
+  it('reports OpenCode Go in invalid-key stream errors', async () => {
+    const provider = new OpenCodeGoProvider('bad-go-key', 'kimi-k3')
+    const onError = vi.fn()
+    mockCreate.mockRejectedValueOnce({ status: 401 })
+
+    await expect(
+      provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError }
+      )
+    ).rejects.toBeDefined()
+
+    expect(onError).toHaveBeenCalledWith('Invalid OpenCode Go API key. Check settings.')
   })
 })

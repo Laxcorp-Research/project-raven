@@ -3,15 +3,25 @@ import { buildOpenAIEffortParams, streamMaxTokensFor } from './types';
 import type OpenAI from 'openai';
 
 export class OpenAIProvider implements AIProvider {
-  readonly name = 'openai' as const;
+  readonly name: 'openai' | 'opencode-go';
   private apiKey: string;
   private model: string;
   private effort?: string;
+  private baseURL?: string;
+  private label: string;
 
-  constructor(apiKey: string, model: string, effort?: string) {
+  constructor(
+    apiKey: string,
+    model: string,
+    effort?: string,
+    options?: { name?: 'openai' | 'opencode-go'; baseURL?: string; label?: string },
+  ) {
+    this.name = options?.name ?? 'openai';
     this.apiKey = apiKey;
     this.model = model;
     this.effort = effort;
+    this.baseURL = options?.baseURL;
+    this.label = options?.label ?? 'OpenAI';
   }
 
   async streamResponse(
@@ -19,7 +29,7 @@ export class OpenAIProvider implements AIProvider {
     callbacks: StreamCallbacks
   ): Promise<void> {
     const OpenAI = (await import('openai')).default;
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const client = new OpenAI({ apiKey: this.apiKey, ...(this.baseURL ? { baseURL: this.baseURL } : {}) });
 
     // Build as the SDK's discriminated ChatCompletionMessageParam union
     // rather than a widened { role: 'system' | 'user' | 'assistant' }
@@ -76,7 +86,7 @@ export class OpenAIProvider implements AIProvider {
       const status = error != null && typeof error === 'object' && 'status' in error
         ? (error as { status: number }).status
         : undefined;
-      if (status === 401) errorMsg = 'Invalid OpenAI API key. Check settings.';
+      if (status === 401) errorMsg = `Invalid ${this.label} API key. Check settings.`;
       else if (status === 429) errorMsg = 'Rate limited. Wait a moment and try again.';
       else if (error instanceof Error) errorMsg = `AI error: ${error.message}`;
       callbacks.onError(errorMsg);
@@ -90,7 +100,7 @@ export class OpenAIProvider implements AIProvider {
     maxTokens?: number;
   }): Promise<string> {
     const OpenAI = (await import('openai')).default;
-    const client = new OpenAI({ apiKey: this.apiKey });
+    const client = new OpenAI({ apiKey: this.apiKey, ...(this.baseURL ? { baseURL: this.baseURL } : {}) });
 
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
     if (params.system) {

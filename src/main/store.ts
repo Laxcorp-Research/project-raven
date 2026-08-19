@@ -24,6 +24,7 @@ export interface LocalSettings {
   // API Keys (BYOK — all modes)
   deepgramApiKey: string;
   anthropicApiKey: string;
+  openCodeGoApiKey: string;
   assemblyaiApiKey: string;
   recallApiKey: string;
   recallApiUrl: string;
@@ -54,14 +55,14 @@ export interface LocalSettings {
   vocabulary: string;
 
   // AI Provider — live assist (overlay Assist / What should I say / Recap)
-  aiProvider: 'anthropic' | 'openai';
+  aiProvider: 'anthropic' | 'openai' | 'opencode-go';
   aiModel: string;
   aiEffort: string;
   /**
    * Notes slot (title, summary, insights). Empty = follow assist provider's
    * cheap default (Haiku / Luna). See src/shared/aiSlots.ts.
    */
-  notesProvider: '' | 'anthropic' | 'openai';
+  notesProvider: '' | 'anthropic' | 'openai' | 'opencode-go';
   notesModel: string;
   notesEffort: string;
   openaiApiKey: string;
@@ -85,6 +86,7 @@ const STORE_DEFAULTS: LocalSettings = {
   mode: 'free',
   deepgramApiKey: '',
   anthropicApiKey: '',
+  openCodeGoApiKey: '',
   assemblyaiApiKey: '',
   recallApiKey: '',
   recallApiUrl: 'https://ap-northeast-1.recall.ai',
@@ -170,6 +172,7 @@ export function getAllSettings(): LocalSettings {
     mode: store.get('mode'),
     deepgramApiKey: '',
     anthropicApiKey: '',
+    openCodeGoApiKey: '',
     assemblyaiApiKey: '',
     recallApiKey: '',
     recallApiUrl: store.get('recallApiUrl'),
@@ -234,6 +237,7 @@ const API_KEY_FIELDS = [
   'deepgramApiKey',
   'anthropicApiKey',
   'openaiApiKey',
+  'openCodeGoApiKey',
   'assemblyaiApiKey',
   'recallApiKey',
 ] as const;
@@ -269,7 +273,7 @@ export function saveApiKeys(
   deepgramKey: string,
   anthropicKey: string,
   openaiKey?: string,
-  extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+  extras?: { assemblyaiApiKey?: string; recallApiKey?: string; openCodeGoApiKey?: string },
 ): void {
   store.set('deepgramApiKey', encryptValue(deepgramKey));
   store.set('anthropicApiKey', encryptValue(anthropicKey));
@@ -278,6 +282,9 @@ export function saveApiKeys(
   }
   if (extras?.assemblyaiApiKey !== undefined) {
     store.set('assemblyaiApiKey', encryptValue(extras.assemblyaiApiKey));
+  }
+  if (extras?.openCodeGoApiKey !== undefined) {
+    store.set('openCodeGoApiKey', encryptValue(extras.openCodeGoApiKey));
   }
   if (extras?.recallApiKey !== undefined) {
     store.set('recallApiKey', encryptValue(extras.recallApiKey));
@@ -290,6 +297,8 @@ export function hasApiKeys(): boolean {
   const provider = store.get('aiProvider') || 'anthropic';
   const hasAiKey = provider === 'openai'
     ? !!getApiKey('openaiApiKey')
+    : provider === 'opencode-go'
+      ? !!getApiKey('openCodeGoApiKey')
     : !!getApiKey('anthropicApiKey');
   return hasStt && hasAiKey;
 }
@@ -298,6 +307,7 @@ export function clearApiKeys(): void {
   store.set('deepgramApiKey', '');
   store.set('anthropicApiKey', '');
   store.set('openaiApiKey', '');
+  store.set('openCodeGoApiKey', '');
   store.set('assemblyaiApiKey', '');
   store.set('recallApiKey', '');
   store.set('apiKeysConfigured', false);

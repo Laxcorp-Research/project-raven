@@ -80,7 +80,7 @@ export function registerIpcHandlers(): void {
 
   const PROTECTED_STORE_KEYS: readonly string[] = [
     'mode', 'auth_tokens', 'auth_user',
-    'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey',
+    'deepgramApiKey', 'anthropicApiKey', 'openaiApiKey', 'openCodeGoApiKey',
     'assemblyaiApiKey', 'recallApiKey', 'apiKeysConfigured',
   ]
 
@@ -118,11 +118,12 @@ export function registerIpcHandlers(): void {
       deepgramKey: string,
       anthropicKey: string,
       openaiKey?: string,
-      extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+      extras?: { assemblyaiApiKey?: string; recallApiKey?: string; openCodeGoApiKey?: string },
     ) => {
       assertString(deepgramKey, 'deepgramKey', 500)
       assertString(anthropicKey, 'anthropicKey', 500)
       if (openaiKey !== undefined) assertString(openaiKey, 'openaiKey', 500)
+      if (extras?.openCodeGoApiKey !== undefined) assertString(extras.openCodeGoApiKey, 'openCodeGoApiKey', 500)
       if (extras?.assemblyaiApiKey !== undefined) assertString(extras.assemblyaiApiKey, 'assemblyaiApiKey', 500)
       if (extras?.recallApiKey !== undefined) assertString(extras.recallApiKey, 'recallApiKey', 500)
       saveApiKeys(deepgramKey, anthropicKey, openaiKey, extras)
@@ -173,7 +174,7 @@ export function registerIpcHandlers(): void {
 
   cooldownHandle(
     'validate-keys', 2000,
-    async (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
+    async (deepgramKey: string, aiProvider: 'anthropic' | 'openai' | 'opencode-go', aiKey: string) => {
       const { validateKeys } = await import('./validators')
       return validateKeys(deepgramKey, aiProvider, aiKey)
     }

@@ -7,12 +7,15 @@ export function ApiKeysTab() {
   const [deepgramKey, setDeepgramKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
+  const [openCodeGoKey, setOpenCodeGoKey] = useState('')
   const [assemblyKey, setAssemblyKey] = useState('')
   const [showAssembly, setShowAssembly] = useState(false)
   const [originalAssemblyKey, setOriginalAssemblyKey] = useState('')
   const [assemblyStatus, setAssemblyStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [showOpenai, setShowOpenai] = useState(false)
+  const [showOpenCodeGo, setShowOpenCodeGo] = useState(false)
   const [originalOpenaiKey, setOriginalOpenaiKey] = useState('')
+  const [originalOpenCodeGoKey, setOriginalOpenCodeGoKey] = useState('')
   const [showDeepgram, setShowDeepgram] = useState(false)
   const [showAnthropic, setShowAnthropic] = useState(false)
   const [originalDeepgramKey, setOriginalDeepgramKey] = useState('')
@@ -20,6 +23,7 @@ export function ApiKeysTab() {
   const [deepgramStatus, setDeepgramStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [anthropicStatus, setAnthropicStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [openaiStatus, setOpenaiStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
+  const [openCodeGoStatus, setOpenCodeGoStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle')
   const [isSaving, setIsSaving] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -45,6 +49,12 @@ export function ApiKeysTab() {
           setOriginalOpenaiKey(oaiKey)
           setOpenaiStatus('valid')
         }
+        const goKey = (await window.raven.storeGet('openCodeGoApiKey')) as string
+        if (goKey) {
+          setOpenCodeGoKey(goKey)
+          setOriginalOpenCodeGoKey(goKey)
+          setOpenCodeGoStatus('valid')
+        }
         const aaiKey = (await window.raven.storeGet('assemblyaiApiKey')) as string
         if (aaiKey) { setAssemblyKey(aaiKey); setOriginalAssemblyKey(aaiKey); setAssemblyStatus('valid') }
       } catch (error) {
@@ -58,6 +68,7 @@ export function ApiKeysTab() {
     deepgramKey.trim() !== originalDeepgramKey
     || anthropicKey.trim() !== originalAnthropicKey
     || openaiKey.trim() !== originalOpenaiKey
+    || openCodeGoKey.trim() !== originalOpenCodeGoKey
     || assemblyKey.trim() !== originalAssemblyKey
   const canSave = hasChanges
 
@@ -67,19 +78,20 @@ export function ApiKeysTab() {
       return false
     }
 
-    if (!anthropicKey.trim() && !openaiKey.trim()) {
-      setSaveMessage({ type: 'error', text: 'Add an Anthropic or OpenAI key' })
+    if (!anthropicKey.trim() && !openaiKey.trim() && !openCodeGoKey.trim()) {
+      setSaveMessage({ type: 'error', text: 'Add an Anthropic, OpenAI, or OpenCode Go key' })
       return false
     }
 
     if (deepgramKey.trim()) setDeepgramStatus('validating')
     if (anthropicKey.trim()) setAnthropicStatus('validating')
     if (openaiKey.trim()) setOpenaiStatus('validating')
+    if (openCodeGoKey.trim()) setOpenCodeGoStatus('validating')
     setSaveMessage(null)
 
     try {
-      const firstProvider = anthropicKey.trim() ? 'anthropic' : 'openai'
-      const firstKey = anthropicKey.trim() || openaiKey.trim()
+      const firstProvider = anthropicKey.trim() ? 'anthropic' : openaiKey.trim() ? 'openai' : 'opencode-go'
+      const firstKey = anthropicKey.trim() || openaiKey.trim() || openCodeGoKey.trim()
       const result = await window.raven.validateKeys(deepgramKey.trim(), firstProvider, firstKey)
       if ('throttled' in result && result.throttled) {
         setSaveMessage({ type: 'error', text: 'Please wait a moment and try again.' })
@@ -90,6 +102,7 @@ export function ApiKeysTab() {
         else if (deepgramKey.trim()) setDeepgramStatus('idle')
         if (result.aiError) {
           if (firstProvider === 'openai') setOpenaiStatus('invalid')
+          else if (firstProvider === 'opencode-go') setOpenCodeGoStatus('invalid')
           else setAnthropicStatus('invalid')
         }
         setSaveMessage({ type: 'error', text: result.error || 'Invalid API keys' })
@@ -98,6 +111,7 @@ export function ApiKeysTab() {
       if (deepgramKey.trim()) setDeepgramStatus('valid')
       if (firstProvider === 'anthropic') setAnthropicStatus('valid')
       if (firstProvider === 'openai') setOpenaiStatus('valid')
+      if (firstProvider === 'opencode-go') setOpenCodeGoStatus('valid')
 
       if (anthropicKey.trim() && openaiKey.trim()) {
         const openaiResult = await window.raven.validateKeys('', 'openai', openaiKey.trim())
@@ -111,6 +125,20 @@ export function ApiKeysTab() {
           return false
         }
         setOpenaiStatus('valid')
+      }
+
+      if ((anthropicKey.trim() || openaiKey.trim()) && openCodeGoKey.trim()) {
+        const goResult = await window.raven.validateKeys('', 'opencode-go', openCodeGoKey.trim())
+        if ('throttled' in goResult && goResult.throttled) {
+          setSaveMessage({ type: 'error', text: 'Please wait a moment and try again.' })
+          return false
+        }
+        if (!goResult.valid) {
+          setOpenCodeGoStatus('invalid')
+          setSaveMessage({ type: 'error', text: goResult.error || 'Invalid OpenCode Go key' })
+          return false
+        }
+        setOpenCodeGoStatus('valid')
       }
 
       if (assemblyKey.trim()) {
@@ -130,6 +158,7 @@ export function ApiKeysTab() {
       if (deepgramKey.trim()) setDeepgramStatus('invalid')
       if (anthropicKey.trim()) setAnthropicStatus('invalid')
       if (openaiKey.trim()) setOpenaiStatus('invalid')
+      if (openCodeGoKey.trim()) setOpenCodeGoStatus('invalid')
       setSaveMessage({ type: 'error', text: 'Failed to validate connection' })
       return false
     }
@@ -144,11 +173,13 @@ export function ApiKeysTab() {
       try {
         await window.raven.apiKeysSave(deepgramKey.trim(), anthropicKey.trim(), openaiKey.trim(), {
           assemblyaiApiKey: assemblyKey.trim(),
+          openCodeGoApiKey: openCodeGoKey.trim(),
         })
         setSaveMessage({ type: 'success', text: 'API keys saved' })
         setOriginalDeepgramKey(deepgramKey.trim())
         setOriginalAnthropicKey(anthropicKey.trim())
         setOriginalOpenaiKey(openaiKey.trim())
+        setOriginalOpenCodeGoKey(openCodeGoKey.trim())
         setOriginalAssemblyKey(assemblyKey.trim())
       } catch {
         setSaveMessage({ type: 'error', text: 'Failed to save API keys' })
@@ -416,6 +447,63 @@ export function ApiKeysTab() {
           </div>
         </div>
         <p className="text-xs text-gray-400">GPT. Choose where to use it under Models.</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="block text-sm font-medium text-gray-700">
+            OpenCode Go API Key <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              window.raven.openExternal('https://opencode.ai/auth')
+            }}
+            className="text-xs text-blue-600 hover:text-blue-700"
+          >
+            Get API Key &rarr;
+          </a>
+        </div>
+        <div className="relative">
+          <input
+            type={showOpenCodeGo ? 'text' : 'password'}
+            value={openCodeGoKey}
+            onChange={(e) => {
+              setOpenCodeGoKey(e.target.value)
+              setOpenCodeGoStatus('idle')
+              setSaveMessage(null)
+            }}
+            placeholder="OpenCode Go key"
+            className={`w-full px-3 py-2 pr-20 border rounded-lg text-sm transition-colors ${
+              openCodeGoStatus === 'invalid'
+                ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                : openCodeGoStatus === 'valid'
+                ? 'border-green-300 focus:border-green-500 focus:ring-green-500'
+                : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+            } focus:outline-none focus:ring-1`}
+          />
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {getStatusIcon(openCodeGoStatus)}
+            <button
+              type="button"
+              onClick={() => setShowOpenCodeGo(!showOpenCodeGo)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              {showOpenCodeGo ? (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M3 3l18 18" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">OpenAI-compatible Go chat models. Choose where to use it under Models.</p>
       </div>
 
       {saveMessage && (

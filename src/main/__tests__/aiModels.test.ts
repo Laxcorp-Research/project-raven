@@ -45,6 +45,23 @@ describe('AI model catalog (2026-08)', () => {
     expect(DEFAULT_MODELS.openai).toBe('gpt-5.6-luna')
   })
 
+  it('lists OpenCode Go chat-compatible models from the official Go API docs', () => {
+    expect(PROVIDER_MODELS['opencode-go']).toEqual([
+      'grok-4.5',
+      'glm-5.2',
+      'glm-5.1',
+      'kimi-k3',
+      'kimi-k2.7-code',
+      'kimi-k2.6',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
+      'mimo-v2.5',
+      'mimo-v2.5-pro',
+      'hy3',
+    ])
+    expect(DEFAULT_MODELS['opencode-go']).toBe('kimi-k3')
+  })
+
   it('lists only the effort values each model actually accepts', () => {
     expect(effortLevelsForModel('anthropic', 'claude-haiku-4-5')).toBeNull()
     expect(effortLevelsForModel('anthropic', 'claude-sonnet-4-5')).toBeNull()
@@ -107,20 +124,24 @@ describe('AI model catalog (2026-08)', () => {
   it('keeps catalog ids aligned with MODEL_CATALOG', () => {
     expect(MODEL_CATALOG.anthropic.map((m) => m.id)).toEqual(PROVIDER_MODELS.anthropic)
     expect(MODEL_CATALOG.openai.map((m) => m.id)).toEqual(PROVIDER_MODELS.openai)
+    expect(MODEL_CATALOG['opencode-go'].map((m) => m.id)).toEqual(PROVIDER_MODELS['opencode-go'])
   })
 
   it('keeps the cheap notes-slot default inside the catalog', () => {
     expect(PROVIDER_MODELS.anthropic).toContain(FAST_MODELS.anthropic)
     expect(PROVIDER_MODELS.openai).toContain(FAST_MODELS.openai)
+    expect(PROVIDER_MODELS['opencode-go']).toContain(FAST_MODELS['opencode-go'])
   })
 
   it('keeps session memory on Sonnet 5 / Terra, not the notes cheap default', () => {
     expect(PROVIDER_MODELS.anthropic).toContain(MEMORY_MODELS.anthropic)
     expect(PROVIDER_MODELS.openai).toContain(MEMORY_MODELS.openai)
+    expect(PROVIDER_MODELS['opencode-go']).toContain(MEMORY_MODELS['opencode-go'])
     expect(MEMORY_MODELS.anthropic).toBe('claude-sonnet-5')
     expect(MEMORY_MODELS.openai).toBe('gpt-5.6-terra')
     expect(MEMORY_MODELS.anthropic).not.toBe(NOTES_FAST_MODELS.anthropic)
     expect(MEMORY_MODELS.openai).not.toBe(NOTES_FAST_MODELS.openai)
+    expect(MEMORY_MODELS['opencode-go']).not.toBe(NOTES_FAST_MODELS['opencode-go'])
   })
 
   it('uses official max output, not a product cap (64k vs 128k)', () => {
@@ -132,6 +153,7 @@ describe('AI model catalog (2026-08)', () => {
     expect(streamMaxTokensFor('anthropic', 'claude-opus-5')).toBe(128000)
     expect(streamMaxTokensFor('openai', 'gpt-5.6-luna')).toBe(128000)
     expect(streamMaxTokensFor('openai', 'gpt-5.2')).toBe(128000)
+    expect(streamMaxTokensFor('opencode-go', 'kimi-k3')).toBe(128000)
   })
 
   it('uses official context windows (200k / 400k / 1M / 1.05M)', () => {
@@ -145,6 +167,7 @@ describe('AI model catalog (2026-08)', () => {
     expect(contextWindowFor('openai', 'gpt-5.4-mini')).toBe(400000)
     expect(contextWindowFor('openai', 'gpt-5.4')).toBe(1050000)
     expect(contextWindowFor('openai', 'gpt-5.6-luna')).toBe(1050000)
+    expect(contextWindowFor('opencode-go', 'kimi-k3')).toBe(200000)
   })
 })
 

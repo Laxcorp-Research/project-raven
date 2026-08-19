@@ -122,6 +122,32 @@ export async function validateOpenAIKey(apiKey: string): Promise<{ valid: boolea
   }
 }
 
+export async function validateOpenCodeGoKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const response = await vendorGet('https://opencode.ai/zen/go/v1/models', {
+      Authorization: `Bearer ${apiKey}`,
+    })
+
+    if (response.ok) {
+      return { valid: true }
+    }
+
+    if (response.status === 401) {
+      return { valid: false, error: 'Invalid OpenCode Go API key.' }
+    }
+    if (response.status === 403) {
+      return { valid: false, error: 'OpenCode Go key does not have permission. Check your plan.' }
+    }
+    if (response.status === 429) {
+      return { valid: false, error: 'OpenCode Go rate-limited the check. Wait a few seconds and try again.' }
+    }
+
+    return { valid: false, error: `OpenCode Go returned status ${response.status}.` }
+  } catch (err) {
+    return vendorUnreachable('OpenCode Go', err)
+  }
+}
+
 export async function validateAssemblyAIKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
     const response = await vendorGet('https://api.assemblyai.com/v2/account', {
@@ -176,12 +202,14 @@ export async function validateBothKeys(
 
 export async function validateKeys(
   deepgramKey: string,
-  aiProvider: 'anthropic' | 'openai',
+  aiProvider: 'anthropic' | 'openai' | 'opencode-go',
   aiKey: string
 ): Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string }> {
   const aiValidation = aiProvider === 'openai'
     ? validateOpenAIKey(aiKey)
-    : validateAnthropicKey(aiKey)
+    : aiProvider === 'opencode-go'
+      ? validateOpenCodeGoKey(aiKey)
+      : validateAnthropicKey(aiKey)
 
   const [deepgramResult, aiResult] = await Promise.all([
     deepgramKey ? validateDeepgramKey(deepgramKey) : Promise.resolve({ valid: true as const }),
@@ -189,12 +217,13 @@ export async function validateKeys(
   ])
 
   const deepgramError = deepgramResult.valid ? undefined : (deepgramResult.error || 'Invalid Deepgram key.')
-  const aiError = aiResult.valid ? undefined : (aiResult.error || `Invalid ${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} key.`)
+  const aiLabel = aiProvider === 'openai' ? 'OpenAI' : aiProvider === 'opencode-go' ? 'OpenCode Go' : 'Anthropic'
+  const aiError = aiResult.valid ? undefined : (aiResult.error || `Invalid ${aiLabel} key.`)
 
   if (deepgramError || aiError) {
     const invalidKeys = [
       deepgramError ? 'Deepgram' : null,
-      aiError ? (aiProvider === 'openai' ? 'OpenAI' : 'Anthropic') : null,
+      aiError ? aiLabel : null,
     ].filter(Boolean)
     const error = deepgramError && aiError
       ? `Invalid ${invalidKeys.join(', ')} keys.`

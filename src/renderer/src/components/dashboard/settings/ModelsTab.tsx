@@ -56,6 +56,7 @@ export function ModelsTab() {
   const [notesExplicit, setNotesExplicit] = useState(false)
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
+  const [hasOpenCodeGoKey, setHasOpenCodeGoKey] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle')
   const saveFlashRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -71,6 +72,7 @@ export function ModelsTab() {
           notesEffortRaw,
           anthropicKey,
           openaiKey,
+          openCodeGoKey,
         ] = await Promise.all([
           window.raven.storeGet('aiProvider'),
           window.raven.storeGet('aiModel'),
@@ -80,6 +82,7 @@ export function ModelsTab() {
           window.raven.storeGet('notesEffort'),
           window.raven.storeGet('anthropicApiKey'),
           window.raven.storeGet('openaiApiKey'),
+          window.raven.storeGet('openCodeGoApiKey'),
         ])
 
         const liveProvider = parseAIProviderName(aiProviderRaw) ?? 'anthropic'
@@ -98,6 +101,7 @@ export function ModelsTab() {
 
         setHasAnthropicKey(typeof anthropicKey === 'string' && anthropicKey.trim().length > 0)
         setHasOpenaiKey(typeof openaiKey === 'string' && openaiKey.trim().length > 0)
+        setHasOpenCodeGoKey(typeof openCodeGoKey === 'string' && openCodeGoKey.trim().length > 0)
       } catch (error) {
         log.error('Failed to load model settings:', error)
       }
@@ -143,11 +147,11 @@ export function ModelsTab() {
   }
 
   const hasKey = (provider: AIProviderName) =>
-    provider === 'openai' ? hasOpenaiKey : hasAnthropicKey
+    provider === 'openai' ? hasOpenaiKey : provider === 'opencode-go' ? hasOpenCodeGoKey : hasAnthropicKey
 
   const missingKeyWarning = (slot: SlotState, label: string) => {
     if (hasKey(slot.provider)) return null
-    const vendor = slot.provider === 'openai' ? 'OpenAI' : 'Anthropic'
+    const vendor = slot.provider === 'openai' ? 'OpenAI' : slot.provider === 'opencode-go' ? 'OpenCode Go' : 'Anthropic'
     return (
       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
         {label} uses {vendor}, but no {vendor} key is set. Add it under API Keys.
@@ -161,9 +165,9 @@ export function ModelsTab() {
         Keys stay under API Keys. Live assist is the overlay. Notes is titles, summaries, and insights after a call.
       </p>
 
-      {!hasAnthropicKey && !hasOpenaiKey && (
+      {!hasAnthropicKey && !hasOpenaiKey && !hasOpenCodeGoKey && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Add an Anthropic or OpenAI key under API Keys before picking models.
+          Add an Anthropic, OpenAI, or OpenCode Go key under API Keys before picking models.
         </p>
       )}
 
@@ -173,6 +177,7 @@ export function ModelsTab() {
         slot={live}
         hasAnthropicKey={hasAnthropicKey}
         hasOpenaiKey={hasOpenaiKey}
+        hasOpenCodeGoKey={hasOpenCodeGoKey}
         onChange={onLiveChange}
       />
       {missingKeyWarning(live, 'Live assist')}
@@ -183,6 +188,7 @@ export function ModelsTab() {
         slot={notes}
         hasAnthropicKey={hasAnthropicKey}
         hasOpenaiKey={hasOpenaiKey}
+        hasOpenCodeGoKey={hasOpenCodeGoKey}
         onChange={(next) => {
           setNotes(next)
           void persistNotes(next)
@@ -200,7 +206,7 @@ export function ModelsTab() {
           {MODEL_CATALOG[live.provider].find((m) => m.id === MEMORY_MODELS[live.provider])?.label
             ?? MEMORY_MODELS[live.provider]}
           <span className="block text-[11px] text-gray-400 mt-0.5">
-            {live.provider === 'openai' ? 'OpenAI key' : 'Anthropic key'} · system default
+            {live.provider === 'openai' ? 'OpenAI key' : live.provider === 'opencode-go' ? 'OpenCode Go key' : 'Anthropic key'} · system default
           </span>
         </p>
       </div>
@@ -218,6 +224,7 @@ function ModelSlotCard({
   slot,
   hasAnthropicKey,
   hasOpenaiKey,
+  hasOpenCodeGoKey,
   onChange,
 }: {
   title: string
@@ -225,6 +232,7 @@ function ModelSlotCard({
   slot: SlotState
   hasAnthropicKey: boolean
   hasOpenaiKey: boolean
+  hasOpenCodeGoKey: boolean
   onChange: (next: SlotState) => void
 }) {
   const [modelOpen, setModelOpen] = useState(false)
@@ -247,7 +255,7 @@ function ModelSlotCard({
   const selectedModelLabel = modelOptions.find((m) => m.id === slot.model)?.label || slot.model
 
   const applyProvider = (provider: AIProviderName) => {
-    const allowed = provider === 'openai' ? hasOpenaiKey : hasAnthropicKey
+    const allowed = provider === 'openai' ? hasOpenaiKey : provider === 'opencode-go' ? hasOpenCodeGoKey : hasAnthropicKey
     if (!allowed) return
     const model = DEFAULT_MODELS[provider]
     const effort = resolveEffort(provider, model, slot.effort) ?? DEFAULT_EFFORT
@@ -260,7 +268,7 @@ function ModelSlotCard({
   }
 
   const providerBtn = (provider: AIProviderName, label: string, sub: string) => {
-    const allowed = provider === 'openai' ? hasOpenaiKey : hasAnthropicKey
+    const allowed = provider === 'openai' ? hasOpenaiKey : provider === 'opencode-go' ? hasOpenCodeGoKey : hasAnthropicKey
     const selected = slot.provider === provider
     return (
       <button
@@ -291,6 +299,7 @@ function ModelSlotCard({
       <div className="flex gap-3">
         {providerBtn('anthropic', 'Anthropic', 'Claude models')}
         {providerBtn('openai', 'OpenAI', 'GPT models')}
+        {providerBtn('opencode-go', 'OpenCode Go', 'Go chat models')}
       </div>
 
       <div className="space-y-2">

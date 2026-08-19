@@ -2,6 +2,7 @@ import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
 import { DEFAULT_EFFORT, PROVIDER_MODELS, resolveCatalogModel, resolveEffort } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
+import { OpenCodeGoProvider } from './openCodeGoProvider';
 import { createLogger } from '../../logger';
 import {
   NOTES_FAST_MODELS,
@@ -33,6 +34,9 @@ export function getProvider(config: AIProviderConfig): AIProvider {
     case 'openai':
       cachedProvider = new OpenAIProvider(config.apiKey, config.model, config.effort);
       break;
+    case 'opencode-go':
+      cachedProvider = new OpenCodeGoProvider(config.apiKey, config.model);
+      break;
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
   }
@@ -52,11 +56,13 @@ export const FAST_MODELS: Record<AIProviderName, string> = NOTES_FAST_MODELS;
 
 function requireApiKey(
   provider: AIProviderName,
-  getApiKey: (key: 'openaiApiKey' | 'anthropicApiKey') => string,
+  getApiKey: (key: 'openaiApiKey' | 'anthropicApiKey' | 'openCodeGoApiKey') => string,
 ): string {
   const apiKey = provider === 'openai'
     ? getApiKey('openaiApiKey')
-    : getApiKey('anthropicApiKey');
+    : provider === 'opencode-go'
+      ? getApiKey('openCodeGoApiKey')
+      : getApiKey('anthropicApiKey');
   if (!apiKey) {
     throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
   }

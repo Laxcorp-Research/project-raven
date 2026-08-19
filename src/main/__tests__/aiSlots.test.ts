@@ -12,11 +12,13 @@ import {
 
 const ANTHROPIC_CATALOG = ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5']
 const OPENAI_CATALOG = ['gpt-5.6-luna', 'gpt-5.2']
+const OPENCODE_GO_CATALOG = ['kimi-k3', 'deepseek-v4-pro']
 
 describe('aiSlots', () => {
-  it('parseAIProviderName accepts only anthropic and openai', () => {
+  it('parseAIProviderName accepts supported AI providers', () => {
     expect(parseAIProviderName('anthropic')).toBe('anthropic')
     expect(parseAIProviderName('openai')).toBe('openai')
+    expect(parseAIProviderName('opencode-go')).toBe('opencode-go')
     expect(parseAIProviderName('')).toBeNull()
     expect(parseAIProviderName('claude')).toBeNull()
     expect(parseAIProviderName(undefined)).toBeNull()
@@ -33,6 +35,8 @@ describe('aiSlots', () => {
     expect(resolveNotesModel('anthropic', '', ANTHROPIC_CATALOG)).toBe(NOTES_FAST_MODELS.anthropic)
     expect(resolveNotesModel('anthropic', 'gpt-5.2', ANTHROPIC_CATALOG)).toBe(NOTES_FAST_MODELS.anthropic)
     expect(resolveNotesModel('openai', undefined, OPENAI_CATALOG)).toBe(NOTES_FAST_MODELS.openai)
+    expect(resolveNotesModel('opencode-go', 'deepseek-v4-pro', OPENCODE_GO_CATALOG)).toBe('deepseek-v4-pro')
+    expect(resolveNotesModel('opencode-go', '', OPENCODE_GO_CATALOG)).toBe(NOTES_FAST_MODELS['opencode-go'])
   })
 
   it('notesSlotIsExplicit is true only when both provider and model are set', () => {
@@ -44,6 +48,7 @@ describe('aiSlots', () => {
 
   it('resolveMemoryProvider follows Live assist, never notesProvider', () => {
     expect(resolveMemoryProvider('openai')).toBe('openai')
+    expect(resolveMemoryProvider('opencode-go')).toBe('opencode-go')
     expect(resolveMemoryProvider('anthropic')).toBe('anthropic')
     expect(resolveMemoryProvider('')).toBe('anthropic')
   })
@@ -51,7 +56,9 @@ describe('aiSlots', () => {
   it('resolveMemoryModel is Sonnet 5 / Terra, not the notes cheap default', () => {
     expect(resolveMemoryModel('anthropic')).toBe('claude-sonnet-5')
     expect(resolveMemoryModel('openai')).toBe('gpt-5.6-terra')
+    expect(resolveMemoryModel('opencode-go')).toBe('deepseek-v4-pro')
     expect(MEMORY_MODELS.anthropic).not.toBe(NOTES_FAST_MODELS.anthropic)
     expect(MEMORY_MODELS.openai).not.toBe(NOTES_FAST_MODELS.openai)
+    expect(MEMORY_MODELS['opencode-go']).not.toBe(NOTES_FAST_MODELS['opencode-go'])
   })
 })

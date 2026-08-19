@@ -25,6 +25,19 @@ describe('Settings model catalog', () => {
       'gpt-5.4',
       'gpt-5.2',
     ])
+    expect(MODEL_CATALOG['opencode-go'].map((m) => m.id)).toEqual([
+      'grok-4.5',
+      'glm-5.2',
+      'glm-5.1',
+      'kimi-k3',
+      'kimi-k2.7-code',
+      'kimi-k2.6',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
+      'mimo-v2.5',
+      'mimo-v2.5-pro',
+      'hy3',
+    ])
   })
 
   it('hides effort when the API has no effort parameter', () => {
@@ -63,6 +76,7 @@ describe('Settings model catalog', () => {
   it('shows Sonnet 5 / Terra for session memory, not Haiku / Luna', () => {
     expect(MODEL_CATALOG.anthropic.some((m) => m.id === MEMORY_MODELS.anthropic)).toBe(true)
     expect(MODEL_CATALOG.openai.some((m) => m.id === MEMORY_MODELS.openai)).toBe(true)
+    expect(MODEL_CATALOG['opencode-go'].some((m) => m.id === MEMORY_MODELS['opencode-go'])).toBe(true)
     expect(MEMORY_MODELS).not.toEqual(NOTES_FAST_MODELS)
   })
 })

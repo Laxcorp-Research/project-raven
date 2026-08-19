@@ -9,21 +9,23 @@
  * Unset notes* still defaults to the cheap models (Haiku / Luna).
  */
 
-export type AIProviderName = 'anthropic' | 'openai'
+export type AIProviderName = 'anthropic' | 'openai' | 'opencode-go'
 
 export const NOTES_FAST_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5.6-luna',
+  'opencode-go': 'kimi-k3',
 }
 
 /** System memory compact. Not user-configurable. Not the notes cheap default. */
 export const MEMORY_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-sonnet-5',
   openai: 'gpt-5.6-terra',
+  'opencode-go': 'deepseek-v4-pro',
 }
 
 export function parseAIProviderName(value: unknown): AIProviderName | null {
-  return value === 'openai' || value === 'anthropic' ? value : null
+  return value === 'openai' || value === 'anthropic' || value === 'opencode-go' ? value : null
 }
 
 /** notesProvider if set, else assist aiProvider, else Anthropic. */

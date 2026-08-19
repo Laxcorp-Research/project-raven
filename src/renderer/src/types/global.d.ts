@@ -68,7 +68,7 @@ declare global {
         deepgramKey: string,
         anthropicKey: string,
         openaiKey?: string,
-        extras?: { assemblyaiApiKey?: string; recallApiKey?: string },
+        extras?: { assemblyaiApiKey?: string; recallApiKey?: string; openCodeGoApiKey?: string },
       ) => Promise<boolean>;
       apiKeysHas: () => Promise<boolean>;
       apiKeysClear: () => Promise<boolean>;
@@ -84,7 +84,7 @@ declare global {
         error?: string;
       } | null>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
-      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; throttled?: boolean }>;
+      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai' | 'opencode-go', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; throttled?: boolean }>;
       validateAssemblyAIKey: (apiKey: string) => Promise<{ valid: boolean; error?: string }>;
       validateRecallKey: (apiKey: string, apiUrl?: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;

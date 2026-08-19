@@ -1,4 +1,4 @@
-export type AIProviderName = 'anthropic' | 'openai'
+export type AIProviderName = 'anthropic' | 'openai' | 'opencode-go'
 export type EffortLevel = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface ModelOption {
@@ -37,11 +37,25 @@ export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
     { id: 'gpt-5.4', label: 'GPT-5.4', effort: OPENAI_PRE56 },
     { id: 'gpt-5.2', label: 'GPT-5.2', effort: OPENAI_PRE56 },
   ],
+  'opencode-go': [
+    { id: 'grok-4.5', label: 'Grok 4.5', effort: null },
+    { id: 'glm-5.2', label: 'GLM-5.2', effort: null },
+    { id: 'glm-5.1', label: 'GLM-5.1', effort: null },
+    { id: 'kimi-k3', label: 'Kimi K3', effort: null },
+    { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code', effort: null },
+    { id: 'kimi-k2.6', label: 'Kimi K2.6', effort: null },
+    { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', effort: null },
+    { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', effort: null },
+    { id: 'mimo-v2.5', label: 'MiMo-V2.5', effort: null },
+    { id: 'mimo-v2.5-pro', label: 'MiMo-V2.5-Pro', effort: null },
+    { id: 'hy3', label: 'Hy3', effort: null },
+  ],
 }
 
 export const DEFAULT_MODELS: Record<AIProviderName, string> = {
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-5.6-luna',
+  'opencode-go': 'kimi-k3',
 }
 
 export const DEFAULT_EFFORT: EffortLevel = 'low'
