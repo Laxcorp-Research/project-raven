@@ -29,7 +29,7 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 **Windows:** run the setup executable. SmartScreen may warn on an unsigned OSS build — choose **More info → Run anyway**.
 
-**macOS:** the DMG is unsigned (no Apple notarization). Open it, drag Raven to Applications, then **right-click Raven → Open** the first time so Gatekeeper allows it. Intel Macs are not in this DMG — build from source below.
+**macOS:** open the DMG, drag Raven to Applications, then open it. Intel Macs are not in this DMG — build from source below.
 
 Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have.
 

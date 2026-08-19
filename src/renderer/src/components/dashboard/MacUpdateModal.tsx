@@ -113,8 +113,8 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
               {version ? `Raven ${version} is ready` : 'An update is ready'}
             </h2>
             <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-              On Mac, install this update from a disk image. It takes about a minute — follow the
-              three steps below so macOS lets Raven open.
+              On Mac, install this update from a disk image. Drag Raven into Applications, then
+              open it.
             </p>
           </div>
         </div>
@@ -145,10 +145,8 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
               3
             </span>
             <p className="text-sm text-gray-700 leading-relaxed pt-0.5">
-              In Applications, <span className="font-medium text-gray-900">right-click Raven</span>
-              {' '}and choose <span className="font-medium text-gray-900">Open</span>. If macOS says
-              it is damaged, click <span className="font-medium">Cancel</span>, then right-click
-              {' '}→ Open again. After that, double-click works as usual.
+              Open <span className="font-medium text-gray-900">Raven</span> from Applications.
+              Quit the old copy first if macOS says it is already running.
             </p>
           </li>
         </ol>

@@ -5,8 +5,11 @@ name: Release macOS
 # natives) and uploaded to the same release — hosted Windows runners cannot
 # reliably reproduce that path.
 #
-# Unsigned OSS build: no Apple cert / notarization / S3. Users open the
-# app via right-click → Open the first time (Gatekeeper).
+# Signed + notarized with the same Apple Developer ID as Pro.
+# Apple certs live on Laxcorp-Research/project-raven-private; that repo
+# calls this workflow (workflow_call) and passes MAC_CERTIFICATE / APPLE_*.
+# Dispatching on this public repo works only after those five secrets are
+# copied here.
 
 on:
   # Manual only. Auto-running on tag push emailed failures whenever the
@@ -22,6 +25,28 @@ on:
         description: 'Git ref to build (empty = main)'
         required: false
         default: 'main'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Existing GitHub Release tag to attach Mac artifacts to'
+        required: true
+        type: string
+      ref:
+        description: 'Git ref of Laxcorp-Research/project-raven to pack'
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      MAC_CERTIFICATE:
+        required: true
+      MAC_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_PASSWORD:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
 
 concurrency:
   group: release-electron
@@ -29,6 +54,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build-mac:
@@ -38,26 +64,25 @@ jobs:
 
     env:
       PKG_CONFIG_PATH: /opt/homebrew/lib/pkgconfig
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
     steps:
       - name: Resolve refs
         id: refs
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag }}"
-            REF="${{ github.event.inputs.ref }}"
-            if [ -z "$REF" ]; then REF="main"; fi
-          else
-            TAG="${GITHUB_REF_NAME}"
-            REF="${GITHUB_REF}"
-          fi
+          TAG="${{ inputs.tag }}"
+          REF="${{ inputs.ref }}"
+          if [ -z "$REF" ]; then REF="main"; fi
+          VERSION="${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building ref=$REF for release $TAG"
 
+      # Always pack public OSS, even when this job is called from
+      # project-raven-private (reusable workflows run in the caller repo).
       - uses: actions/checkout@v4
         with:
+          repository: Laxcorp-Research/project-raven
           ref: ${{ steps.refs.outputs.ref }}
 
       - name: Setup Node.js
@@ -214,19 +239,31 @@ jobs:
           npx tsc
           npx vite build
 
-      - name: Package unsigned Mac DMG + zip
+      - name: Package signed and notarized Mac DMG + zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          if [ -z "$CSC_LINK" ] || [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Missing Mac signing/notarization secrets on this repo."
+            echo "Copy from Laxcorp-Research/project-raven-private:"
+            echo "  MAC_CERTIFICATE, MAC_CERTIFICATE_PASSWORD, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID"
+            exit 1
+          fi
           # zip is required for electron-updater on macOS; dmg is the installer.
-          npx electron-builder --mac dmg zip --publish never -c.mac.identity=null
+          npx electron-builder --mac dmg zip --publish never -c.mac.notarize=true
 
       - name: Upload Mac artifacts to GitHub Release
+        if: github.repository == 'Laxcorp-Research/project-raven'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.refs.outputs.tag }}"
-          VERSION="${TAG#v}"
+          VERSION="${{ steps.refs.outputs.version }}"
           OUT="release/${VERSION}"
           ls -la "$OUT"
 
@@ -256,3 +293,13 @@ jobs:
 
           gh release upload "$TAG" "${files[@]}" --clobber
           echo "Uploaded to $TAG: ${files[*]}"
+
+      # Caller is project-raven-private: GITHUB_TOKEN cannot write the
+      # public release. Attach artifacts for a local gh release upload.
+      - name: Upload Mac artifacts for public release
+        if: github.repository != 'Laxcorp-Research/project-raven'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-release-${{ steps.refs.outputs.tag }}
+          path: release/${{ steps.refs.outputs.version }}/
+          if-no-files-found: error
