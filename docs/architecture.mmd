@@ -1,0 +1,64 @@
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "14px", "fontFamily": "Inter, Segoe UI, sans-serif", "primaryColor": "#F4F7FB", "primaryTextColor": "#1A2332", "primaryBorderColor": "#8AA0B8", "lineColor": "#5B6B7C", "secondaryColor": "#EEF6F0", "tertiaryColor": "#FFF6E8", "clusterBkg": "#F8FAFC", "clusterBorder": "#94A3B8"}}}%%
+flowchart TB
+  subgraph capture["Native audio capture"]
+    Win["Windows — Rust / NAPI-RS<br/>WASAPI loopback + capture<br/>default devices, callback PCM"]
+    Mac["macOS — Swift audiocapture<br/>ScreenCaptureKit + CoreAudio<br/>stdout framed 16 kHz S16LE"]
+  end
+
+  subgraph electron["Electron app"]
+    subgraph main["Main process"]
+      SAN["systemAudioNative<br/>capture coordinator"]
+      AM["audioManager<br/>recording + STT pick"]
+      STT["transcriptionService<br/>+ AssemblyAI dual-stream"]
+      CS["claudeService<br/>Assist / recap / follow-up"]
+      MEM["sessionMemory<br/>current recording only"]
+      RAG["ragService<br/>Xenova/all-MiniLM-L6-v2"]
+      SM["sessionManager<br/>autosave · incognito"]
+      DB[("database.ts — SQLite<br/>data/raven.db")]
+      CFG["store.ts — electron-store<br/>encrypted keys + settings"]
+    end
+    subgraph ui["Renderer"]
+      Dash["Dashboard<br/>sessions · settings · modes · insights"]
+      OV["Overlay<br/>transcript · You / Them · Assist"]
+    end
+  end
+
+  subgraph aec["GStreamer AEC + residual gate"]
+    direction TB
+    SYS["System path — reference<br/>appsrc → convert → resample → webrtcechoprobe → fakesink"]
+    MIC["Mic path — near-end<br/>appsrc → convert → resample → webrtcdsp AEC3"]
+    REG["ResidualEchoGate<br/>drop leftover speaker bleed before You STT"]
+  end
+
+  subgraph byok["Your API keys — no Raven server"]
+    DG["Deepgram nova-3"]
+    AAI["AssemblyAI u3-rt-pro"]
+    LLM["Anthropic or OpenAI"]
+  end
+
+  Win -->|"system + mic chunks"| SAN
+  Mac -->|"system + mic chunks"| SAN
+  SAN -->|"system PCM"| SYS
+  SAN -->|"mic PCM"| MIC
+  SYS -.->|"reference"| MIC
+  MIC -->|"cleaned mic"| REG
+  SAN -->|"system PCM = Them"| AM
+  REG -->|"You if not echo"| AM
+  CFG --- SAN
+  CFG --- AM
+  CFG --- CS
+  AM -->|"PCM You + Them"| STT
+  STT -->|"auto / language route"| DG
+  STT -->|"en es fr de pt it when keyed"| AAI
+  STT -->|"IPC transcript"| OV
+  OV -->|"IPC Assist"| CS
+  CS -->|"streamed reply"| OV
+  MEM --> CS
+  RAG -->|"top chunks"| CS
+  CS -->|"prompt + optional screenshot"| LLM
+  AM --> SM
+  CS --> SM
+  SM --> DB
+  RAG --> DB
+  Dash --- SM
+  Dash --- DB

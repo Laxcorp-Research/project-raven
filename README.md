@@ -161,6 +161,10 @@ flowchart TB
   Dash --- DB
 ```
 
+![Architecture](docs/architecture.png)
+
+The PNG is generated from `docs/architecture.mmd` (same graph, more labels). Re-export if you change the mermaid.
+
 **What “memory” means here**
 
 | Mechanism | Lifetime | Used for |
