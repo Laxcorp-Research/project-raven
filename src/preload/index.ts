@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('raven', {
   windowShowDashboard: () => ipcRenderer.invoke('window:show-dashboard'),
   windowResize: (width: number, height: number) => ipcRenderer.invoke('window:resize', width, height),
   windowGetOverlayBounds: () => ipcRenderer.invoke('window:get-overlay-bounds'),
+  windowGetOverlaySafeInsets: () => ipcRenderer.invoke('window:get-overlay-safe-insets'),
   windowGetCursorPoint: () => ipcRenderer.invoke('window:get-cursor-point'),
   windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
     ipcRenderer.invoke('window:set-overlay-bounds', bounds),

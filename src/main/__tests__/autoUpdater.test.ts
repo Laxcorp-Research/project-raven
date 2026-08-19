@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp } = vi.hoisted(() => {
+const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp, mockOpenExternal, mockFetchMacFeedVersion } = vi.hoisted(() => {
   const mockIpcHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const updaterListeners: Record<string, (...args: unknown[]) => void> = {}
   const mockAutoUpdater = {
@@ -14,8 +14,17 @@ const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp } = vi.hoist
     downloadUpdate: vi.fn().mockResolvedValue(undefined),
     quitAndInstall: vi.fn(),
   }
-  const mockApp = { isPackaged: true }
-  return { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp }
+  const mockApp = { isPackaged: true, getVersion: vi.fn(() => '2.3.9') }
+  const mockOpenExternal = vi.fn().mockResolvedValue(undefined)
+  const mockFetchMacFeedVersion = vi.fn().mockResolvedValue(null)
+  return {
+    mockIpcHandlers,
+    updaterListeners,
+    mockAutoUpdater,
+    mockApp,
+    mockOpenExternal,
+    mockFetchMacFeedVersion,
+  }
 })
 
 vi.mock('electron-updater', () => ({
@@ -26,11 +35,17 @@ vi.mock('electron', () => ({
   app: mockApp,
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+      if (mockIpcHandlers[channel]) {
+        throw new Error(`Attempted to register a second handler for '${channel}'`)
+      }
       mockIpcHandlers[channel] = handler
     }),
   },
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
+  },
+  shell: {
+    openExternal: mockOpenExternal,
   },
 }))
 
@@ -43,7 +58,15 @@ vi.mock('../logger', () => ({
   }),
 }))
 
-import { initAutoUpdater, stopAutoUpdater } from '../autoUpdater'
+vi.mock('../macManualUpdate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../macManualUpdate')>()
+  return {
+    ...actual,
+    fetchMacFeedVersion: mockFetchMacFeedVersion,
+  }
+})
+
+import { initAutoUpdater, stopAutoUpdater, shouldRunElectronUpdater, _resetForTesting } from '../autoUpdater'
 import { BrowserWindow } from 'electron'
 
 describe('autoUpdater', () => {
@@ -53,12 +76,22 @@ describe('autoUpdater', () => {
     Object.keys(mockIpcHandlers).forEach((k) => delete mockIpcHandlers[k])
     Object.keys(updaterListeners).forEach((k) => delete updaterListeners[k])
     mockAutoUpdater.checkForUpdates.mockResolvedValue(undefined)
+    mockFetchMacFeedVersion.mockResolvedValue(null)
+    mockOpenExternal.mockResolvedValue(undefined)
     mockApp.isPackaged = true
+    mockApp.getVersion.mockReturnValue('2.3.9')
+    // Packaged tests exercise the Windows updater path. On a Mac host
+    // process.platform is darwin and would skip checks after the OSS
+    // ShipIt signature fix.
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    _resetForTesting()
   })
 
   afterEach(() => {
     stopAutoUpdater()
+    _resetForTesting()
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   describe('initAutoUpdater', () => {
@@ -87,6 +120,14 @@ describe('autoUpdater', () => {
       expect(mockIpcHandlers['update:check']).toBeDefined()
       expect(mockIpcHandlers['update:install']).toBeDefined()
       expect(mockIpcHandlers['update:get-state']).toBeDefined()
+    })
+
+    it('does not throw if boot() / activate calls initAutoUpdater twice', () => {
+      initAutoUpdater()
+      expect(() => initAutoUpdater()).not.toThrow()
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(10_000)
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledOnce()
     })
 
     it('performs initial check after 10s', () => {
@@ -126,7 +167,11 @@ describe('autoUpdater', () => {
       initAutoUpdater()
       updaterListeners['update-available']({ version: '2.0.0' })
 
-      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', { status: 'available', version: '2.0.0' })
+      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', {
+        status: 'available',
+        version: '2.0.0',
+        install: 'auto',
+      })
     })
 
     it('update-not-available broadcasts transient up-to-date then decays to idle', () => {
@@ -169,7 +214,7 @@ describe('autoUpdater', () => {
       expect(sends).toEqual(
         expect.arrayContaining([
           { status: 'up-to-date' },
-          { status: 'available', version: '9.9.9' },
+          { status: 'available', version: '9.9.9', install: 'auto' },
         ]),
       )
       expect(sends).not.toContainEqual({ status: 'idle' })
@@ -340,5 +385,103 @@ describe('autoUpdater', () => {
       expect(mockIpcHandlers['update:install']).toBeDefined()
       expect(mockIpcHandlers['update:get-state']).toBeDefined()
     })
+  })
+
+  describe('packaged macOS (unsigned OSS)', () => {
+    beforeEach(() => {
+      mockApp.isPackaged = true
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+      _resetForTesting()
+    })
+
+    it('does not schedule ShipIt checks', async () => {
+      initAutoUpdater()
+      vi.advanceTimersByTime(10_000)
+      await Promise.resolve()
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(60 * 60 * 1000)
+      await Promise.resolve()
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+    })
+
+    it('after 10s, a newer GitHub feed broadcasts the Mac DMG prompt and never calls ShipIt', async () => {
+      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
+      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
+
+      initAutoUpdater()
+      vi.advanceTimersByTime(10_000)
+      await Promise.resolve()
+
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', {
+        status: 'available',
+        version: '2.4.0',
+        install: 'mac-dmg',
+        dmgUrl: 'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
+        forcePrompt: false,
+      })
+    })
+
+    it('scheduled feed failures stay silent (no error banner state)', async () => {
+      mockFetchMacFeedVersion.mockRejectedValue(new Error('net::ERR_INTERNET_DISCONNECTED'))
+      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
+
+      initAutoUpdater()
+      vi.advanceTimersByTime(10_000)
+      await Promise.resolve()
+
+      expect(mockWin.webContents.send).not.toHaveBeenCalled()
+      expect(mockIpcHandlers['update:get-state']()).toEqual({ status: 'idle' })
+    })
+
+    it('update:check uses the GitHub feed, not electron-updater', async () => {
+      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
+      initAutoUpdater()
+      const result = await mockIpcHandlers['update:check']()
+      expect(result).toEqual({ success: true })
+      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      expect(mockIpcHandlers['update:get-state']()).toEqual({
+        status: 'available',
+        version: '2.4.0',
+        install: 'mac-dmg',
+        dmgUrl: 'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
+        forcePrompt: true,
+      })
+    })
+
+    it('update:download opens the GitHub DMG and never calls ShipIt', async () => {
+      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
+      initAutoUpdater()
+      await mockIpcHandlers['update:check']()
+      const result = await mockIpcHandlers['update:download']()
+      expect(result).toEqual({ success: true })
+      expect(mockOpenExternal).toHaveBeenCalledWith(
+        'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
+      )
+      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    })
+
+    it('update:download without a detected update does not open a URL', async () => {
+      initAutoUpdater()
+      const result = await mockIpcHandlers['update:download']()
+      expect(result).toEqual({
+        success: false,
+        error: 'No Mac installer is ready. Check for updates first.',
+      })
+      expect(mockOpenExternal).not.toHaveBeenCalled()
+      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe('shouldRunElectronUpdater', () => {
+  it('skips unpackaged and packaged Mac; allows packaged Windows and Linux', () => {
+    expect(shouldRunElectronUpdater({ packaged: false, platform: 'darwin' })).toBe(false)
+    expect(shouldRunElectronUpdater({ packaged: false, platform: 'win32' })).toBe(false)
+    expect(shouldRunElectronUpdater({ packaged: true, platform: 'darwin' })).toBe(false)
+    expect(shouldRunElectronUpdater({ packaged: true, platform: 'win32' })).toBe(true)
+    expect(shouldRunElectronUpdater({ packaged: true, platform: 'linux' })).toBe(true)
   })
 })

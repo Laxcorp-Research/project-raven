@@ -21,10 +21,18 @@ import { useOverlayDrag } from './useOverlayDrag'
 import { useMousePassthrough } from './useMousePassthrough'
 import { createLogger } from '../../lib/logger'
 import { detectMacPlatform, modifierLabel } from '../../lib/shortcutLabels'
+import {
+  EMPTY_OVERLAY_INSETS,
+  placeOverlayPanel,
+  type OverlayInsets,
+} from '../../lib/overlayPanelLayout'
 
 const assistModKey = modifierLabel(detectMacPlatform())
 
 const log = createLogger('OverlayWindow')
+
+/** If `claude:response` start never arrives, unlatch so later clicks work. */
+const AI_START_WATCHDOG_MS = 8_000
 
 interface ResponseCard {
   id: string
@@ -93,8 +101,8 @@ const getActionLabel = (action?: string): string => {
 }
 
 export function OverlayWindow() {
-  // --- Extracted hooks ---
-  const resize = useOverlayResize()
+  const [safeInsets, setSafeInsets] = useState<OverlayInsets>(EMPTY_OVERLAY_INSETS)
+  const resize = useOverlayResize(safeInsets)
   const {
     panelWidth, panelRight, panelBottom, panelHeight,
     setPanelRight, setPanelBottom, setPanelHeight,
@@ -118,6 +126,16 @@ export function OverlayWindow() {
   const { setOverlayMouseIgnore } = useMousePassthrough({
     pillWrapperRef, panelWrapperRef, leftRailRef, rightRailRef, bottomRailRef, notificationRef,
   })
+
+  const panelColumnRef = useRef<HTMLDivElement | null>(null)
+  const layoutRef = useRef({
+    panelWidth,
+    panelRight,
+    panelBottom,
+    panelHeight,
+    safeInsets,
+  })
+  layoutRef.current = { panelWidth, panelRight, panelBottom, panelHeight, safeInsets }
 
   // State
   const [isRecording, setIsRecording] = useState(false)
@@ -145,6 +163,7 @@ export function OverlayWindow() {
   const hideXTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeResponseIdRef = useRef<string | null>(null)
   const requestInFlightRef = useRef(false)
+  const aiStartWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const responseAreaRef = useRef<HTMLDivElement | null>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const notificationTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -155,6 +174,7 @@ export function OverlayWindow() {
   const { handleLogoClick, handleLogoMouseDown, cleanupDrag } = useOverlayDrag({
     panelRight, panelBottom, panelWidth, panelHeight,
     defaultCompactHeight: OVERLAY_DEFAULT_COMPACT_HEIGHT,
+    insets: safeInsets,
     setPanelRight, setPanelBottom, setOverlayMouseIgnore,
   })
 
@@ -179,6 +199,14 @@ export function OverlayWindow() {
       setIsRecording(state.isRecording)
     }).catch((err) => log.error('Failed to get audio state:', err))
 
+    const loadInsets = () => {
+      void window.raven.windowGetOverlaySafeInsets?.().then((insets) => {
+        if (insets && typeof insets.top === 'number') setSafeInsets(insets)
+      }).catch(() => {})
+    }
+    loadInsets()
+    window.addEventListener('resize', loadInsets)
+
     const unsubStealth = window.raven.onStealthChanged((enabled: boolean) => {
       setStealthEnabled(enabled)
     })
@@ -198,7 +226,14 @@ export function OverlayWindow() {
     })
 
     const unsubClaude = window.raven.onClaudeResponse((data) => {
+      const clearWatchdog = () => {
+        if (aiStartWatchdogRef.current) {
+          clearTimeout(aiStartWatchdogRef.current)
+          aiStartWatchdogRef.current = null
+        }
+      }
       if (data.type === 'start') {
+        clearWatchdog()
         requestInFlightRef.current = true
         setIsLoadingResponse(true)
         setLimitInfo(null)
@@ -232,6 +267,7 @@ export function OverlayWindow() {
           )
         )
       } else if (data.type === 'done') {
+        clearWatchdog()
         requestInFlightRef.current = false
         setIsLoadingResponse(false)
         const targetId = data.messageId || activeResponseIdRef.current
@@ -247,6 +283,7 @@ export function OverlayWindow() {
         setActiveResponseId(null)
         activeResponseIdRef.current = null
       } else if (data.type === 'error') {
+        clearWatchdog()
         requestInFlightRef.current = false
         setIsLoadingResponse(false)
 
@@ -267,6 +304,7 @@ export function OverlayWindow() {
         setActiveResponseId(null)
         activeResponseIdRef.current = null
       } else if (data.type === 'cleared') {
+        clearWatchdog()
         requestInFlightRef.current = false
         setResponses([])
         setLimitInfo(null)
@@ -314,8 +352,13 @@ export function OverlayWindow() {
         clearTimeout(scrollHideTimerRef.current)
         scrollHideTimerRef.current = null
       }
+      if (aiStartWatchdogRef.current) {
+        clearTimeout(aiStartWatchdogRef.current)
+        aiStartWatchdogRef.current = null
+      }
       cleanupDrag()
       setOverlayMouseIgnore(false)
+      window.removeEventListener('resize', loadInsets)
     }
     // cleanupDrag, cleanupResize and isRecording are intentionally omitted:
     // this effect runs once per overlay mount to wire up global listeners.
@@ -328,28 +371,39 @@ export function OverlayWindow() {
     const unsub = window.raven.onHotkeyMove((direction: 'up' | 'down' | 'left' | 'right') => {
       const vw = window.innerWidth
       const vh = window.innerHeight
-
+      const { panelWidth: w, panelHeight: h, panelRight: r, panelBottom: b, safeInsets: insets } = layoutRef.current
+      const height = h ?? OVERLAY_DEFAULT_COMPACT_HEIGHT
+      let nextRight = r
+      let nextBottom = b
       switch (direction) {
         case 'up':
-          setPanelBottom(prev => Math.min(prev + MOVE_STEP, vh - (panelHeight ?? OVERLAY_DEFAULT_COMPACT_HEIGHT)))
+          nextBottom = b + MOVE_STEP
           break
         case 'down':
-          setPanelBottom(prev => Math.max(prev - MOVE_STEP, 0))
+          nextBottom = b - MOVE_STEP
           break
         case 'left':
-          setPanelRight(prev => Math.min(prev + MOVE_STEP, vw - panelWidth))
+          nextRight = r + MOVE_STEP
           break
         case 'right':
-          setPanelRight(prev => Math.max(prev - MOVE_STEP, 0))
+          nextRight = r - MOVE_STEP
           break
       }
+      const placed = placeOverlayPanel({
+        viewportWidth: vw,
+        viewportHeight: vh,
+        insets,
+        width: w,
+        height,
+        right: nextRight,
+        bottom: nextBottom,
+        previousHeight: height,
+      })
+      setPanelRight(placed.right)
+      setPanelBottom(placed.bottom)
     })
     return () => unsub()
-    // setPanelBottom / setPanelRight / OVERLAY_DEFAULT_COMPACT_HEIGHT are
-    // stable (state setters + a module constant); re-subscribing to
-    // onHotkeyMove on every render would rebuild the IPC listener chain.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelWidth, panelHeight])
+  }, [setPanelRight, setPanelBottom, OVERLAY_DEFAULT_COMPACT_HEIGHT])
 
   useEffect(() => {
     if (!responseAreaRef.current) return
@@ -525,42 +579,81 @@ export function OverlayWindow() {
     await window.raven.storeSet('incognitoMode', next)
   }, [incognitoMode])
 
-  const handleAssist = async () => {
+  const clearAiStartWatchdog = useCallback(() => {
+    if (aiStartWatchdogRef.current) {
+      clearTimeout(aiStartWatchdogRef.current)
+      aiStartWatchdogRef.current = null
+    }
+  }, [])
+
+  const armAiStartWatchdog = useCallback(() => {
+    clearAiStartWatchdog()
+    aiStartWatchdogRef.current = setTimeout(() => {
+      aiStartWatchdogRef.current = null
+      if (!requestInFlightRef.current || activeResponseIdRef.current) return
+      requestInFlightRef.current = false
+      setIsLoadingResponse(false)
+      setResponses((prev) => [
+        ...prev,
+        {
+          id: `ai-timeout-${Date.now()}`,
+          content: 'Raven did not start a reply. Check the AI API key in Settings, then try again.',
+          action: 'Error',
+          badgeVariant: 'system',
+          hasScreenshot: false,
+        },
+      ])
+    }, AI_START_WATCHDOG_MS)
+  }, [clearAiStartWatchdog])
+
+  const beginAiRequest = useCallback(async (opts: {
+    action: string
+    customPrompt?: string
+    includeScreenshot: boolean
+  }) => {
     if (requestInFlightRef.current) return
     requestInFlightRef.current = true
     setIsAtBottom(true)
+    setIsLoadingResponse(true)
+    setActiveTab('responses')
+    armAiStartWatchdog()
 
-    const transcript = await window.raven.getTranscript()
-    const activeMode = await window.raven.modes.getActive()
-
-    void window.raven.claudeGetResponse({
-      transcript,
-      action: 'assist',
-      modePrompt: activeMode?.systemPrompt,
-      modeId: activeMode?.id,
-      includeScreenshot: true
-    }).catch(() => {
+    try {
+      const transcript = await window.raven.getTranscript()
+      const activeMode = await window.raven.modes.getActive()
+      if (!requestInFlightRef.current) return
+      await window.raven.claudeGetResponse({
+        transcript,
+        action: opts.action,
+        customPrompt: opts.customPrompt,
+        modePrompt: activeMode?.systemPrompt,
+        modeId: activeMode?.id,
+        includeScreenshot: opts.includeScreenshot,
+      })
+    } catch (error) {
+      clearAiStartWatchdog()
       requestInFlightRef.current = false
-    })
+      setIsLoadingResponse(false)
+      log.error('AI request failed:', error)
+      setResponses((prev) => [
+        ...prev,
+        {
+          id: `ai-fail-${Date.now()}`,
+          content: error instanceof Error ? error.message : 'Could not reach Raven. Try again.',
+          action: 'Error',
+          badgeVariant: 'system',
+          hasScreenshot: false,
+        },
+      ])
+    }
+  }, [armAiStartWatchdog, clearAiStartWatchdog])
+
+  const handleAssist = async () => {
+    await beginAiRequest({ action: 'assist', includeScreenshot: true })
   }
 
   const handleQuickAction = async (action: string) => {
-    if (requestInFlightRef.current) return
-    requestInFlightRef.current = true
-    setIsAtBottom(true)
-
-    const transcript = await window.raven.getTranscript()
-    const activeMode = await window.raven.modes.getActive()
-
-    void window.raven.claudeGetResponse({
-      transcript,
-      action,
-      modePrompt: activeMode?.systemPrompt,
-      modeId: activeMode?.id,
-      includeScreenshot: false
-    }).catch(() => {
-      requestInFlightRef.current = false
-    })
+    await beginAiRequest({ action, includeScreenshot: false })
   }
 
   const handleSend = async () => {
@@ -568,29 +661,11 @@ export function OverlayWindow() {
 
     const trimmed = inputValue.trim()
     if (!trimmed) return
-    requestInFlightRef.current = true
-    setIsAtBottom(true)
-
     setInputValue('')
-
-    const transcript = await window.raven.getTranscript()
-    const activeMode = await window.raven.modes.getActive()
-
-    void window.raven.claudeGetResponse({
-      transcript,
+    await beginAiRequest({
       action: 'custom',
       customPrompt: trimmed,
-      modePrompt: activeMode?.systemPrompt,
-      modeId: activeMode?.id,
-      // Send a screenshot with every typed question. Users legitimately
-      // ask "what's on my screen?" / "explain this chart" / "summarise
-      // this code" and expect the model to see what they're looking at
-      // rather than having to paste context. Cost is roughly an extra
-      // image input per question (modest at current Anthropic prices).
-      // Matches Cluely's behaviour.
-      includeScreenshot: true
-    }).catch(() => {
-      requestInFlightRef.current = false
+      includeScreenshot: true,
     })
   }
 
@@ -667,17 +742,44 @@ export function OverlayWindow() {
   }, [limitInfo])
 
   useEffect(() => {
-    if (isPanelExpanded && !panelHeight) {
-      setPanelHeight(OVERLAY_DEFAULT_EXPANDED_HEIGHT)
-    } else if (!isPanelExpanded) {
+    const { panelWidth: w, panelRight: r, panelBottom: b, panelHeight: h } = layoutRef.current
+    const height = h ?? OVERLAY_DEFAULT_COMPACT_HEIGHT
+    const placed = placeOverlayPanel({
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      insets: safeInsets,
+      width: w,
+      height,
+      right: r,
+      bottom: b,
+      previousHeight: height,
+    })
+    if (placed.bottom !== b) setPanelBottom(placed.bottom)
+    if (placed.right !== r) setPanelRight(placed.right)
+  }, [safeInsets, setPanelBottom, setPanelRight, OVERLAY_DEFAULT_COMPACT_HEIGHT])
+
+  useEffect(() => {
+    if (!isPanelExpanded) {
       setPanelHeight(undefined)
+      return
     }
-    // panelHeight, setPanelHeight, OVERLAY_DEFAULT_EXPANDED_HEIGHT:
-    // panelHeight omitted because we want this to only run on expand/
-    // collapse; setPanelHeight is stable; the constant is a module-level
-    // literal and cannot change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelExpanded])
+
+    const { panelWidth: w, panelRight: r, panelBottom: b, safeInsets: insets } = layoutRef.current
+    const previousHeight = panelColumnRef.current?.offsetHeight ?? OVERLAY_DEFAULT_COMPACT_HEIGHT
+    const placed = placeOverlayPanel({
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      insets,
+      width: w,
+      height: OVERLAY_DEFAULT_EXPANDED_HEIGHT,
+      right: r,
+      bottom: b,
+      previousHeight,
+    })
+    setPanelHeight(placed.height)
+    setPanelBottom(placed.bottom)
+    setPanelRight(placed.right)
+  }, [isPanelExpanded, setPanelHeight, setPanelBottom, setPanelRight, OVERLAY_DEFAULT_COMPACT_HEIGHT, OVERLAY_DEFAULT_EXPANDED_HEIGHT])
 
   return (
     <div
@@ -698,6 +800,7 @@ export function OverlayWindow() {
 
     {/* Main panel - bottom right, draggable */}
     <div
+      ref={panelColumnRef}
       className="absolute flex flex-col p-4 pb-6 bg-transparent pointer-events-none"
       style={{
         WebkitAppRegion: 'no-drag',
@@ -707,7 +810,7 @@ export function OverlayWindow() {
         right: `${panelRight}px`,
         width: `${panelWidth}px`,
         ...(panelHeight ? { height: `${panelHeight}px` } : {}),
-        maxHeight: 'calc(100vh - 40px)',
+        maxHeight: `calc(100vh - ${safeInsets.top + safeInsets.bottom + 40}px)`,
       } as CSSProperties}
     >
       {/* Controller Pill - Centered */}
@@ -1117,34 +1220,45 @@ export function OverlayWindow() {
 
           {/* Quick Actions - Only when recording */}
           {isRecording && (
-            <div className="px-4 py-2.5 flex items-center gap-2 text-xs tracking-tight text-white/75 border-t border-white/15 flex-nowrap overflow-x-auto whitespace-nowrap">
+            <div
+              className="px-4 py-2.5 flex items-center gap-2 text-xs tracking-tight text-white/75 border-t border-white/15 flex-nowrap overflow-x-auto whitespace-nowrap pointer-events-auto"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
               <button
+                type="button"
+                disabled={isLoadingResponse}
                 onClick={() => { void handleAssist() }}
-                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0"
+                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:hover:text-white/75"
               >
                 <Sparkles size={14} className="text-white/70" />
                 Assist
               </button>
               <div className="w-[3px] h-[3px] rounded-full bg-white/20 shrink-0" />
               <button
-                onClick={() => handleQuickAction('what-should-i-say')}
-                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0"
+                type="button"
+                disabled={isLoadingResponse}
+                onClick={() => { void handleQuickAction('what-should-i-say') }}
+                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:hover:text-white/75"
               >
                 <Wand2 size={14} className="text-white/70" />
                 What should I say?
               </button>
               <div className="w-[3px] h-[3px] rounded-full bg-white/20 shrink-0" />
               <button
-                onClick={() => handleQuickAction('follow-up')}
-                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0"
+                type="button"
+                disabled={isLoadingResponse}
+                onClick={() => { void handleQuickAction('follow-up') }}
+                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:hover:text-white/75"
               >
                 <MessageSquareText size={14} className="text-white/70" />
                 Follow-up questions
               </button>
               <div className="w-[3px] h-[3px] rounded-full bg-white/20 shrink-0" />
               <button
-                onClick={() => handleQuickAction('recap')}
-                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0"
+                type="button"
+                disabled={isLoadingResponse}
+                onClick={() => { void handleQuickAction('recap') }}
+                className="hover:text-white transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:hover:text-white/75"
               >
                 <RotateCcw size={14} className="text-white/70" />
                 Recap

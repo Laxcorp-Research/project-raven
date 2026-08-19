@@ -402,7 +402,7 @@ export class ClaudeService {
       try {
         if (this.isProcessing) {
           log.debug('Ignoring request while processing is active');
-          return;
+          return { ignored: true as const };
         }
 
         this.isProcessing = true;
@@ -865,13 +865,22 @@ export class ClaudeService {
     limitInfo?: { used: number; limit: number; resetAt: string };
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
   }): void {
-    try {
-      if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-        this.overlayWindow.webContents.send('claude:response', data);
+    const sent = new Set<object>();
+    const send = (win: BrowserWindow | null): void => {
+      if (!win || win.isDestroyed() || sent.has(win)) return;
+      sent.add(win);
+      try {
+        win.webContents.send('claude:response', data);
+      } catch (err) {
+        log.error('Broadcast error:', err);
       }
-    } catch (err) {
-      log.error('Broadcast error:', err);
-    }
+    };
+    send(this.overlayWindow);
+    // Fan out to every live window. If boot() rebuilt the overlay but this
+    // service still holds the old BrowserWindow, replies would otherwise
+    // vanish while the transcript (wired through audioManager) kept working.
+    const windows = BrowserWindow.getAllWindows() ?? [];
+    for (const win of windows) send(win);
   }
 
   private broadcastError(error: string): void {

@@ -5,6 +5,7 @@ interface UpdateState {
   version?: string
   error?: string
   progress?: number
+  install?: 'auto' | 'mac-dmg'
 }
 
 export function GeneralTab() {
@@ -190,7 +191,7 @@ export function GeneralTab() {
               onClick={handleDownloadUpdate}
               className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
             >
-              Update now
+              {updateState.install === 'mac-dmg' ? 'Download installer' : 'Update now'}
             </button>
           ) : (
             <button

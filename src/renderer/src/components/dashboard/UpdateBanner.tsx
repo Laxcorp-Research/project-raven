@@ -6,6 +6,7 @@ interface UpdateState {
   version?: string
   error?: string
   progress?: number
+  install?: 'auto' | 'mac-dmg'
 }
 
 export function UpdateBanner() {
@@ -38,6 +39,9 @@ export function UpdateBanner() {
   const handleDismiss = useCallback(() => {
     setDismissed(true)
   }, [])
+
+  // Mac OSS uses the dedicated installer dialog, not ShipIt's banner.
+  if (updateState.install === 'mac-dmg') return null
 
   const canDismiss = updateState.status === 'available' || updateState.status === 'error'
   if (dismissed && canDismiss) return null

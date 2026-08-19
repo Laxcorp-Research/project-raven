@@ -136,6 +136,15 @@ vi.mock('../windowManager', () => ({
   getDashboardWindow: mockGetDashboardWindow,
   getOverlayWindow: mockGetOverlayWindow,
   clampOverlayBoundsToDisplay: mockClampOverlayBoundsToDisplay,
+  overlaySafeInsetsForWindow: (
+    bounds: { x: number; y: number; width: number; height: number },
+    workArea: { x: number; y: number; width: number; height: number },
+  ) => ({
+    top: Math.max(0, Math.round(workArea.y - bounds.y)),
+    left: Math.max(0, Math.round(workArea.x - bounds.x)),
+    right: Math.max(0, Math.round((bounds.x + bounds.width) - (workArea.x + workArea.width))),
+    bottom: Math.max(0, Math.round((bounds.y + bounds.height) - (workArea.y + workArea.height))),
+  }),
 }))
 
 vi.mock('../ipcThrottle', () => ({
@@ -939,6 +948,34 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
       const result = handlers['window:auto-size-overlay'](fakeEvent(), 'compact')
 
       expect(result).toBe(true)
+    })
+  })
+
+  describe('window:get-overlay-safe-insets', () => {
+    it('returns zeros when there is no overlay', () => {
+      mockGetOverlayWindow.mockReturnValue(null)
+      expect(handlers['window:get-overlay-safe-insets'](fakeEvent())).toEqual({
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      })
+    })
+
+    it('returns the menu-bar gap between fullscreen overlay bounds and the work area', () => {
+      mockGetOverlayWindow.mockReturnValue(createMockOverlay({
+        getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1512, height: 982 })),
+      }))
+      mockGetDisplayMatching.mockReturnValue({
+        workArea: { x: 0, y: 38, width: 1512, height: 944 },
+      })
+
+      expect(handlers['window:get-overlay-safe-insets'](fakeEvent())).toEqual({
+        top: 38,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      })
     })
   })
 

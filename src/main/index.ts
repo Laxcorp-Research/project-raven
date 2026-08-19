@@ -307,6 +307,8 @@ function registerGlobalHotkeys(
   }
 }
 
+let backgroundServicesStarted = false
+
 function boot(): void {
   const rendererURL = ipv4RendererURL(process.env.VITE_DEV_SERVER_URL || null)
 
@@ -385,6 +387,13 @@ function boot(): void {
   if (!shouldEnableOverlay) {
     setTrayOnboarding(true)
   }
+
+  // Tray / updater / analytics register process-wide IPC. A second boot()
+  // (macOS activate after every window is gone) used to throw
+  // "Attempted to register a second handler for 'update:check'".
+  if (backgroundServicesStarted) return
+  backgroundServicesStarted = true
+
   createTray()
   initAutoUpdater()
   initAnalytics()

@@ -94,8 +94,24 @@ declare global {
       updateCheck: () => Promise<{ success: boolean; error?: string; skipped?: string }>;
       updateDownload: () => Promise<{ success: boolean; error?: string }>;
       updateInstall: () => Promise<{ success: boolean }>;
-      updateGetState: () => Promise<{ status: string; version?: string; error?: string; progress?: number }>;
-      onUpdateStateChanged: (callback: (state: { status: string; version?: string; error?: string; progress?: number }) => void) => () => void;
+      updateGetState: () => Promise<{
+        status: string
+        version?: string
+        error?: string
+        progress?: number
+        install?: 'auto' | 'mac-dmg'
+        dmgUrl?: string
+        forcePrompt?: boolean
+      }>;
+      onUpdateStateChanged: (callback: (state: {
+        status: string
+        version?: string
+        error?: string
+        progress?: number
+        install?: 'auto' | 'mac-dmg'
+        dmgUrl?: string
+        forcePrompt?: boolean
+      }) => void) => () => void;
       recallIsAvailable: () => Promise<boolean>;
       recallGetState: () => Promise<{ isRecording: boolean; windowId: number | null; sdkReady: boolean }>;
       recallGetDetectedMeetings: () => Promise<Array<{ windowId: number; platform: string | null; title: string | null; detectedAt: number }>>;
@@ -116,6 +132,7 @@ declare global {
       windowShowDashboard: () => Promise<boolean>;
       windowResize: (width: number, height: number) => Promise<boolean>;
       windowGetOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>;
+      windowGetOverlaySafeInsets: () => Promise<{ top: number; right: number; bottom: number; left: number }>;
       windowGetCursorPoint: () => Promise<{ x: number; y: number }>;
       windowSetOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>;
       windowHideOverlay: () => Promise<boolean>;
@@ -219,7 +236,7 @@ declare global {
         modePrompt?: string;
         modeId?: string;
         includeScreenshot?: boolean;
-      }) => Promise<void>;
+      }) => Promise<{ ignored?: boolean } | void>;
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
       claudeClearHistory: () => Promise<{ success: boolean }>;
       onClaudeResponse: (callback: (data: {

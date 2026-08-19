@@ -66,6 +66,9 @@ export interface LocalSettings {
   displayName: string;
   profilePicturePath: string;
 
+  /** Last Mac DMG version the user tapped Later on. Empty = never dismissed. */
+  macUpdateDismissedVersion: string;
+
   // Pro extensions store arbitrary keys via saveSetting()
   // (e.g. auth_tokens, auth_user, sync_queue, backendUrl)
   [key: string]: unknown;
@@ -98,6 +101,7 @@ const STORE_DEFAULTS: LocalSettings = {
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
+  macUpdateDismissedVersion: '',
 };
 
 function createStore(): Store<LocalSettings> {
@@ -177,6 +181,7 @@ export function getAllSettings(): LocalSettings {
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),
+    macUpdateDismissedVersion: store.get('macUpdateDismissedVersion'),
     proOnboardingComplete: store.get('proOnboardingComplete'),
     proOnboardingStep: store.get('proOnboardingStep'),
     cachedUserProfile: store.get('cachedUserProfile' as keyof LocalSettings) || null,
