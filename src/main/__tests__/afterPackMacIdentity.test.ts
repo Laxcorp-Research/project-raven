@@ -23,6 +23,7 @@ interface AfterPackCJS {
       existsSync: (p: string) => boolean
     },
   ) => void
+  _shouldAdhocSignMacApp: (env?: NodeJS.ProcessEnv) => boolean
   _BUNDLE_ID: string
 }
 
@@ -59,5 +60,30 @@ describe('scripts/afterPack-mac-identity.cjs', () => {
       /not found/,
     )
     expect(execFileSync).not.toHaveBeenCalled()
+  })
+
+  describe('_shouldAdhocSignMacApp', () => {
+    it('skips adhoc when CSC_LINK is set (Developer ID from p12)', () => {
+      expect(
+        hook._shouldAdhocSignMacApp({
+          CSC_LINK: 'cert.p12',
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+        }),
+      ).toBe(false)
+    })
+
+    it('skips adhoc when CSC_NAME is set (keychain identity name)', () => {
+      expect(hook._shouldAdhocSignMacApp({ CSC_NAME: 'Developer ID Application: Example' })).toBe(
+        false,
+      )
+    })
+
+    it('adhoc-signs only when auto-discovery is off and no cert is provided', () => {
+      expect(hook._shouldAdhocSignMacApp({ CSC_IDENTITY_AUTO_DISCOVERY: 'false' })).toBe(true)
+    })
+
+    it('skips adhoc by default so keychain Developer ID can sign', () => {
+      expect(hook._shouldAdhocSignMacApp({})).toBe(false)
+    })
   })
 })

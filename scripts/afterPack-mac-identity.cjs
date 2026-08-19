@@ -1,11 +1,16 @@
 'use strict'
 
 /**
- * Unsigned OSS Mac builds leave Electron's default adhoc signature
- * (Identifier=Electron, Info.plist not bound). TCC then shows a "Raven"
- * row in Screen Recording while getMediaAccessStatus('screen') stays
- * denied. Re-sign the .app adhoc with our bundle id so the plist is
- * bound. Helpers are left alone (no --deep).
+ * Ad-hoc fallback only. Developer ID packs (CSC_LINK / CSC_NAME, or
+ * keychain auto-discovery) are signed by electron-builder after this
+ * hook — do not overwrite that with `codesign --sign -`.
+ *
+ * Unsigned packs (`identity=null` / CSC_IDENTITY_AUTO_DISCOVERY=false)
+ * leave Electron's default adhoc signature (Identifier=Electron,
+ * Info.plist not bound). TCC then shows a "Raven" row in Screen
+ * Recording while getMediaAccessStatus('screen') stays denied. Re-sign
+ * the .app adhoc with our bundle id so the plist is bound. Helpers are
+ * left alone (no --deep).
  *
  * Windows afterPack is a no-op.
  */
@@ -15,6 +20,15 @@ const fs = require('fs')
 const path = require('path')
 
 const BUNDLE_ID = 'com.laxcorpresearch.raven'
+
+/**
+ * True when electron-builder will not apply a Developer ID signature.
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function shouldAdhocSignMacApp(env = process.env) {
+  if (env.CSC_LINK || env.CSC_NAME) return false
+  return env.CSC_IDENTITY_AUTO_DISCOVERY === 'false'
+}
 
 /**
  * @param {string} appPath
@@ -38,6 +52,7 @@ function adhocSignMacApp(appPath, deps) {
  */
 async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return
+  if (!shouldAdhocSignMacApp()) return
   const appPath = path.join(
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.app`,
@@ -47,4 +62,5 @@ async function afterPack(context) {
 
 module.exports = afterPack
 module.exports._adhocSignMacApp = adhocSignMacApp
+module.exports._shouldAdhocSignMacApp = shouldAdhocSignMacApp
 module.exports._BUNDLE_ID = BUNDLE_ID

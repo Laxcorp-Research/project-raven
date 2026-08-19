@@ -37,6 +37,13 @@
       "zip"
     ],
     "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    // Same Developer ID + notarize path as Pro (CSC_LINK / APPLE_* in CI).
+    // Notarize is enabled by the release workflow (-c.mac.notarize=true), not
+    // here, so a local pack without Apple ID still signs from the keychain.
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
     "extendInfo": {
       "NSScreenCaptureUsageDescription": "This app needs Screen Recording to capture system audio and screenshots."
     },
