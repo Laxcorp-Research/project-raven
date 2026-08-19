@@ -23,7 +23,8 @@ import {
   type SessionMemory,
 } from './services/ai/sessionMemory';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { buildSessionTitlePrompt } from './services/sessionNotesPrompt';
 
 const log = createLogger('Claude');
 
@@ -321,21 +322,10 @@ export async function generateSessionTitle(
   transcriptText: string
 ): Promise<string> {
   try {
-    const { getFastProvider } = await import('./services/ai/providerFactory');
-    const provider = await getFastProvider();
+    const { getNotesProvider } = await import('./services/ai/providerFactory');
+    const provider = await getNotesProvider();
 
-    const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
-
-<transcript>
-${transcriptText.slice(0, TITLE_TRANSCRIPT_SLICE)}
-</transcript>
-
-<examples>
-Good titles: "Q4 Sales Review", "Marketing Budget Discussion", "Team Standup Meeting", "Interview with John"
-Bad titles: "I'd be happy to help...", "Here's a title:", "The conversation is about..."
-</examples>
-
-Title:`;
+    const prompt = buildSessionTitlePrompt(transcriptText);
 
     let title = await provider.generateShort({ prompt, maxTokens: TITLE_MAX_TOKENS });
 
@@ -402,7 +392,7 @@ export class ClaudeService {
       try {
         if (this.isProcessing) {
           log.debug('Ignoring request while processing is active');
-          return;
+          return { ignored: true as const };
         }
 
         this.isProcessing = true;
@@ -751,8 +741,8 @@ export class ClaudeService {
     );
 
     try {
-      const { getFastProvider } = await import('./services/ai/providerFactory');
-      const provider = await getFastProvider();
+      const { getMemoryProvider } = await import('./services/ai/providerFactory');
+      const provider = await getMemoryProvider();
       const raw = await provider.generateShort({
         prompt: buildMemoryUpdatePrompt({
           previousMemory: this.conversation.memory.text,
@@ -865,13 +855,22 @@ export class ClaudeService {
     limitInfo?: { used: number; limit: number; resetAt: string };
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
   }): void {
-    try {
-      if (this.overlayWindow && !this.overlayWindow.isDestroyed()) {
-        this.overlayWindow.webContents.send('claude:response', data);
+    const sent = new Set<object>();
+    const send = (win: BrowserWindow | null): void => {
+      if (!win || win.isDestroyed() || sent.has(win)) return;
+      sent.add(win);
+      try {
+        win.webContents.send('claude:response', data);
+      } catch (err) {
+        log.error('Broadcast error:', err);
       }
-    } catch (err) {
-      log.error('Broadcast error:', err);
-    }
+    };
+    send(this.overlayWindow);
+    // Fan out to every live window. If boot() rebuilt the overlay but this
+    // service still holds the old BrowserWindow, replies would otherwise
+    // vanish while the transcript (wired through audioManager) kept working.
+    const windows = BrowserWindow.getAllWindows() ?? [];
+    for (const win of windows) send(win);
   }
 
   private broadcastError(error: string): void {

@@ -21,7 +21,7 @@ vi.mock('../../main/logger', () => ({
   }),
 }))
 
-import { getProvider, clearProviderCache, getProviderFromStore, getFastProvider } from '../services/ai/providerFactory'
+import { getProvider, clearProviderCache, getProviderFromStore, getFastProvider, getMemoryProvider, getNotesProvider } from '../services/ai/providerFactory'
 import { AnthropicProvider } from '../services/ai/anthropicProvider'
 import { OpenAIProvider } from '../services/ai/openaiProvider'
 
@@ -191,6 +191,36 @@ describe('providerFactory', () => {
       expect(fromStore).not.toBe(otherEffort)
     })
 
+    it('does not use notesModel — live assist stays on aiModel', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-haiku-4-5',
+          notesProvider: 'anthropic',
+          notesModel: 'claude-sonnet-5',
+          anthropicApiKey: 'test-ant-store-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const fromStore = await getProviderFromStore()
+      const asAssist = getProvider({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
+      const asNotes = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
+
+      expect(fromStore).toBe(asAssist)
+      expect(fromStore).not.toBe(asNotes)
+    })
+
     it('reads openai config from store and returns provider', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
@@ -238,40 +268,129 @@ describe('providerFactory', () => {
     })
   })
 
-  describe('getFastProvider', () => {
-    it('returns anthropic provider with fast model (claude-haiku-4-5)', async () => {
+  describe('getMemoryProvider', () => {
+    it('returns Anthropic Sonnet 5 when Live assist is Anthropic, even if overlay is Haiku', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
-          aiModel: 'claude-sonnet-4-6',
+          aiModel: 'claude-haiku-4-5',
           anthropicApiKey: 'test-ant-store-key',
         }
         return data[key] ?? defaultVal
       })
 
-      const provider = await getFastProvider()
+      const provider = await getMemoryProvider()
+      const asSonnet = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
+      const asHaiku = getProvider({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
 
       expect(provider).toBeInstanceOf(AnthropicProvider)
-      expect(provider.name).toBe('anthropic')
+      expect(provider).toBe(asSonnet)
+      expect(provider).not.toBe(asHaiku)
     })
 
-    it('returns openai provider with fast model (gpt-5.6-luna)', async () => {
+    it('returns OpenAI Terra when Live assist is OpenAI, even if overlay is Luna', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'openai',
-          aiModel: 'gpt-5.2',
+          aiModel: 'gpt-5.6-luna',
           openaiApiKey: 'sk-openai-store-key',
         }
         return data[key] ?? defaultVal
       })
 
-      const provider = await getFastProvider()
+      const provider = await getMemoryProvider()
+      const asTerra = getProvider({
+        provider: 'openai',
+        model: 'gpt-5.6-terra',
+        apiKey: 'sk-openai-store-key',
+        effort: 'low',
+      })
+      const asLuna = getProvider({
+        provider: 'openai',
+        model: 'gpt-5.6-luna',
+        apiKey: 'sk-openai-store-key',
+        effort: 'low',
+      })
 
       expect(provider).toBeInstanceOf(OpenAIProvider)
-      expect(provider.name).toBe('openai')
+      expect(provider).toBe(asTerra)
+      expect(provider).not.toBe(asLuna)
     })
 
-    it('uses fast model regardless of store aiModel setting', async () => {
+    it('does not use notesModel or notesProvider — memory is not a Settings slot', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-opus-5',
+          notesProvider: 'openai',
+          notesModel: 'gpt-5.2',
+          notesEffort: 'max',
+          anthropicApiKey: 'test-ant-key',
+          openaiApiKey: 'sk-openai-notes-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const memory = await getMemoryProvider()
+      const asMemory = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-key',
+        effort: 'low',
+      })
+      const asNotes = getProvider({
+        provider: 'openai',
+        model: 'gpt-5.2',
+        apiKey: 'sk-openai-notes-key',
+        effort: 'max',
+      })
+
+      expect(memory).toBe(asMemory)
+      expect(memory).not.toBe(asNotes)
+    })
+
+    it('throws when no API key is configured for the Live assist vendor', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          anthropicApiKey: '',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      await expect(getMemoryProvider()).rejects.toThrow(
+        'No API key configured for anthropic. Add it in Settings.'
+      )
+    })
+
+    it('getFastProvider is an alias of getMemoryProvider', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-sonnet-4-6',
+          anthropicApiKey: 'test-ant-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const memory = await getMemoryProvider()
+      const fast = await getFastProvider()
+      expect(fast).toBe(memory)
+    })
+  })
+
+  describe('getNotesProvider', () => {
+    it('falls back to FAST_MODELS when notesModel is unset, ignoring aiModel', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
@@ -282,25 +401,101 @@ describe('providerFactory', () => {
       })
 
       clearProviderCache()
-      const fastProvider = await getFastProvider()
+      const notesProvider = await getNotesProvider()
 
       clearProviderCache()
       const storeProvider = await getProviderFromStore()
 
-      expect(fastProvider).not.toBe(storeProvider)
+      expect(notesProvider).not.toBe(storeProvider)
     })
 
-    it('throws when no API key is configured', async () => {
+    it('uses notesModel when set, even if aiModel is a different catalog id', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
-          anthropicApiKey: '',
+          aiModel: 'claude-haiku-4-5',
+          notesProvider: 'anthropic',
+          notesModel: 'claude-sonnet-4-6',
+          anthropicApiKey: 'test-ant-key',
         }
         return data[key] ?? defaultVal
       })
 
-      await expect(getFastProvider()).rejects.toThrow(
-        'No API key configured for anthropic. Add it in Settings.'
+      const notes = await getNotesProvider()
+      const asNotesModel = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        apiKey: 'test-ant-key',
+        effort: 'low',
+      })
+
+      expect(notes).toBe(asNotesModel)
+    })
+
+    it('uses notesProvider when it differs from aiProvider', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-sonnet-4-6',
+          notesProvider: 'openai',
+          notesModel: 'gpt-5.6-luna',
+          anthropicApiKey: 'test-ant-key',
+          openaiApiKey: 'sk-openai-notes-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const provider = await getNotesProvider()
+
+      expect(provider).toBeInstanceOf(OpenAIProvider)
+      expect(provider.name).toBe('openai')
+    })
+
+    it('applies notesEffort so summaries use the Models tab value', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          aiModel: 'claude-haiku-4-5',
+          notesProvider: 'anthropic',
+          notesModel: 'claude-sonnet-5',
+          notesEffort: 'max',
+          anthropicApiKey: 'test-ant-key',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      const notes = await getNotesProvider()
+      const sameEffort = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-key',
+        effort: 'max',
+      })
+      const otherEffort = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-key',
+        effort: 'low',
+      })
+
+      expect(notes).toBe(sameEffort)
+      expect(notes).not.toBe(otherEffort)
+    })
+
+    it('throws when notesProvider is openai but no OpenAI key is configured', async () => {
+      mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
+        const data: Record<string, unknown> = {
+          aiProvider: 'anthropic',
+          notesProvider: 'openai',
+          notesModel: 'gpt-5.6-luna',
+          anthropicApiKey: 'test-ant-key',
+          openaiApiKey: '',
+        }
+        return data[key] ?? defaultVal
+      })
+
+      await expect(getNotesProvider()).rejects.toThrow(
+        'No API key configured for openai. Add it in Settings.'
       )
     })
   })

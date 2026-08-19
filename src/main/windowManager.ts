@@ -131,6 +131,18 @@ interface WindowBounds {
   height: number
 }
 
+export function overlaySafeInsetsForWindow(
+  windowBounds: WindowBounds,
+  workArea: { x: number; y: number; width: number; height: number },
+): { top: number; right: number; bottom: number; left: number } {
+  return {
+    top: Math.max(0, Math.round(workArea.y - windowBounds.y)),
+    left: Math.max(0, Math.round(workArea.x - windowBounds.x)),
+    right: Math.max(0, Math.round((windowBounds.x + windowBounds.width) - (workArea.x + workArea.width))),
+    bottom: Math.max(0, Math.round((windowBounds.y + windowBounds.height) - (workArea.y + workArea.height))),
+  }
+}
+
 export function clampOverlayBoundsToDisplay(bounds: WindowBounds): WindowBounds {
   const display = screen.getDisplayMatching(bounds)
   const workArea = display.workArea

@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { macSettingsPrimaryAction, macSettingsPrimaryLabel } from '../../../../../shared/macManualUpdate'
+import { requestMacUpdatePrompt } from '../../../lib/macUpdatePrompt'
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
   version?: string
   error?: string
   progress?: number
+  install?: 'auto' | 'mac-dmg'
 }
 
 export function GeneralTab() {
@@ -77,8 +80,12 @@ export function GeneralTab() {
   }, [])
 
   const handleDownloadUpdate = useCallback(async () => {
+    if (macSettingsPrimaryAction(updateState.install) === 'prompt') {
+      requestMacUpdatePrompt()
+      return
+    }
     await window.raven.updateDownload()
-  }, [])
+  }, [updateState.install])
 
   const handleInstallUpdate = useCallback(async () => {
     await window.raven.updateInstall()
@@ -190,7 +197,7 @@ export function GeneralTab() {
               onClick={handleDownloadUpdate}
               className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
             >
-              Update now
+              {macSettingsPrimaryLabel(updateState.install)}
             </button>
           ) : (
             <button

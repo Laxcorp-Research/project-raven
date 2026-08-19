@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import { EMPTY_OVERLAY_INSETS, placeOverlayPanel, type OverlayInsets } from '../../lib/overlayPanelLayout'
 
 export type ResizeEdge = 'left' | 'right' | 'bottom'
 
@@ -10,7 +11,7 @@ const OVERLAY_EXPANDED_MIN_HEIGHT = 350
 const OVERLAY_DEFAULT_EXPANDED_HEIGHT = 500
 const PANEL_EDGE_MARGIN = 20
 
-export function useOverlayResize() {
+export function useOverlayResize(insets: OverlayInsets = EMPTY_OVERLAY_INSETS) {
   const [panelWidth, setPanelWidth] = useState(OVERLAY_DEFAULT_WIDTH)
   const [panelBottom, setPanelBottom] = useState(() =>
     Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerHeight - OVERLAY_DEFAULT_COMPACT_HEIGHT) / 2))
@@ -48,28 +49,37 @@ export function useOverlayResize() {
     const onMouseMove = (moveEvent: MouseEvent) => {
       const dx = moveEvent.screenX - startScreenX
       const dy = moveEvent.screenY - startScreenY
-      const vw = window.innerWidth
-      const vh = window.innerHeight
+      let width = startWidth
+      let right = startRight
+      let height = startHeight
+      let bottom = startBottom
 
       if (edge === 'left') {
-        const newWidth = Math.max(startWidth - dx, OVERLAY_MIN_WIDTH)
-        const maxWidth = vw - startRight
-        setPanelWidth(Math.min(newWidth, maxWidth))
+        width = Math.max(startWidth - dx, OVERLAY_MIN_WIDTH)
       } else if (edge === 'right') {
-        const newWidth = Math.max(startWidth + dx, OVERLAY_MIN_WIDTH)
-        const widthDelta = newWidth - startWidth
-        const newRight = Math.max(0, startRight - widthDelta)
-        const maxWidth = vw - newRight
-        setPanelWidth(Math.min(newWidth, maxWidth))
-        setPanelRight(newRight)
+        width = Math.max(startWidth + dx, OVERLAY_MIN_WIDTH)
+        right = startRight - (width - startWidth)
       } else {
         const minH = isPanelExpanded ? OVERLAY_EXPANDED_MIN_HEIGHT : OVERLAY_COMPACT_MIN_HEIGHT
-        const newHeight = Math.max(startHeight + dy, minH)
-        const heightDelta = newHeight - startHeight
-        const newBottom = Math.max(0, startBottom - heightDelta)
-        const maxHeight = vh - newBottom
-        setPanelHeight(Math.min(newHeight, maxHeight))
-        setPanelBottom(newBottom)
+        height = Math.max(startHeight + dy, minH)
+        bottom = startBottom - (height - startHeight)
+      }
+
+      const placed = placeOverlayPanel({
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        insets,
+        width,
+        height,
+        right,
+        bottom,
+        previousHeight: height,
+      })
+      setPanelWidth(placed.width)
+      setPanelRight(placed.right)
+      setPanelBottom(placed.bottom)
+      if (isPanelExpanded || edge === 'bottom') {
+        setPanelHeight(placed.height)
       }
     }
 
@@ -87,15 +97,25 @@ export function useOverlayResize() {
     resizeCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp, { once: true })
-  }, [panelWidth, panelRight, panelBottom, panelHeight])
+  }, [panelWidth, panelRight, panelBottom, panelHeight, insets])
 
   const handleResizeDoubleClick = useCallback((isPanelExpanded: boolean) => {
     const h = isPanelExpanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : OVERLAY_DEFAULT_COMPACT_HEIGHT
-    setPanelWidth(OVERLAY_DEFAULT_WIDTH)
-    setPanelHeight(isPanelExpanded ? OVERLAY_DEFAULT_EXPANDED_HEIGHT : undefined)
-    setPanelRight(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerWidth - OVERLAY_DEFAULT_WIDTH) / 2)))
-    setPanelBottom(Math.max(PANEL_EDGE_MARGIN, Math.round((window.innerHeight - h) / 2)))
-  }, [])
+    const placed = placeOverlayPanel({
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      insets,
+      width: OVERLAY_DEFAULT_WIDTH,
+      height: h,
+      right: Math.round((window.innerWidth - OVERLAY_DEFAULT_WIDTH) / 2),
+      bottom: Math.round((window.innerHeight - h) / 2),
+      previousHeight: h,
+    })
+    setPanelWidth(placed.width)
+    setPanelHeight(isPanelExpanded ? placed.height : undefined)
+    setPanelRight(placed.right)
+    setPanelBottom(placed.bottom)
+  }, [insets])
 
   const cleanupResize = useCallback(() => {
     resizeCleanupRef.current?.()

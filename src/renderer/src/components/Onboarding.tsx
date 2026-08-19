@@ -3,6 +3,7 @@ import { Key, Shield, Keyboard, ExternalLink, ArrowRight, ArrowLeft, Check, Load
 import ravenFullLogo from '../../../../logo/raven_full.svg'
 import { OverlayTour } from './OverlayTour'
 import { detectMacPlatform, shortcutKeycaps } from '../lib/shortcutLabels'
+import { shouldOpenAccessibilitySettingsAfterPrompt } from '../../../shared/macAccessibilityGrant'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -648,7 +649,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                           const granted = await window.raven.permissionsRequestAccessibility()
                           if (granted) {
                             setAccessibilityPermission('granted')
-                          } else {
+                          } else if (shouldOpenAccessibilitySettingsAfterPrompt(granted)) {
                             await window.raven.permissionsOpenAccessibility()
                           }
                         }}

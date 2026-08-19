@@ -13,6 +13,7 @@ import {
   fitMessagesToContext,
 } from '../services/ai/types'
 import { FAST_MODELS } from '../services/ai/providerFactory'
+import { MEMORY_MODELS, NOTES_FAST_MODELS } from '../../shared/aiSlots'
 
 describe('AI model catalog (2026-08)', () => {
   it('lists every current and still-available Anthropic model', () => {
@@ -108,9 +109,18 @@ describe('AI model catalog (2026-08)', () => {
     expect(MODEL_CATALOG.openai.map((m) => m.id)).toEqual(PROVIDER_MODELS.openai)
   })
 
-  it('keeps the cheap title-generation model inside the catalog', () => {
+  it('keeps the cheap notes-slot default inside the catalog', () => {
     expect(PROVIDER_MODELS.anthropic).toContain(FAST_MODELS.anthropic)
     expect(PROVIDER_MODELS.openai).toContain(FAST_MODELS.openai)
+  })
+
+  it('keeps session memory on Sonnet 5 / Terra, not the notes cheap default', () => {
+    expect(PROVIDER_MODELS.anthropic).toContain(MEMORY_MODELS.anthropic)
+    expect(PROVIDER_MODELS.openai).toContain(MEMORY_MODELS.openai)
+    expect(MEMORY_MODELS.anthropic).toBe('claude-sonnet-5')
+    expect(MEMORY_MODELS.openai).toBe('gpt-5.6-terra')
+    expect(MEMORY_MODELS.anthropic).not.toBe(NOTES_FAST_MODELS.anthropic)
+    expect(MEMORY_MODELS.openai).not.toBe(NOTES_FAST_MODELS.openai)
   })
 
   it('uses official max output, not a product cap (64k vs 128k)', () => {

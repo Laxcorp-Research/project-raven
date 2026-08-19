@@ -21,7 +21,8 @@ import {
   setOverlayFocusable,
   getDashboardWindow,
   getOverlayWindow,
-  clampOverlayBoundsToDisplay
+  clampOverlayBoundsToDisplay,
+  overlaySafeInsetsForWindow,
 } from './windowManager'
 import { createLogger } from './logger'
 import { cooldownHandle } from './ipcThrottle'
@@ -357,6 +358,16 @@ export function registerIpcHandlers(): void {
     const overlay = getOverlayWindow()
     if (!overlay || overlay.isDestroyed()) return null
     return overlay.getBounds()
+  })
+
+  safeHandle('window:get-overlay-safe-insets', () => {
+    const overlay = getOverlayWindow()
+    if (!overlay || overlay.isDestroyed()) {
+      return { top: 0, right: 0, bottom: 0, left: 0 }
+    }
+    const bounds = overlay.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    return overlaySafeInsetsForWindow(bounds, display.workArea)
   })
 
   safeHandle('window:get-cursor-point', () => {

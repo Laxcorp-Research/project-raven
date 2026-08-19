@@ -82,6 +82,7 @@ vi.mock('../windowsOverlayStyle', () => ({
 
 import {
   clampOverlayBoundsToDisplay,
+  overlaySafeInsetsForWindow,
   createDashboardWindow,
   createOverlayWindow,
   getDashboardWindow,
@@ -189,6 +190,22 @@ describe('windowManager', () => {
       expect(Number.isInteger(result.y)).toBe(true)
       expect(Number.isInteger(result.width)).toBe(true)
       expect(Number.isInteger(result.height)).toBe(true)
+    })
+  })
+
+  describe('overlaySafeInsetsForWindow', () => {
+    it('reports the macOS menu bar as a top inset for a fullscreen overlay', () => {
+      expect(overlaySafeInsetsForWindow(
+        { x: 0, y: 0, width: 1512, height: 982 },
+        { x: 0, y: 38, width: 1512, height: 944 },
+      )).toEqual({ top: 38, right: 0, bottom: 0, left: 0 })
+    })
+
+    it('is zero when the window already matches the work area', () => {
+      expect(overlaySafeInsetsForWindow(
+        { x: 0, y: 38, width: 1512, height: 944 },
+        { x: 0, y: 38, width: 1512, height: 944 },
+      )).toEqual({ top: 0, right: 0, bottom: 0, left: 0 })
     })
   })
 

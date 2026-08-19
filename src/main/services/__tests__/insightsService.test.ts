@@ -12,17 +12,17 @@ vi.mock('../../logger', () => ({
 }))
 
 vi.mock('../ai/providerFactory', () => ({
-  getFastProvider: vi.fn(),
+  getNotesProvider: vi.fn(),
 }))
 
-import { getFastProvider } from '../ai/providerFactory'
+import { getNotesProvider } from '../ai/providerFactory'
 import { analyzeSession } from '../insightsService'
 
 describe('analyzeSession', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     generateShort.mockResolvedValue('{"overall_sentiment":{"sentiment":"neutral"}}')
-    vi.mocked(getFastProvider).mockResolvedValue({
+    vi.mocked(getNotesProvider).mockResolvedValue({
       name: 'anthropic',
       generateShort,
       streamResponse: vi.fn(),
@@ -40,7 +40,7 @@ describe('analyzeSession', () => {
   })
 
   it('returns error when no LLM key is configured', async () => {
-    vi.mocked(getFastProvider).mockRejectedValue(new Error('No API key configured for anthropic. Add it in Settings.'))
+    vi.mocked(getNotesProvider).mockRejectedValue(new Error('No API key configured for anthropic. Add it in Settings.'))
     const result = await analyzeSession({ transcript: 'hi', features: ['sentiment'] })
     expect(result.error).toMatch(/No API key configured/)
   })
@@ -61,7 +61,7 @@ describe('analyzeSession', () => {
     expect(result.sentiment).toBe('sentiment-json')
     expect(result.topics).toBe('topics-json')
     expect(result.keyPhrases).toBe('phrases-json')
-    expect(getFastProvider).toHaveBeenCalled()
+    expect(getNotesProvider).toHaveBeenCalled()
     expect(generateShort).toHaveBeenCalledTimes(3)
     expect(generateShort.mock.calls[0][0].prompt).toContain('Alice: hello')
     expect(generateShort.mock.calls[0][0].maxTokens).toBe(2048)

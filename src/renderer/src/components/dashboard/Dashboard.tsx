@@ -9,6 +9,7 @@ import { SessionDetail } from './SessionDetail'
 import { SettingsModal } from './SettingsModal'
 import { SearchResultsView } from './SearchResultsView'
 import { UpdateBanner } from './UpdateBanner'
+import { MacUpdateModal } from './MacUpdateModal'
 import { OverlayTour } from '../OverlayTour'
 import { detectMacPlatform } from '../../lib/shortcutLabels'
 
@@ -294,6 +295,8 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
           </div>
         </div>
       )}
+
+      <MacUpdateModal isRecording={isRecording} />
     </div>
   )
 }

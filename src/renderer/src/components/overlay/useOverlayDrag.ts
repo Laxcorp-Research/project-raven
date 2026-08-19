@@ -1,4 +1,5 @@
 import { useCallback, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import { placeOverlayPanel, type OverlayInsets } from '../../lib/overlayPanelLayout'
 
 interface UseOverlayDragOptions {
   panelRight: number
@@ -6,6 +7,7 @@ interface UseOverlayDragOptions {
   panelWidth: number
   panelHeight: number | undefined
   defaultCompactHeight: number
+  insets: OverlayInsets
   setPanelRight: (v: number) => void
   setPanelBottom: (v: number) => void
   setOverlayMouseIgnore: (ignore: boolean) => void
@@ -53,10 +55,18 @@ export function useOverlayDrag(options: UseOverlayDragOptions) {
 
       const vw = window.innerWidth
       const vh = window.innerHeight
-      const newRight = Math.min(Math.max(0, startRight - dx), vw - currentW)
-      const newBottom = Math.min(Math.max(0, startBottom - dy), vh - currentH)
-      options.setPanelRight(newRight)
-      options.setPanelBottom(newBottom)
+      const placed = placeOverlayPanel({
+        viewportWidth: vw,
+        viewportHeight: vh,
+        insets: options.insets,
+        width: currentW,
+        height: currentH,
+        right: startRight - dx,
+        bottom: startBottom - dy,
+        previousHeight: currentH,
+      })
+      options.setPanelRight(placed.right)
+      options.setPanelBottom(placed.bottom)
     }
 
     const cleanup = () => {
@@ -79,7 +89,7 @@ export function useOverlayDrag(options: UseOverlayDragOptions) {
     // re-create the callback unnecessarily. Warning would recommend
     // depending on `options` wholesale, which defeats the purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.panelRight, options.panelBottom, options.panelWidth, options.panelHeight, options.setOverlayMouseIgnore, options.defaultCompactHeight, options.setPanelRight, options.setPanelBottom])
+  }, [options.panelRight, options.panelBottom, options.panelWidth, options.panelHeight, options.insets, options.setOverlayMouseIgnore, options.defaultCompactHeight, options.setPanelRight, options.setPanelBottom])
 
   const cleanupDrag = useCallback(() => {
     logoDragCleanupRef.current?.()
