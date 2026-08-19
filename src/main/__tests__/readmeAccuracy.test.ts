@@ -49,4 +49,23 @@ describe('README matches the OSS runtime', () => {
     expect(text).toMatch(/does not ship login, hosted Pro/)
     expect(text).toMatch(/Recall meeting-bot capture/)
   })
+
+  it('points maintainers at CONTRIBUTING.md for cutting a notarized Mac release', () => {
+    const text = readme()
+    expect(text).toMatch(/CONTRIBUTING\.md#releasing/)
+  })
+})
+
+describe('CONTRIBUTING.md documents the Mac release loop', () => {
+  it('states that publishing a GitHub Release is the notarize trigger', () => {
+    const text = readFileSync(join(process.cwd(), 'CONTRIBUTING.md'), 'utf8')
+    expect(text).toMatch(/## Releasing/)
+    expect(text).toMatch(/Dispatch notarized Mac release/)
+    expect(text).toMatch(/Release OSS macOS/)
+    expect(text).toMatch(/PRIVATE_DISPATCH_TOKEN/)
+    expect(text).toMatch(/OSS_RELEASE_GITHUB_TOKEN/)
+    expect(text).toMatch(/project-raven-private/)
+    expect(text).toMatch(/Free Apps/)
+    expect(text).not.toMatch(/release-electron\.yml/)
+  })
 })
