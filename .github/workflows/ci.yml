@@ -14,7 +14,7 @@ jobs:
   guard-premium-files:
     name: Guard Premium Files
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
