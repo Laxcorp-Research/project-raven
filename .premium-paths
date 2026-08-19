@@ -90,7 +90,10 @@ docs/ADMIN_RUNBOOK.md
 # workflows above are gated. The build recipe itself is not useful to OSS
 # users (they have no upload target). Gated 2026-06-17.
 .github/workflows/build-aec-deps.yml
-build/entitlements.mac.plist
+# OSS Mac notarize uses the same hardened-runtime entitlements as Pro
+# (electron-builder.json5 mac.entitlements). Do not list
+# build/entitlements.mac.plist here — that made every main push fail
+# after PR #15 while PRs stayed green (this job only ran on main).
 build/.raven-pro
 
 ---
