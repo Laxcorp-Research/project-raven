@@ -31,7 +31,7 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 **macOS:** open the DMG, drag Raven to Applications, then open it. Intel Macs are not in this DMG — build from source below.
 
-Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have. Publishing a GitHub Release on this repo notarizes and attaches the Mac DMG (Apple signing stays on the private pack job).
+Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have. Maintainers: publishing a GitHub Release notarizes and attaches the Mac DMG — see [Releasing](CONTRIBUTING.md#releasing).
 
 ---
 
@@ -695,7 +695,7 @@ rmdir /s /q "%APPDATA%\project-raven"
 
 ## Contributing
 
-Issues and pull requests are welcome. This project is in active development.
+Issues and pull requests are welcome. This project is in active development. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and [how to cut a release](CONTRIBUTING.md#releasing).
 
 1. Fork the repo
 2. Create your feature branch (`git checkout -b feature/my-feature`)

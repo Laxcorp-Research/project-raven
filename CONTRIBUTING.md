@@ -175,6 +175,54 @@ E2E specs live in `e2e/` and cover onboarding, dashboard, recording, window mana
 - **Integration tests:** Mock only the outermost boundaries (SDK HTTP calls, filesystem). Let multiple real modules work together.
 - **E2E tests:** Test the actual built Electron app via Playwright. Use the shared fixture from `e2e/fixtures/electronApp.ts`.
 
+## Releasing
+
+Mac installers are **Developer ID–signed and notarized**. Apple certificates stay on `Laxcorp-Research/project-raven-private`; this public repo only starts that job and receives the artifacts.
+
+### Cut a release
+
+1. Bump `version` in `package.json` (and lockfile if needed). Merge to `main`.
+2. Tag that commit `vX.Y.Z` (must match `package.json`).
+3. **Publish a GitHub Release** on `Laxcorp-Research/project-raven` for that tag (GitHub UI or `gh release create vX.Y.Z`). Do **not** mark it as a prerelease if you want a Mac DMG.
+
+Publishing the release is the trigger. You do not pack the Mac DMG on your laptop.
+
+### What CI does (Mac)
+
+1. Public workflow **Dispatch notarized Mac release** (`.github/workflows/dispatch-mac-release.yml`) runs on `release: published`.
+2. It starts **Release OSS macOS** on `project-raven-private` (`release-oss-macos.yml`), packing this repo at the tag.
+3. `electron-builder` signs with the Laxcorp Developer ID and notarizes (`-c.mac.notarize=true`).
+4. The job uploads to the **same public release**:
+   - `Raven-Mac-{version}-Installer.dmg` (+ `.blockmap`)
+   - `Raven-Mac-{version}-Installer.zip` (+ `.blockmap`)
+   - `latest-mac.yml`
+
+Watch **Release OSS macOS** on the private repo until it is green. Confirm `spctl -a -vv -t install` on `Raven.app` inside the DMG shows `source=Notarized Developer ID`.
+
+To retry without a new tag: **Actions → Dispatch notarized Mac release → Run workflow** with the existing tag (ref defaults to the tag).
+
+### Secrets (one-time)
+
+| Secret | Repo | Purpose |
+|--------|------|---------|
+| `PRIVATE_DISPATCH_TOKEN` | **public** `project-raven` | PAT: Actions read/write on `project-raven-private` (so this repo can start the pack). |
+| `MAC_CERTIFICATE`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | **private** `project-raven-private` | Developer ID + notarytool (same as Pro). |
+| `OSS_RELEASE_GITHUB_TOKEN` | **private** `project-raven-private` | PAT: Contents write on public `project-raven` (attach files to the GitHub Release). |
+
+Do not put the Apple `.p12` on the public repo. Prefer fine-grained PATs over a `gh auth` OAuth token (OAuth tokens die if you log out of `gh`).
+
+If notarytool returns **HTTP 403 agreement missing or expired**, the Account Holder must re-accept **Free Apps** in [App Store Connect → Agreements](https://appstoreconnect.apple.com/agreements). Skip Paid Apps bank/tax/DSA unless you actually sell on the App Store.
+
+### Windows
+
+NSIS is still packed on a **local Windows machine** (GStreamer + WASAPI). Upload `Raven-Windows-{version}-Setup.exe`, its `.blockmap`, and `latest.yml` to the same GitHub Release. Do not replace the Mac assets.
+
+### What this does not do
+
+- Merging to `main` does not build a DMG.
+- Same-version clobber does not prompt installs already on that version (updater only offers a **newer** semver).
+- Packaged Mac still uses the GitHub DMG flow, not ShipIt, until that is turned on separately.
+
 ## Pull Request Process
 
 1. Fork the repository and create your branch from `main`
