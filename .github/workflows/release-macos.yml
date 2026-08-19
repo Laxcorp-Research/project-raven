@@ -6,10 +6,9 @@ name: Release macOS
 # reliably reproduce that path.
 #
 # Signed + notarized with the same Apple Developer ID as Pro.
-# Apple certs live on Laxcorp-Research/project-raven-private; that repo
-# calls this workflow (workflow_call) and passes MAC_CERTIFICATE / APPLE_*.
-# Dispatching on this public repo works only after those five secrets are
-# copied here.
+# Apple certs live on Laxcorp-Research/project-raven-private. Publishing a
+# GitHub Release on this repo dispatches that pack (PRIVATE_DISPATCH_TOKEN);
+# the private job uploads Mac assets here (OSS_RELEASE_GITHUB_TOKEN).
 
 on:
   # Manual only. Auto-running on tag push emailed failures whenever the
@@ -47,6 +46,9 @@ on:
         required: true
       APPLE_TEAM_ID:
         required: true
+      RELEASE_GITHUB_TOKEN:
+        description: 'PAT with contents:write on Laxcorp-Research/project-raven (private caller)'
+        required: false
 
 concurrency:
   group: release-electron
@@ -257,18 +259,29 @@ jobs:
           # zip is required for electron-updater on macOS; dmg is the installer.
           npx electron-builder --mac dmg zip --publish never -c.mac.notarize=true
 
-      - name: Upload Mac artifacts to GitHub Release
-        if: github.repository == 'Laxcorp-Research/project-raven'
+      - name: Upload Mac artifacts to public GitHub Release
+        id: pub_release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.refs.outputs.tag }}"
           VERSION="${{ steps.refs.outputs.version }}"
           OUT="release/${VERSION}"
           ls -la "$OUT"
 
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG does not exist"
+          if [ "$GITHUB_REPOSITORY" != "Laxcorp-Research/project-raven" ] && [ -z "$RELEASE_GITHUB_TOKEN" ]; then
+            echo "uploaded=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping public release upload (no RELEASE_GITHUB_TOKEN)"
+            exit 0
+          fi
+
+          if [ -n "$RELEASE_GITHUB_TOKEN" ]; then
+            export GH_TOKEN="$RELEASE_GITHUB_TOKEN"
+          fi
+
+          if ! gh release view "$TAG" --repo Laxcorp-Research/project-raven >/dev/null 2>&1; then
+            echo "Public release $TAG does not exist"
             exit 1
           fi
 
@@ -291,13 +304,16 @@ jobs:
             exit 1
           fi
 
-          gh release upload "$TAG" "${files[@]}" --clobber
-          echo "Uploaded to $TAG: ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" \
+            --repo Laxcorp-Research/project-raven \
+            --clobber
+          echo "Uploaded to Laxcorp-Research/project-raven $TAG: ${files[*]}"
+          echo "uploaded=true" >> "$GITHUB_OUTPUT"
 
-      # Caller is project-raven-private: GITHUB_TOKEN cannot write the
-      # public release. Attach artifacts for a local gh release upload.
-      - name: Upload Mac artifacts for public release
-        if: github.repository != 'Laxcorp-Research/project-raven'
+      # Fallback when this job is called from project-raven-private without
+      # RELEASE_GITHUB_TOKEN (GITHUB_TOKEN cannot write the public release).
+      - name: Upload Mac artifacts for manual public release
+        if: github.repository != 'Laxcorp-Research/project-raven' && steps.pub_release.outputs.uploaded != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mac-release-${{ steps.refs.outputs.tag }}

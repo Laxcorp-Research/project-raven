@@ -1,0 +1,56 @@
+name: Dispatch notarized Mac release
+
+# Apple certs stay on project-raven-private. Publishing a GitHub Release
+# here starts that pack; Mac DMG/zip/latest-mac.yml are attached to the
+# same release. Set PRIVATE_DISPATCH_TOKEN (PAT: Actions write on
+# project-raven-private). Skip prereleases.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing GitHub Release tag to pack Mac assets for'
+        required: true
+      ref:
+        description: 'Git ref to pack (empty = the tag)'
+        required: false
+        default: ''
+
+concurrency:
+  group: dispatch-mac-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Trigger private OSS Mac pack
+    if: github.event_name != 'release' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: gh workflow run on project-raven-private
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_DISPATCH_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing PRIVATE_DISPATCH_TOKEN on Laxcorp-Research/project-raven."
+            echo "Create a PAT with Actions: read/write on project-raven-private and set it as that secret."
+            exit 1
+          fi
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          REF="${INPUT_REF:-$TAG}"
+          if [ -z "$TAG" ]; then
+            echo "No release tag"
+            exit 1
+          fi
+          echo "Dispatching Release OSS macOS tag=$TAG ref=$REF"
+          gh workflow run release-oss-macos.yml \
+            --repo Laxcorp-Research/project-raven-private \
+            -f tag="$TAG" \
+            -f ref="$REF"

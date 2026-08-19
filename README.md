@@ -31,7 +31,7 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 **macOS:** open the DMG, drag Raven to Applications, then open it. Intel Macs are not in this DMG — build from source below.
 
-Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have.
+Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have. Publishing a GitHub Release on this repo notarizes and attaches the Mac DMG (Apple signing stays on the private pack job).
 
 ---
 
