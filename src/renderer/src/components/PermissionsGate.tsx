@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import ravenFullLogo from '../../../../logo/raven_full.svg'
 import { createLogger } from '../lib/logger'
 import { detectMacPlatform } from '../lib/shortcutLabels'
+import { shouldOpenAccessibilitySettingsAfterPrompt } from '../../../shared/macAccessibilityGrant'
 
 const log = createLogger('PermissionsGate')
 
@@ -91,7 +92,7 @@ export function PermissionsGate({ onAllGranted }: PermissionsGateProps): JSX.Ele
       const granted = await window.raven.permissionsRequestAccessibility()
       if (granted) {
         setAccessibility('granted')
-      } else {
+      } else if (shouldOpenAccessibilitySettingsAfterPrompt(granted)) {
         await window.raven.permissionsOpenAccessibility()
       }
     } catch (err) {

@@ -129,11 +129,12 @@ describe('permissions', () => {
       expect(mockIsTrustedAccessibilityClient).toHaveBeenCalledWith(true)
     })
 
-    it('returns false when not granted', () => {
-      mockIsTrustedAccessibilityClient.mockReturnValue(false)
+  it('does not open System Settings — the TCC prompt already has that button', () => {
+    mockIsTrustedAccessibilityClient.mockReturnValue(false)
 
-      expect(requestAccessibilityAccess()).toBe(false)
-    })
+    expect(requestAccessibilityAccess()).toBe(false)
+    expect(mockOpenExternal).not.toHaveBeenCalled()
+  })
   })
 
   describe('requestMicrophoneAccess', () => {
