@@ -53,10 +53,17 @@ export interface LocalSettings {
   // user's additions only (not the brand term itself).
   vocabulary: string;
 
-  // AI Provider
+  // AI Provider — live assist (overlay Assist / What should I say / Recap)
   aiProvider: 'anthropic' | 'openai';
   aiModel: string;
   aiEffort: string;
+  /**
+   * Notes slot (title, summary, insights). Empty = follow assist provider's
+   * cheap default (Haiku / Luna). See src/shared/aiSlots.ts.
+   */
+  notesProvider: '' | 'anthropic' | 'openai';
+  notesModel: string;
+  notesEffort: string;
   openaiApiKey: string;
 
   // Active mode
@@ -97,6 +104,9 @@ const STORE_DEFAULTS: LocalSettings = {
   aiProvider: 'anthropic',
   aiModel: 'claude-haiku-4-5',
   aiEffort: 'low',
+  notesProvider: '',
+  notesModel: '',
+  notesEffort: '',
   openaiApiKey: '',
   activeModeId: null,
   displayName: '',
@@ -177,6 +187,9 @@ export function getAllSettings(): LocalSettings {
     aiProvider: store.get('aiProvider'),
     aiModel: store.get('aiModel'),
     aiEffort: store.get('aiEffort'),
+    notesProvider: store.get('notesProvider'),
+    notesModel: store.get('notesModel'),
+    notesEffort: store.get('notesEffort'),
     openaiApiKey: '',
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),

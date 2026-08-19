@@ -108,7 +108,7 @@ describe('AI model catalog (2026-08)', () => {
     expect(MODEL_CATALOG.openai.map((m) => m.id)).toEqual(PROVIDER_MODELS.openai)
   })
 
-  it('keeps the cheap title-generation model inside the catalog', () => {
+  it('keeps the cheap notes-slot default inside the catalog', () => {
     expect(PROVIDER_MODELS.anthropic).toContain(FAST_MODELS.anthropic)
     expect(PROVIDER_MODELS.openai).toContain(FAST_MODELS.openai)
   })

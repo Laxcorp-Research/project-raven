@@ -139,6 +139,9 @@ describe('store', () => {
         aiProvider: 'anthropic',
         aiModel: 'claude-sonnet-4-6',
         aiEffort: 'low',
+        notesProvider: '',
+        notesModel: '',
+        notesEffort: '',
         openaiApiKey: '',
         activeModeId: null,
         displayName: '',
@@ -156,6 +159,9 @@ describe('store', () => {
       expect(settings.theme).toBe('dark')
       expect(settings.apiKeysConfigured).toBe(true)
       expect(settings.aiEffort).toBe('low')
+      expect(settings.notesProvider).toBe('')
+      expect(settings.notesModel).toBe('')
+      expect(settings.notesEffort).toBe('')
     })
 
     it('redacts API key fields so store:get-all never returns secrets', () => {

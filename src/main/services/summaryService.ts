@@ -1,12 +1,16 @@
 /**
  * Summary Service
- * Generates session titles and summaries using the user's configured AI provider
+ * Generates session titles and summaries using the Notes model slot.
  */
 
 import { databaseService } from './database'
-import { getFastProvider } from './ai/providerFactory'
+import { getNotesProvider } from './ai/providerFactory'
 import { createLogger } from '../logger'
 import { SUMMARY_MAX_TOKENS, SUMMARY_TRANSCRIPT_SLICE, SUMMARY_MIN_TRANSCRIPT_LENGTH } from '../constants'
+import {
+  buildSessionSummaryPrompt,
+  notesTemplateHeadings,
+} from './sessionNotesPrompt'
 
 const log = createLogger('Summary')
 
@@ -23,55 +27,25 @@ export async function generateSessionSummary(
     return { title: 'Untitled session', summary: '' }
   }
 
-  let modeContext = ''
+  let modeName: string | null = null
+  let notesHeadings: string[] = []
   if (modeId) {
     const mode = databaseService.getMode(modeId)
     if (mode) {
-      modeContext = `\nContext: This is a "${mode.name}" session.`
-      if (mode.notesTemplate) {
-        modeContext += `\nThe user wants notes structured around: ${JSON.stringify(mode.notesTemplate)}`
-      }
+      modeName = mode.name
+      notesHeadings = notesTemplateHeadings(mode.notesTemplate)
     }
   }
 
-  const prompt = `Analyze this meeting/conversation transcript and generate:
-1. A concise, descriptive title (5-10 words, no quotes)
-2. A comprehensive summary with intelligent sections
-
-${modeContext}
-
-TRANSCRIPT:
-${transcript.slice(0, SUMMARY_TRANSCRIPT_SLICE)}
-
----
-
-Generate a summary following these rules:
-
-FORMAT REQUIREMENTS:
-- Use ## for section headings (choose headings that fit the content)
-- Use bullet points starting with "- " for each item
-- Use **bold** for key labels, names, numbers, or emphasis within bullets
-- Be specific and actionable, not vague
-
-SECTION EXAMPLES (adapt to content):
-- **Action Items** - specific tasks with owners if mentioned
-- **Key Decisions** - what was decided
-- **Discussion Points** - main topics covered
-- **Recommendations** - suggested approaches
-- **Open Questions** - unresolved items
-- **Timeline/Roadmap** - if dates or phases mentioned
-- **Metrics/Data** - if numbers discussed
-- **Next Steps** - immediate follow-ups
-
-Choose 3-7 sections that best fit the actual content. Don't force sections that don't apply.
-
-Respond in this exact format:
-TITLE: [your title here]
-SUMMARY:
-[your markdown summary here]`
+  const prompt = buildSessionSummaryPrompt({
+    transcript,
+    slice: SUMMARY_TRANSCRIPT_SLICE,
+    modeName,
+    notesHeadings,
+  })
 
   try {
-    const provider = await getFastProvider()
+    const provider = await getNotesProvider()
 
     const text = await provider.generateShort({ prompt, maxTokens: SUMMARY_MAX_TOKENS })
 

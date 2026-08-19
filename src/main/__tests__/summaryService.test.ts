@@ -5,7 +5,7 @@ const { mockGenerateShort } = vi.hoisted(() => ({
 }))
 
 vi.mock('../services/ai/providerFactory', () => ({
-  getFastProvider: vi.fn(() => ({
+  getNotesProvider: vi.fn(() => ({
     generateShort: mockGenerateShort,
   })),
 }))
@@ -24,11 +24,13 @@ vi.mock('../logger', () => ({
 }))
 
 import { generateSessionSummary } from '../services/summaryService'
-import { getFastProvider } from '../services/ai/providerFactory'
+import { getNotesProvider } from '../services/ai/providerFactory'
+import { databaseService } from '../services/database'
 
 describe('generateSessionSummary', () => {
   beforeEach(() => {
-    vi.mocked(getFastProvider).mockResolvedValue({
+    mockGenerateShort.mockReset()
+    vi.mocked(getNotesProvider).mockResolvedValue({
       generateShort: mockGenerateShort,
     } as any)
   })
@@ -57,7 +59,7 @@ describe('generateSessionSummary', () => {
       null,
     )
 
-    expect(getFastProvider).toHaveBeenCalled()
+    expect(getNotesProvider).toHaveBeenCalled()
     expect(result.title).toBe('Team Standup')
     expect(result.summary).toContain('Key Points')
     expect(result.summary).toContain('discussed roadmap')
@@ -78,5 +80,25 @@ describe('generateSessionSummary', () => {
 
     expect(result.title).toBe('Untitled session')
     expect(result.summary).toBe('')
+  })
+
+  it('sends heading titles from the mode template, not instructions that invent a meeting', async () => {
+    mockGenerateShort.mockResolvedValueOnce('TITLE: Demo\nSUMMARY:\n## What was said\n- YouTube')
+    vi.mocked(databaseService.getMode).mockReturnValue({
+      name: 'Meeting Notes',
+      notesTemplate: [
+        { id: 'meet-1', title: 'Overview', instructions: 'Purpose of the meeting and who attended.' },
+      ],
+    } as ReturnType<typeof databaseService.getMode>)
+
+    await generateSessionSummary(
+      'This is a long enough transcript to pass the minimum length check easily',
+      'mode-1',
+    )
+
+    const prompt = mockGenerateShort.mock.calls[0][0].prompt as string
+    expect(prompt).toContain('Overview')
+    expect(prompt).toContain('Meeting Notes')
+    expect(prompt).not.toContain('who attended')
   })
 })

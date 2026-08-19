@@ -1,8 +1,15 @@
 import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
-import { DEFAULT_EFFORT, resolveCatalogModel } from './types';
+import { DEFAULT_EFFORT, PROVIDER_MODELS, resolveCatalogModel, resolveEffort } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
 import { createLogger } from '../../logger';
+import {
+  NOTES_FAST_MODELS,
+  resolveMemoryModel,
+  resolveMemoryProvider,
+  resolveNotesModel,
+  resolveNotesProvider,
+} from '../../../shared/aiSlots';
 
 const log = createLogger('AI');
 
@@ -40,45 +47,61 @@ export function clearProviderCache(): void {
   cachedConfigKey = '';
 }
 
-/** Cheap model for title/summary generation only. Not an overlay mode. */
-export const FAST_MODELS: Record<AIProviderName, string> = {
-  anthropic: 'claude-haiku-4-5',
-  openai: 'gpt-5.6-luna',
-};
+/** Cheap system model (Haiku / Luna). Memory always uses this. Notes falls back to it. */
+export const FAST_MODELS: Record<AIProviderName, string> = NOTES_FAST_MODELS;
 
-/** Open-source mode: reads the user's model + effort from Settings. */
+function requireApiKey(
+  provider: AIProviderName,
+  getApiKey: (key: 'openaiApiKey' | 'anthropicApiKey') => string,
+): string {
+  const apiKey = provider === 'openai'
+    ? getApiKey('openaiApiKey')
+    : getApiKey('anthropicApiKey');
+  if (!apiKey) {
+    throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
+  }
+  return apiKey;
+}
+
+/** Live assist: overlay Assist / What should I say / Recap. */
 export async function getProviderFromStore(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
   const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
   const model = resolveCatalogModel(provider, getSetting('aiModel') as string);
   const effort = (getSetting('aiEffort') as string) || DEFAULT_EFFORT;
-
-  const apiKey = provider === 'openai'
-    ? getApiKey('openaiApiKey')
-    : getApiKey('anthropicApiKey');
-
-  if (!apiKey) {
-    throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
-  }
+  const apiKey = requireApiKey(provider, getApiKey);
 
   return getProvider({ provider, model, apiKey, effort });
 }
 
-/** Cheap BYOK model for title generation. Assist does not use this. */
-export async function getFastProvider(): Promise<AIProvider> {
+/** Notes slot: title, summary, insights. Not used for overlay Assist or session memory. */
+export async function getNotesProvider(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
-  const provider = (getSetting('aiProvider') || 'anthropic') as AIProviderName;
-  const model = FAST_MODELS[provider];
+  const provider = resolveNotesProvider(getSetting('notesProvider'), getSetting('aiProvider'));
+  const model = resolveNotesModel(provider, getSetting('notesModel'), PROVIDER_MODELS[provider]);
+  const effort = resolveEffort(provider, model, getSetting('notesEffort') as string) ?? DEFAULT_EFFORT;
+  const apiKey = requireApiKey(provider, getApiKey);
 
-  const apiKey = provider === 'openai'
-    ? getApiKey('openaiApiKey')
-    : getApiKey('anthropicApiKey');
+  return getProvider({ provider, model, apiKey, effort });
+}
 
-  if (!apiKey) {
-    throw new Error(`No API key configured for ${provider}. Add it in Settings.`);
-  }
+/**
+ * Session memory compact. Not a Settings slot.
+ * Same vendor as Live assist, always Haiku (Anthropic) or Luna (OpenAI).
+ */
+export async function getMemoryProvider(): Promise<AIProvider> {
+  const { getSetting, getApiKey } = await import('../../store');
+
+  const provider = resolveMemoryProvider(getSetting('aiProvider'));
+  const model = resolveMemoryModel(getSetting('aiProvider'));
+  const apiKey = requireApiKey(provider, getApiKey);
 
   return getProvider({ provider, model, apiKey, effort: DEFAULT_EFFORT });
+}
+
+/** @deprecated Use getMemoryProvider. Kept so older callers keep the cheap system model. */
+export async function getFastProvider(): Promise<AIProvider> {
+  return getMemoryProvider();
 }

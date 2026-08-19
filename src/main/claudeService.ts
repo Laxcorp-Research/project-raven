@@ -23,7 +23,8 @@ import {
   type SessionMemory,
 } from './services/ai/sessionMemory';
 import { createLogger } from './logger';
-import { TITLE_MAX_TOKENS, TITLE_TRANSCRIPT_SLICE, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { TITLE_MAX_TOKENS, TITLE_MAX_LENGTH, TITLE_TRUNCATE_AT, TITLE_TRUNCATED_LENGTH, AI_STREAM_TIMEOUT_MS, RAG_QUERY_TRANSCRIPT_SLICE, RAG_DEFAULT_TOP_K, CONVERSATION_HISTORY_LIMIT, TRANSCRIPT_LINE_LIMIT, SCREENSHOT_CAPTURE_DELAY_MS, SCREENSHOT_MAX_WIDTH, SCREENSHOT_MIN_WIDTH, SCREENSHOT_MIN_HEIGHT, SCREENSHOT_PREVIEW_WIDTH } from './constants';
+import { buildSessionTitlePrompt } from './services/sessionNotesPrompt';
 
 const log = createLogger('Claude');
 
@@ -321,21 +322,10 @@ export async function generateSessionTitle(
   transcriptText: string
 ): Promise<string> {
   try {
-    const { getFastProvider } = await import('./services/ai/providerFactory');
-    const provider = await getFastProvider();
+    const { getNotesProvider } = await import('./services/ai/providerFactory');
+    const provider = await getNotesProvider();
 
-    const prompt = `<task>Generate a 3-7 word title for the following meeting transcript. Output ONLY the title text, nothing else.</task>
-
-<transcript>
-${transcriptText.slice(0, TITLE_TRANSCRIPT_SLICE)}
-</transcript>
-
-<examples>
-Good titles: "Q4 Sales Review", "Marketing Budget Discussion", "Team Standup Meeting", "Interview with John"
-Bad titles: "I'd be happy to help...", "Here's a title:", "The conversation is about..."
-</examples>
-
-Title:`;
+    const prompt = buildSessionTitlePrompt(transcriptText);
 
     let title = await provider.generateShort({ prompt, maxTokens: TITLE_MAX_TOKENS });
 
@@ -751,8 +741,8 @@ export class ClaudeService {
     );
 
     try {
-      const { getFastProvider } = await import('./services/ai/providerFactory');
-      const provider = await getFastProvider();
+      const { getMemoryProvider } = await import('./services/ai/providerFactory');
+      const provider = await getMemoryProvider();
       const raw = await provider.generateShort({
         prompt: buildMemoryUpdatePrompt({
           previousMemory: this.conversation.memory.text,

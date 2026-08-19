@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, type AIProviderName } from '../aiModels'
+import { DEFAULT_MODELS, EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, type AIProviderName } from '../aiModels'
+import { NOTES_FAST_MODELS } from '../../../../shared/aiSlots'
 
 describe('Settings model catalog', () => {
   it('shows every Anthropic and OpenAI id the main process allows', () => {
@@ -53,5 +54,9 @@ describe('Settings model catalog', () => {
     ])
     expect(effortLevelsForModel('openai', 'gpt-5.2')).toContain('xhigh')
     expect(effortLevelsForModel('openai', 'gpt-5.2')).not.toContain('max')
+  })
+
+  it('keeps Settings defaults aligned with the notes-slot cheap models', () => {
+    expect(DEFAULT_MODELS).toEqual(NOTES_FAST_MODELS)
   })
 })

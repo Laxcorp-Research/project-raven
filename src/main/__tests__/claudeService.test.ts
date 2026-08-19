@@ -21,6 +21,8 @@ vi.mock('../services/sessionManager', () => ({
 vi.mock('../services/ai/providerFactory', () => ({
   getProviderFromStore: vi.fn(),
   getFastProvider: vi.fn(),
+  getNotesProvider: vi.fn(),
+  getMemoryProvider: vi.fn(),
 }));
 
 vi.mock('../store', () => ({
@@ -38,7 +40,7 @@ vi.mock('../logger', () => ({
 }));
 
 import { ClaudeService, generateSessionTitle } from '../claudeService';
-import { getProviderFromStore, getFastProvider } from '../services/ai/providerFactory';
+import { getProviderFromStore, getNotesProvider, getMemoryProvider } from '../services/ai/providerFactory';
 import { isProMode, getSetting } from '../store';
 import { ipcMain, BrowserWindow } from 'electron';
 
@@ -351,22 +353,25 @@ describe('generateSessionTitle', () => {
 
   it('cleans quotes and prefixes from the provider result', async () => {
     const generateShort = vi.fn().mockResolvedValue('"Q4 Sales Review"');
-    vi.mocked(getFastProvider).mockResolvedValue({
+    vi.mocked(getNotesProvider).mockResolvedValue({
       generateShort,
     } as any);
 
     const title = await generateSessionTitle('Alice: Let us discuss Q4 numbers');
 
     expect(title).toBe('Q4 Sales Review');
-    expect(getFastProvider).toHaveBeenCalled();
+    expect(getNotesProvider).toHaveBeenCalled();
+    expect(getMemoryProvider).not.toHaveBeenCalled();
     expect(getProviderFromStore).not.toHaveBeenCalled();
     expect(generateShort).toHaveBeenCalledWith(
       expect.objectContaining({ maxTokens: 30 }),
     );
+    const prompt = generateShort.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Do not invent a meeting type');
   });
 
   it('rejects invalid titles that look like conversational responses', async () => {
-    vi.mocked(getFastProvider).mockResolvedValue({
+    vi.mocked(getNotesProvider).mockResolvedValue({
       generateShort: vi.fn().mockResolvedValue("I'd be happy to help with that"),
     } as any);
 
@@ -397,7 +402,8 @@ describe('Provider routing based on mode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getProviderFromStore).mockResolvedValue(mockProvider as any);
-    vi.mocked(getFastProvider).mockResolvedValue(mockProvider as any);
+    vi.mocked(getNotesProvider).mockResolvedValue(mockProvider as any);
+    vi.mocked(getMemoryProvider).mockResolvedValue(mockProvider as any);
     mockProvider.streamResponse.mockResolvedValue(undefined);
     ClaudeService._resetForTesting();
     service = new ClaudeService(null);
@@ -415,7 +421,7 @@ describe('Provider routing based on mode', () => {
     await handler({}, { transcript: 'test', action: 'assist' });
 
     expect(getProviderFromStore).toHaveBeenCalled();
-    expect(getFastProvider).not.toHaveBeenCalled();
+    expect(getNotesProvider).not.toHaveBeenCalled();
   });
 
   it('treats the user mode brief as instructions, not advisory data', async () => {
@@ -462,7 +468,7 @@ describe('Provider routing based on mode', () => {
       expect.any(Object),
     );
     expect(getProviderFromStore).toHaveBeenCalled();
-    expect(getFastProvider).not.toHaveBeenCalled();
+    expect(getNotesProvider).not.toHaveBeenCalled();
   });
 
   it('returns ignored when a request is already in flight instead of starting a second stream', async () => {
@@ -599,6 +605,8 @@ describe('Provider routing based on mode', () => {
     await vi.waitFor(() => {
       expect((service as any).conversation.memory.text).toContain('Two sum in O(n)');
     });
+    expect(getMemoryProvider).toHaveBeenCalled();
+    expect(getNotesProvider).not.toHaveBeenCalled();
     expect(mockProvider.generateShort).toHaveBeenCalled();
     const prompt = mockProvider.generateShort.mock.calls[0][0].prompt as string;
     expect(prompt).toContain('handle duplicates too');
