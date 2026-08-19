@@ -48,10 +48,10 @@ describe('aiSlots', () => {
     expect(resolveMemoryProvider('')).toBe('anthropic')
   })
 
-  it('resolveMemoryModel is always Haiku or Luna for the Live assist vendor', () => {
-    expect(resolveMemoryModel('anthropic')).toBe(MEMORY_MODELS.anthropic)
-    expect(resolveMemoryModel('openai')).toBe(MEMORY_MODELS.openai)
-    expect(resolveMemoryModel('anthropic')).toBe('claude-haiku-4-5')
-    expect(resolveMemoryModel('openai')).toBe('gpt-5.6-luna')
+  it('resolveMemoryModel is Sonnet 5 / Terra, not the notes cheap default', () => {
+    expect(resolveMemoryModel('anthropic')).toBe('claude-sonnet-5')
+    expect(resolveMemoryModel('openai')).toBe('gpt-5.6-terra')
+    expect(MEMORY_MODELS.anthropic).not.toBe(NOTES_FAST_MODELS.anthropic)
+    expect(MEMORY_MODELS.openai).not.toBe(NOTES_FAST_MODELS.openai)
   })
 })

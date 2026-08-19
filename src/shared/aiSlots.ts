@@ -1,11 +1,12 @@
 /**
  * Live assist vs notes vs system memory.
  *
- * Memory is not a Settings slot. It always uses the cheap model for the
- * Live assist vendor so the compact job hits a key the user already has:
- * Anthropic → Claude Haiku 4.5, OpenAI → GPT-5.6 Luna.
+ * Memory is not a Settings slot. A weak compact poisons Assist for the
+ * rest of the session, so this is Sonnet-class, not Haiku/Luna. Still
+ * hits the Live assist vendor's key:
+ * Anthropic → Claude Sonnet 5, OpenAI → GPT-5.6 Terra.
  *
- * Unset notes* still defaults to that same cheap model.
+ * Unset notes* still defaults to the cheap models (Haiku / Luna).
  */
 
 export type AIProviderName = 'anthropic' | 'openai'
@@ -15,8 +16,11 @@ export const NOTES_FAST_MODELS: Record<AIProviderName, string> = {
   openai: 'gpt-5.6-luna',
 }
 
-/** Same map as NOTES_FAST_MODELS — memory is not user-configurable. */
-export const MEMORY_MODELS = NOTES_FAST_MODELS
+/** System memory compact. Not user-configurable. Not the notes cheap default. */
+export const MEMORY_MODELS: Record<AIProviderName, string> = {
+  anthropic: 'claude-sonnet-5',
+  openai: 'gpt-5.6-terra',
+}
 
 export function parseAIProviderName(value: unknown): AIProviderName | null {
   return value === 'openai' || value === 'anthropic' ? value : null

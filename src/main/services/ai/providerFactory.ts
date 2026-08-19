@@ -47,7 +47,7 @@ export function clearProviderCache(): void {
   cachedConfigKey = '';
 }
 
-/** Cheap system model (Haiku / Luna). Memory always uses this. Notes falls back to it. */
+/** Cheap notes fallback (Haiku / Luna). Memory uses MEMORY_MODELS, not this. */
 export const FAST_MODELS: Record<AIProviderName, string> = NOTES_FAST_MODELS;
 
 function requireApiKey(
@@ -89,7 +89,7 @@ export async function getNotesProvider(): Promise<AIProvider> {
 
 /**
  * Session memory compact. Not a Settings slot.
- * Same vendor as Live assist, always Haiku (Anthropic) or Luna (OpenAI).
+ * Same vendor as Live assist: Sonnet 5 (Anthropic) or GPT-5.6 Terra (OpenAI).
  */
 export async function getMemoryProvider(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');

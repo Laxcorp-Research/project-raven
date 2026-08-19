@@ -269,17 +269,23 @@ describe('providerFactory', () => {
   })
 
   describe('getMemoryProvider', () => {
-    it('returns anthropic Haiku when Live assist is Anthropic, ignoring aiModel', async () => {
+    it('returns Anthropic Sonnet 5 when Live assist is Anthropic, even if overlay is Haiku', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
-          aiModel: 'claude-sonnet-4-6',
+          aiModel: 'claude-haiku-4-5',
           anthropicApiKey: 'test-ant-store-key',
         }
         return data[key] ?? defaultVal
       })
 
       const provider = await getMemoryProvider()
+      const asSonnet = getProvider({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        apiKey: 'test-ant-store-key',
+        effort: 'low',
+      })
       const asHaiku = getProvider({
         provider: 'anthropic',
         model: 'claude-haiku-4-5',
@@ -288,20 +294,27 @@ describe('providerFactory', () => {
       })
 
       expect(provider).toBeInstanceOf(AnthropicProvider)
-      expect(provider).toBe(asHaiku)
+      expect(provider).toBe(asSonnet)
+      expect(provider).not.toBe(asHaiku)
     })
 
-    it('returns OpenAI Luna when Live assist is OpenAI, ignoring aiModel', async () => {
+    it('returns OpenAI Terra when Live assist is OpenAI, even if overlay is Luna', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'openai',
-          aiModel: 'gpt-5.2',
+          aiModel: 'gpt-5.6-luna',
           openaiApiKey: 'sk-openai-store-key',
         }
         return data[key] ?? defaultVal
       })
 
       const provider = await getMemoryProvider()
+      const asTerra = getProvider({
+        provider: 'openai',
+        model: 'gpt-5.6-terra',
+        apiKey: 'sk-openai-store-key',
+        effort: 'low',
+      })
       const asLuna = getProvider({
         provider: 'openai',
         model: 'gpt-5.6-luna',
@@ -310,7 +323,8 @@ describe('providerFactory', () => {
       })
 
       expect(provider).toBeInstanceOf(OpenAIProvider)
-      expect(provider).toBe(asLuna)
+      expect(provider).toBe(asTerra)
+      expect(provider).not.toBe(asLuna)
     })
 
     it('does not use notesModel or notesProvider — memory is not a Settings slot', async () => {
@@ -328,9 +342,9 @@ describe('providerFactory', () => {
       })
 
       const memory = await getMemoryProvider()
-      const asHaiku = getProvider({
+      const asMemory = getProvider({
         provider: 'anthropic',
-        model: 'claude-haiku-4-5',
+        model: 'claude-sonnet-5',
         apiKey: 'test-ant-key',
         effort: 'low',
       })
@@ -341,7 +355,7 @@ describe('providerFactory', () => {
         effort: 'max',
       })
 
-      expect(memory).toBe(asHaiku)
+      expect(memory).toBe(asMemory)
       expect(memory).not.toBe(asNotes)
     })
 

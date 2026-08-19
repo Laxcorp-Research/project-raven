@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_MODELS, EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, type AIProviderName } from '../aiModels'
-import { NOTES_FAST_MODELS } from '../../../../shared/aiSlots'
+import { MEMORY_MODELS, NOTES_FAST_MODELS } from '../../../../shared/aiSlots'
 
 describe('Settings model catalog', () => {
   it('shows every Anthropic and OpenAI id the main process allows', () => {
@@ -58,5 +58,11 @@ describe('Settings model catalog', () => {
 
   it('keeps Settings defaults aligned with the notes-slot cheap models', () => {
     expect(DEFAULT_MODELS).toEqual(NOTES_FAST_MODELS)
+  })
+
+  it('shows Sonnet 5 / Terra for session memory, not Haiku / Luna', () => {
+    expect(MODEL_CATALOG.anthropic.some((m) => m.id === MEMORY_MODELS.anthropic)).toBe(true)
+    expect(MODEL_CATALOG.openai.some((m) => m.id === MEMORY_MODELS.openai)).toBe(true)
+    expect(MEMORY_MODELS).not.toEqual(NOTES_FAST_MODELS)
   })
 })

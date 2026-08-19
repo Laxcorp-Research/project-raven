@@ -194,7 +194,7 @@ export function ModelsTab() {
         <h4 className="text-sm font-medium text-gray-900">Session memory</h4>
         <p className="text-xs text-gray-400">
           Not configurable. Compacts the overlay thread in the background so Assist does not drop the original task.
-          Uses the cheap model on the same key as Live assist.
+          Uses a stronger model on the same key as Live assist, not the cheap notes default.
         </p>
         <p className="px-3 py-2.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg">
           {MODEL_CATALOG[live.provider].find((m) => m.id === MEMORY_MODELS[live.provider])?.label
