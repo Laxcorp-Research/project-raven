@@ -9,6 +9,7 @@ import {
   shouldShowMacUpdateDialog,
   shouldShowMacUpdateModal,
   macSettingsPrimaryAction,
+  macSettingsPrimaryLabel,
 } from '../macManualUpdate'
 
 describe('parseLatestMacYmlVersion', () => {
@@ -96,11 +97,14 @@ describe('shouldShowMacUpdateModal', () => {
 describe('macSettingsPrimaryAction', () => {
   it('opens the steps dialog for Mac DMG updates instead of GitHub', () => {
     expect(macSettingsPrimaryAction('mac-dmg')).toBe('prompt')
+    expect(macSettingsPrimaryLabel('mac-dmg')).toBe('Update Available')
   })
 
   it('keeps Windows / ShipIt on the download path', () => {
     expect(macSettingsPrimaryAction('auto')).toBe('download')
     expect(macSettingsPrimaryAction(undefined)).toBe('download')
+    expect(macSettingsPrimaryLabel('auto')).toBe('Update now')
+    expect(macSettingsPrimaryLabel(undefined)).toBe('Update now')
   })
 })
 

@@ -81,3 +81,8 @@ export function macSettingsPrimaryAction(
 ): 'prompt' | 'download' {
   return install === 'mac-dmg' ? 'prompt' : 'download'
 }
+
+/** Label for that button. Mac opens the dialog; Windows still downloads. */
+export function macSettingsPrimaryLabel(install?: string): string {
+  return install === 'mac-dmg' ? 'Update Available' : 'Update now'
+}

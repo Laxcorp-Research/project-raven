@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { macSettingsPrimaryAction } from '../../../../../shared/macManualUpdate'
+import { macSettingsPrimaryAction, macSettingsPrimaryLabel } from '../../../../../shared/macManualUpdate'
 import { requestMacUpdatePrompt } from '../../../lib/macUpdatePrompt'
 
 interface UpdateState {
@@ -197,7 +197,7 @@ export function GeneralTab() {
               onClick={handleDownloadUpdate}
               className="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors shrink-0 ml-4"
             >
-              {updateState.install === 'mac-dmg' ? 'Download installer' : 'Update now'}
+              {macSettingsPrimaryLabel(updateState.install)}
             </button>
           ) : (
             <button
