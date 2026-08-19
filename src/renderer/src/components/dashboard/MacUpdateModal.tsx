@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
 import { detectMacPlatform } from '../../lib/shortcutLabels'
+import { MAC_UPDATE_PROMPT_EVENT } from '../../lib/macUpdatePrompt'
 import { shouldShowMacUpdateModal } from '../../../../shared/macManualUpdate'
 
 interface UpdateState {
@@ -17,6 +18,7 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
   const [dismissedVersion, setDismissedVersion] = useState('')
   const [busy, setBusy] = useState(false)
   const [laterUntilNextCheck, setLaterUntilNextCheck] = useState(false)
+  const [settingsPrompt, setSettingsPrompt] = useState(false)
 
   useEffect(() => {
     if (!isMac) return
@@ -35,6 +37,16 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
     })
   }, [isMac])
 
+  useEffect(() => {
+    if (!isMac) return
+    const onSettingsPrompt = () => {
+      setLaterUntilNextCheck(false)
+      setSettingsPrompt(true)
+    }
+    window.addEventListener(MAC_UPDATE_PROMPT_EVENT, onSettingsPrompt)
+    return () => window.removeEventListener(MAC_UPDATE_PROMPT_EVENT, onSettingsPrompt)
+  }, [isMac])
+
   const open = shouldShowMacUpdateModal({
     isMac,
     isRecording,
@@ -42,13 +54,15 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
     install: updateState.install,
     version: updateState.version,
     dismissedVersion,
-    forcePrompt: Boolean(updateState.forcePrompt) && !laterUntilNextCheck,
+    forcePrompt:
+      settingsPrompt || (Boolean(updateState.forcePrompt) && !laterUntilNextCheck),
   })
 
   const handleLater = useCallback(async () => {
     const version = updateState.version
     if (!version) return
     setDismissedVersion(version)
+    setSettingsPrompt(false)
     setLaterUntilNextCheck(true)
     await window.raven.storeSet('macUpdateDismissedVersion', version)
   }, [updateState.version])
@@ -66,12 +80,24 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
     }
   }, [busy, updateState.dmgUrl])
 
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void handleLater()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [open, handleLater])
+
   if (!open) return null
 
   const version = updateState.version ?? ''
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/25" />
       <div
         role="dialog"

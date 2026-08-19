@@ -71,3 +71,13 @@ export function shouldShowMacUpdateModal(opts: {
     forcePrompt: opts.forcePrompt,
   })
 }
+
+/**
+ * Settings → Version → primary button. Mac OSS must reopen the steps
+ * dialog. Opening GitHub from this row skips the Gatekeeper instructions.
+ */
+export function macSettingsPrimaryAction(
+  install?: string,
+): 'prompt' | 'download' {
+  return install === 'mac-dmg' ? 'prompt' : 'download'
+}

@@ -8,6 +8,7 @@ import {
   parseLatestMacYmlVersion,
   shouldShowMacUpdateDialog,
   shouldShowMacUpdateModal,
+  macSettingsPrimaryAction,
 } from '../macManualUpdate'
 
 describe('parseLatestMacYmlVersion', () => {
@@ -89,6 +90,17 @@ describe('shouldShowMacUpdateModal', () => {
     ).toBe(true)
     expect(shouldShowMacUpdateModal({ ...available, install: 'auto' })).toBe(false)
     expect(shouldShowMacUpdateModal(available)).toBe(true)
+  })
+})
+
+describe('macSettingsPrimaryAction', () => {
+  it('opens the steps dialog for Mac DMG updates instead of GitHub', () => {
+    expect(macSettingsPrimaryAction('mac-dmg')).toBe('prompt')
+  })
+
+  it('keeps Windows / ShipIt on the download path', () => {
+    expect(macSettingsPrimaryAction('auto')).toBe('download')
+    expect(macSettingsPrimaryAction(undefined)).toBe('download')
   })
 })
 

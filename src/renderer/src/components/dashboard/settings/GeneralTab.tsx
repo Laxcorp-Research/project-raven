@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { macSettingsPrimaryAction } from '../../../../../shared/macManualUpdate'
+import { requestMacUpdatePrompt } from '../../../lib/macUpdatePrompt'
 
 interface UpdateState {
   status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
@@ -78,8 +80,12 @@ export function GeneralTab() {
   }, [])
 
   const handleDownloadUpdate = useCallback(async () => {
+    if (macSettingsPrimaryAction(updateState.install) === 'prompt') {
+      requestMacUpdatePrompt()
+      return
+    }
     await window.raven.updateDownload()
-  }, [])
+  }, [updateState.install])
 
   const handleInstallUpdate = useCallback(async () => {
     await window.raven.updateInstall()

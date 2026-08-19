@@ -11,6 +11,7 @@ export {
   evaluateMacManualUpdate,
   shouldShowMacUpdateDialog,
   shouldShowMacUpdateModal,
+  macSettingsPrimaryAction,
 } from '../shared/macManualUpdate'
 
 export async function fetchMacFeedVersion(
