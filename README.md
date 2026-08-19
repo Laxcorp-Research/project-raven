@@ -3,10 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>Open-source, AI-powered meeting copilot with real-time transcription and echo cancellation.</strong>
+  <strong>Open-source meeting copilot: dual-stream capture, local echo cancellation, BYOK transcription and AI.</strong>
 </p>
 
-Raven captures system audio and microphone during meetings, cancels echo so speaker audio doesn't bleed into your mic, transcribes both sides of the conversation in real-time via Deepgram or AssemblyAI, and gives you AI assistance (Claude or OpenAI) with context-aware responses - all running locally on your desktop. Bring your own API keys.
+Raven is an Electron desktop app. It captures microphone and system audio, cancels echo on your machine, transcribes **You** and **Them** on two parallel streams, and answers from the live transcript. You bring your own API keys. This build has **no Raven account, no hosted backend, and no cloud session sync**.
+
+Capture, echo cancellation, SQLite history, and document RAG run locally. Microphone/system audio goes to **Deepgram** or **AssemblyAI**. Assist prompts (transcript excerpts, chat, optional screenshot, retrieved docs) go to **Anthropic** or **OpenAI**.
 
 <p align="center">
   <a href="#download"><strong>Download</strong></a> &nbsp;|&nbsp;
@@ -22,14 +24,14 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows 10/11 (x64)** | [Raven-Windows-2.3.9-Setup.exe](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.9/Raven-Windows-2.3.9-Setup.exe) |
+| **Windows 10/11 (x64)** | [Raven-Windows-2.3.10-Setup.exe](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.10/Raven-Windows-2.3.10-Setup.exe) |
 | **macOS 12+ (Apple Silicon)** | [Raven-Mac-2.3.10-Installer.dmg](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.10/Raven-Mac-2.3.10-Installer.dmg) |
 
 **Windows:** run the setup executable. SmartScreen may warn on an unsigned OSS build — choose **More info → Run anyway**.
 
 **macOS:** the DMG is unsigned (no Apple notarization). Open it, drag Raven to Applications, then **right-click Raven → Open** the first time so Gatekeeper allows it. Intel Macs are not in this DMG — build from source below.
 
-Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS).
+Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have.
 
 ---
 
@@ -97,53 +99,123 @@ Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `la
 
 ## Features
 
-- **Dual-stream audio capture** — System audio + microphone, captured natively on macOS (ScreenCaptureKit) and Windows (WASAPI)
-- **Echo cancellation** — GStreamer pipeline using the WebRTC AEC3 engine (the same echo canceller used in Chrome)
-- **Real-time transcription** — Deepgram or AssemblyAI, with separate streams for mic and system audio
-- **AI assistance** — Anthropic Claude or OpenAI, user-configurable via a provider pattern
-- **Stealth overlay** — Invisible to Zoom, Meet, Teams, and Discord screen sharing
-- **Local-first** — Your API keys and data stay on your machine (SQLite via better-sqlite3)
-- **RAG** — Upload local documents, embedded with `@xenova/transformers`, and reference them in AI context
-- **Sessions** — Auto-saved with full transcript, AI responses, and summaries
-- **Modes** — Customizable AI behavior profiles with system prompts and quick actions
-- **Profile picture editor** — Crop, zoom, and pan before saving your avatar
+- **Dual-stream capture** — System audio + microphone. macOS uses ScreenCaptureKit + CoreAudio; Windows uses WASAPI loopback + capture (Rust/NAPI).
+- **Echo cancellation** — GStreamer `webrtcechoprobe` / `webrtcdsp` (WebRTC AEC3), then a **residual echo gate** that drops mic chunks that still look like speaker bleed before they reach STT.
+- **Real-time transcription** — Two streams: **You** (cleaned mic) and **Them** (system audio). Deepgram `nova-3` and/or AssemblyAI `u3-rt-pro`. Auto-routing prefers AssemblyAI for English, Spanish, French, German, Portuguese, and Italian when that key is present; otherwise Deepgram. Settings can force either engine.
+- **AI assistance** — Anthropic or OpenAI from the overlay (Assist, recap, follow-up, and custom prompts). Optional screenshot via `desktopCapturer`.
+- **Stealth overlay** — Electron `setContentProtection` so the overlay and dashboard are omitted from typical screen-share APIs (Zoom, Meet, Teams, Discord). Not a guarantee against every capture tool.
+- **Modes** — Local behavior profiles (system prompt, notes templates). Attach documents for RAG on that mode.
+- **RAG (per mode, local)** — Upload `.txt`, `.md`, `.pdf`, or `.docx`. Chunked and embedded on-device with `Xenova/all-MiniLM-L6-v2` (`@xenova/transformers`). Chunks live in SQLite; the top matches are injected into the Assist system prompt. First embed may download the ~30MB model.
+- **Session context (not long-term memory)** — During a recording, Assist keeps recent turns, pins the opening transcript and your typed questions, and may compress older context with a cheap model **in RAM**. There is **no** cross-meeting user-memory profile.
+- **Sessions** — Saved locally in SQLite (transcript, overlay chat, auto title/summary). Dashboard can generate insights with your LLM key. **Incognito** skips SQLite persistence for that session.
+- **Local settings** — API keys and preferences in encrypted `electron-store` (`raven-config.json`).
+- **Tray** — Packaged builds load icons from `resources/tray`. On Windows 11 a new icon may start in the `^` overflow.
+- **Profile picture editor** — Crop, zoom, and pan before saving your avatar.
+
+Live recording uses the **OS default** mic and playback devices. The Settings mic picker is for the in-app mic **test** only.
 
 ## Architecture
 
+```mermaid
+flowchart TB
+  subgraph capture [Native capture]
+    Win["Windows: WASAPI loopback + capture"]
+    Mac["macOS: ScreenCaptureKit + CoreAudio"]
+  end
+
+  subgraph local [On this machine]
+    SAN[systemAudioNative]
+    AEC["GStreamer webrtcechoprobe / webrtcdsp"]
+    REG[ResidualEchoGate]
+    AM[audioManager]
+    RAG["ragService — MiniLM embeddings"]
+    MEM["sessionMemory — current recording only"]
+    CS[claudeService]
+    DB[("SQLite data/raven.db")]
+    CFG["electron-store — keys and settings"]
+    OV[Overlay]
+    Dash[Dashboard]
+  end
+
+  subgraph byok [Your API keys — not a Raven server]
+    STT["Deepgram nova-3 and/or AssemblyAI u3-rt-pro"]
+    LLM[Anthropic or OpenAI]
+  end
+
+  Win --> SAN
+  Mac --> SAN
+  SAN -->|"system PCM = Them"| AM
+  SAN --> AEC
+  AEC -->|"cleaned mic"| REG
+  REG -->|"You, if not echo"| AM
+  AM --> STT
+  STT --> OV
+  OV --> CS
+  MEM --> CS
+  RAG --> CS
+  CS --> LLM
+  CS --> DB
+  RAG --> DB
+  AM --> DB
+  CFG --- CS
+  Dash --- DB
+```
+
 ![Architecture](docs/architecture.png)
+
+The PNG is generated from `docs/architecture.mmd` (same graph, more labels). Re-export if you change the mermaid.
+
+**What “memory” means here**
+
+| Mechanism | Lifetime | Used for |
+|-----------|----------|----------|
+| Live Assist turns + `sessionMemory` | Current recording, in RAM | Long meetings: running summary, pinned opening, pinned questions, last few turns |
+| SQLite sessions / messages | Until you delete them | History, summaries, insights, overlay chat replay |
+| RAG chunks | Until you remove the file from the mode | Retrieve-then-prompt on Assist, scoped to that mode |
+| electron-store | Until you reset settings | Keys, STT preference, window bounds — not semantic memory |
+
+There is no global “Raven remembers you across meetings” store.
 
 ## How It Works
 
-1. User starts a recording session
-2. A native binary captures system audio and microphone simultaneously
-   - **macOS:** Swift process using ScreenCaptureKit (system) + CoreAudio (mic)
-   - **Windows:** Rust/NAPI-RS module using WASAPI loopback + capture
-3. Both streams are fed into a GStreamer echo-cancellation pipeline (`webrtcechoprobe` / `webrtcdsp`) so the remote speaker's voice doesn't contaminate the mic signal
-4. The clean mic audio and system audio are sent over two parallel WebSocket connections to Deepgram Nova-3 for transcription
-5. Transcripts appear in real-time in the overlay window
-6. The user can ask AI (Claude or OpenAI) for help, with full conversation context
+1. You start a session (`Cmd/Ctrl + Shift + Space`, or the overlay). Incognito, if enabled, will not write the session to SQLite.
+2. A native helper captures system audio and microphone at the same time.
+   - **macOS:** Swift `audiocapture` — ScreenCaptureKit (system) + CoreAudio (mic). Needs Microphone and Screen Recording.
+   - **Windows:** Rust/NAPI `raven-windows-audio` — WASAPI loopback + capture. Uses the default devices.
+3. System PCM is the AEC **reference**. Mic PCM goes through GStreamer `webrtcechoprobe` / `webrtcdsp`. `ResidualEchoGate` then compares raw mic to recent system audio and drops leftover speaker echo so it does not land in **You**.
+4. Two STT connections run in parallel (mic → You, system → Them). Engine pick is Settings `sttProvider` (`auto` / `assemblyai` / `deepgram`) plus language: AssemblyAI Universal-3 Pro for the six languages above when that key exists; Deepgram `nova-3` otherwise (including auto-detect / `multi`). AssemblyAI failures can fall back to Deepgram.
+5. The overlay shows the live transcript. Assist (`Cmd/Ctrl + Enter`) builds a prompt from the mode brief, retrieved RAG chunks (if the mode has docs), session memory, recent chat, transcript tail, and an optional screenshot, then streams from your LLM.
+6. On stop, a non-incognito session is saved. A cheap/fast model writes a title and summary. Insights are generated later from the dashboard, still with your key.
 
 ## Project Structure
 
 ```
 src/
-├── main/                  # Electron main process
-│   ├── audioManager.ts    #   Audio capture orchestration
-│   ├── transcriptionService.ts  #   Deepgram WebSocket connections
-│   ├── aiService.ts       #   AI provider abstraction (Claude / OpenAI)
-│   ├── sessionManager.ts  #   Session persistence & history
-│   ├── store.ts           #   SQLite database (better-sqlite3)
-│   └── index.ts           #   App lifecycle, IPC handlers, windows
-├── renderer/              # React UI (Vite + Tailwind)
-│   └── src/
-│       ├── components/    #   Dashboard, overlay, settings, onboarding
-│       └── ...
-├── preload/               # Electron preload scripts (context bridge)
+├── main/                         # Electron main process
+│   ├── audioManager.ts           #   Recording orchestration, STT engine pick
+│   ├── systemAudioNative.ts      #   Native capture + AEC wiring
+│   ├── residualEchoGate.ts       #   Post-AEC mic echo drop before STT
+│   ├── transcriptionService.ts   #   Deepgram dual WebSocket
+│   ├── claudeService.ts          #   Overlay Assist (Claude / OpenAI)
+│   ├── store.ts                  #   electron-store (encrypted keys + settings)
+│   ├── index.ts                  #   App lifecycle, hotkeys, IPC
+│   └── services/
+│       ├── database.ts           #   SQLite (sessions, modes, RAG chunks)
+│       ├── sessionManager.ts     #   Session lifecycle, incognito, autosave
+│       ├── ragService.ts         #   Parse, embed, retrieve
+│       ├── assemblyAITranscriptionService.ts
+│       ├── summaryService.ts     #   Post-session title + summary
+│       ├── insightsService.ts    #   Dashboard insights
+│       └── ai/
+│           ├── providerFactory.ts
+│           └── sessionMemory.ts  #   In-recording compression / pins
+├── shared/sttCapabilities.ts     # STT language + engine routing
+├── renderer/                     # React UI (Vite + Tailwind)
+├── preload/                      # Context bridge
 └── native/
-    ├── swift/             # macOS audio capture (ScreenCaptureKit + CoreAudio)
-    │   └── AudioCapture/
-    ├── windows/           # Windows audio capture (WASAPI, Rust/NAPI-RS)
-    └── aec/               # GStreamer AEC C++ addon (WebRTC AEC3)
+    ├── swift/AudioCapture/       # macOS capture
+    ├── windows/                  # Windows WASAPI (Rust/NAPI)
+    └── aec/                      # GStreamer AEC addon
 ```
 
 ## Platform Support
@@ -152,7 +224,9 @@ src/
 |----------|-------------|------------|-------------------|--------|
 | **macOS 12+** | ScreenCaptureKit | CoreAudio | GStreamer AEC3 | Primary, fully tested |
 | **Windows 10/11** | WASAPI Loopback | WASAPI Capture | GStreamer AEC3 | Supported |
-| Linux | — | — | — | Not yet supported |
+| Linux | — | — | — | Not supported (no native capture path) |
+
+Prebuilt Mac DMG is **Apple Silicon**. Intel Macs: build from source (this section). This OSS tree does not ship login, hosted Pro, cloud sync, or Recall meeting-bot capture.
 
 ## Getting Started
 
@@ -544,9 +618,9 @@ Test-Path src\native\windows\raven-windows-audio.win32-x64-msvc.node
 npm run dev
 ```
 
-The Electron app opens. On first launch you'll see a 6-step onboarding flow — enter your API keys (Deepgram for transcription, Claude or OpenAI for AI assistance).
+The Electron app opens. On first launch you'll see a 6-step onboarding flow — enter a transcription key (Deepgram and/or AssemblyAI) and an AI key (Anthropic or OpenAI).
 
-> **If the app starts but audio capture doesn't work:** Check **Settings → Sound** and make sure the correct playback and recording devices are set as default. WASAPI captures from the default devices.
+> **If the app starts but audio capture doesn't work:** Check **Settings → Sound** and make sure the correct playback and recording devices are set as default. WASAPI captures from the **default** devices. The Settings mic picker only drives the in-app mic test.
 
 ---
 
@@ -569,16 +643,16 @@ The Electron app opens. On first launch you'll see a 6-step onboarding flow — 
 
 ## Keyboard Shortcuts
 
+These match `registerGlobalHotkeys` in `src/main/index.ts`. On Windows use `Ctrl` instead of `Cmd`. Recording used to be `Cmd/Ctrl+R` and clear used to be `Cmd/Ctrl+Shift+R`; those were changed because they stole browser refresh globally. If an onboarding screenshot still shows the old keys, this table wins.
+
 | Action | Shortcut |
 |--------|----------|
-| Toggle Overlay | `Cmd + \` |
-| Start/Stop Recording | `Cmd + R` |
-| Get AI Suggestion | `Cmd + Enter` |
-| Clear Conversation | `Cmd + Shift + R` |
-| Move Overlay | `Cmd + Arrow Keys` |
-| Scroll Overlay | `Cmd + Shift + Up/Down` |
-
-> On Windows, replace `Cmd` with `Ctrl`.
+| Toggle overlay | `Cmd + \` |
+| AI Assist | `Cmd + Enter` |
+| Start/Stop recording | `Cmd + Shift + Space` |
+| Clear conversation | `Cmd + Shift + Backspace` |
+| Move overlay | `Cmd + Arrow Keys` |
+| Scroll overlay | `Cmd + Shift + Up/Down` |
 
 ## Testing
 
@@ -601,11 +675,21 @@ npx @electron/rebuild -f -w better-sqlite3
 
 **Reset all data (fresh start):**
 
-```bash
-# macOS
-rm -rf ~/Library/Application\ Support/project-raven/
+SQLite is `data/raven.db` under the app user-data folder. Packaged builds use the product name **Raven**; `npm run dev` uses the package name **project-raven**.
 
-# Windows
+```bash
+# macOS (packaged)
+rm -rf ~/Library/Application\ Support/Raven/
+
+# macOS (dev)
+rm -rf ~/Library/Application\ Support/project-raven/
+```
+
+```bat
+:: Windows (packaged)
+rmdir /s /q "%APPDATA%\Raven"
+
+:: Windows (dev)
 rmdir /s /q "%APPDATA%\project-raven"
 ```
 
