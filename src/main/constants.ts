@@ -38,6 +38,10 @@ export const AI_STREAM_TIMEOUT_MS = 1_800_000
 export const SUMMARY_MAX_TOKENS = 2000
 export const SUMMARY_TRANSCRIPT_SLICE = 8000
 export const SUMMARY_MIN_TRANSCRIPT_LENGTH = 20
+/** Ended sessions scanned on boot for missing title/summary. */
+export const NOTES_RETRY_SCAN = 40
+/** Max notes regenerations kicked off on a single boot. */
+export const NOTES_RETRY_LIMIT = 8
 
 export const RAG_QUERY_TRANSCRIPT_SLICE = 500
 export const RAG_DEFAULT_TOP_K = 5

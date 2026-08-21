@@ -38,14 +38,14 @@ describe('generateSessionSummary', () => {
   it('returns untitled for short transcripts', async () => {
     const result = await generateSessionSummary('short', null)
 
-    expect(result).toEqual({ title: 'Untitled session', summary: '' })
+    expect(result).toEqual({ title: 'Untitled Session', summary: '' })
     expect(mockGenerateShort).not.toHaveBeenCalled()
   })
 
   it('returns untitled for empty transcript', async () => {
     const result = await generateSessionSummary('', null)
 
-    expect(result).toEqual({ title: 'Untitled session', summary: '' })
+    expect(result).toEqual({ title: 'Untitled Session', summary: '' })
     expect(mockGenerateShort).not.toHaveBeenCalled()
   })
 
@@ -68,7 +68,21 @@ describe('generateSessionSummary', () => {
     )
   })
 
-  it('handles malformed response gracefully', async () => {
+  it('parses Title:/Summary: when the model ignores the uppercase labels', async () => {
+    mockGenerateShort.mockResolvedValueOnce(
+      'Title: Zara interview intro\nSummary:\n## What was said\n- Recruiter intro',
+    )
+
+    const result = await generateSessionSummary(
+      'This is a long enough transcript to pass the minimum length check easily',
+      null,
+    )
+
+    expect(result.title).toBe('Zara interview intro')
+    expect(result.summary).toContain('Recruiter intro')
+  })
+
+  it('uses unmarked model text as the summary instead of leaving the session untitled', async () => {
     mockGenerateShort.mockResolvedValueOnce(
       'Here is some random text without the expected markers.'
     )
@@ -78,8 +92,30 @@ describe('generateSessionSummary', () => {
       null,
     )
 
-    expect(result.title).toBe('Untitled session')
-    expect(result.summary).toBe('')
+    expect(result.title).not.toBe('Untitled Session')
+    expect(result.summary).toContain('random text without the expected markers')
+  })
+
+  it('throws when the notes model returns no text', async () => {
+    mockGenerateShort.mockResolvedValueOnce('   ')
+
+    await expect(
+      generateSessionSummary(
+        'This is a long enough transcript to pass the minimum length check easily',
+        null,
+      ),
+    ).rejects.toThrow('Notes model returned no text')
+  })
+
+  it('rethrows notes-provider errors so session-end can retry later', async () => {
+    mockGenerateShort.mockRejectedValueOnce(new Error('No API key configured for anthropic. Add it in Settings.'))
+
+    await expect(
+      generateSessionSummary(
+        'This is a long enough transcript to pass the minimum length check easily',
+        null,
+      ),
+    ).rejects.toThrow('No API key configured')
   })
 
   it('sends heading titles from the mode template, not instructions that invent a meeting', async () => {

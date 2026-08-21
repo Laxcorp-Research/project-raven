@@ -47,6 +47,20 @@ export function notesSlotIsExplicit(notesProvider: unknown, notesModel: unknown)
   return parseAIProviderName(notesProvider) !== null && model.length > 0
 }
 
+/** Notes Settings picker. Live assist uses the full catalog. */
+export function resolveSettingsPickerModel(
+  provider: AIProviderName,
+  requested: unknown,
+): string {
+  const id = typeof requested === 'string' ? requested.trim() : ''
+  return id === NOTES_FAST_MODELS[provider] ? id : NOTES_FAST_MODELS[provider]
+}
+
+/** Luna may use none/low. Haiku has no effort API; callers still store `low`. */
+export function resolveSettingsPickerEffort(requested: unknown): 'none' | 'low' {
+  return requested === 'none' ? 'none' : 'low'
+}
+
 /** Live-assist vendor only. Ignores notesProvider / notesModel. */
 export function resolveMemoryProvider(aiProvider: unknown): AIProviderName {
   return parseAIProviderName(aiProvider) ?? 'anthropic'

@@ -6,6 +6,8 @@ import {
   parseAIProviderName,
   resolveNotesModel,
   resolveNotesProvider,
+  resolveSettingsPickerEffort,
+  resolveSettingsPickerModel,
 } from '../../../../../shared/aiSlots'
 import {
   DEFAULT_EFFORT,
@@ -14,8 +16,11 @@ import {
   MODEL_CATALOG,
   effortLevelsForModel,
   resolveEffort,
+  settingsPickerEffortLevels,
+  settingsPickerModels,
   type AIProviderName,
   type EffortLevel,
+  type ModelOption,
 } from '../../../lib/aiModels'
 
 const log = createLogger('Settings:Models')
@@ -30,7 +35,7 @@ function catalogIds(provider: AIProviderName): string[] {
   return MODEL_CATALOG[provider].map((m) => m.id)
 }
 
-function slotFromStore(
+function liveSlotFromStore(
   providerRaw: unknown,
   modelRaw: unknown,
   effortRaw: unknown,
@@ -39,6 +44,18 @@ function slotFromStore(
   const provider = (parseAIProviderName(providerRaw) ?? fallbackProvider) as AIProviderName
   const model = resolveNotesModel(provider, modelRaw, catalogIds(provider))
   const effort = resolveEffort(provider, model, typeof effortRaw === 'string' ? effortRaw : undefined) ?? DEFAULT_EFFORT
+  return { provider, model, effort }
+}
+
+function notesSlotFromStore(
+  providerRaw: unknown,
+  modelRaw: unknown,
+  effortRaw: unknown,
+  fallbackProvider: AIProviderName,
+): SlotState {
+  const provider = (parseAIProviderName(providerRaw) ?? fallbackProvider) as AIProviderName
+  const model = resolveSettingsPickerModel(provider, modelRaw)
+  const effort = resolveSettingsPickerEffort(effortRaw)
   return { provider, model, effort }
 }
 
@@ -83,18 +100,12 @@ export function ModelsTab() {
         ])
 
         const liveProvider = parseAIProviderName(aiProviderRaw) ?? 'anthropic'
-        const liveModel = resolveNotesModel(liveProvider, aiModelRaw, catalogIds(liveProvider))
-        const liveEffort = resolveEffort(
-          liveProvider,
-          liveModel,
-          typeof aiEffortRaw === 'string' ? aiEffortRaw : undefined,
-        ) ?? DEFAULT_EFFORT
-        setLive({ provider: liveProvider, model: liveModel, effort: liveEffort })
+        setLive(liveSlotFromStore(liveProvider, aiModelRaw, aiEffortRaw, liveProvider))
 
         const explicit = notesSlotIsExplicit(notesProviderRaw, notesModelRaw)
         setNotesExplicit(explicit)
         const notesProvider = resolveNotesProvider(notesProviderRaw, liveProvider)
-        setNotes(slotFromStore(notesProvider, notesModelRaw, notesEffortRaw, notesProvider))
+        setNotes(notesSlotFromStore(notesProvider, notesModelRaw, notesEffortRaw, notesProvider))
 
         setHasAnthropicKey(typeof anthropicKey === 'string' && anthropicKey.trim().length > 0)
         setHasOpenaiKey(typeof openaiKey === 'string' && openaiKey.trim().length > 0)
@@ -137,7 +148,7 @@ export function ModelsTab() {
     void persistLive(next)
     if (!notesExplicit) {
       const model = DEFAULT_MODELS[next.provider]
-      const effort = resolveEffort(next.provider, model, DEFAULT_EFFORT) ?? DEFAULT_EFFORT
+      const effort = resolveSettingsPickerEffort(DEFAULT_EFFORT)
       setNotes({ provider: next.provider, model, effort })
     }
   }
@@ -158,7 +169,7 @@ export function ModelsTab() {
   return (
     <div className="space-y-6 max-w-lg">
       <p className="text-sm text-gray-500">
-        Keys stay under API Keys. Live assist is the overlay. Notes is titles, summaries, and insights after a call.
+        Keys stay under API Keys. Live assist is the overlay. Notes is titles, summaries, and insights after a call — Haiku / Luna only.
       </p>
 
       {!hasAnthropicKey && !hasOpenaiKey && (
@@ -179,8 +190,9 @@ export function ModelsTab() {
 
       <ModelSlotCard
         title="Notes"
-        description="Titles, summaries, and insights after a call."
+        description="Titles, summaries, and insights after a call. Fast models only (Haiku / Luna)."
         slot={notes}
+        fastOnly
         hasAnthropicKey={hasAnthropicKey}
         hasOpenaiKey={hasOpenaiKey}
         onChange={(next) => {
@@ -216,6 +228,7 @@ function ModelSlotCard({
   title,
   description,
   slot,
+  fastOnly = false,
   hasAnthropicKey,
   hasOpenaiKey,
   onChange,
@@ -223,6 +236,7 @@ function ModelSlotCard({
   title: string
   description: string
   slot: SlotState
+  fastOnly?: boolean
   hasAnthropicKey: boolean
   hasOpenaiKey: boolean
   onChange: (next: SlotState) => void
@@ -242,21 +256,36 @@ function ModelSlotCard({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [modelOpen, effortOpen])
 
-  const modelOptions = MODEL_CATALOG[slot.provider]
-  const effortLevels = effortLevelsForModel(slot.provider, slot.model)
+  const modelOptions: ModelOption[] = fastOnly
+    ? settingsPickerModels(slot.provider)
+    : MODEL_CATALOG[slot.provider]
+  const effortLevels = fastOnly
+    ? settingsPickerEffortLevels(slot.provider, slot.model)
+    : effortLevelsForModel(slot.provider, slot.model)
   const selectedModelLabel = modelOptions.find((m) => m.id === slot.model)?.label || slot.model
 
   const applyProvider = (provider: AIProviderName) => {
     const allowed = provider === 'openai' ? hasOpenaiKey : hasAnthropicKey
     if (!allowed) return
     const model = DEFAULT_MODELS[provider]
-    const effort = resolveEffort(provider, model, slot.effort) ?? DEFAULT_EFFORT
+    const effort = fastOnly
+      ? resolveSettingsPickerEffort(slot.effort)
+      : (resolveEffort(provider, model, slot.effort) ?? DEFAULT_EFFORT)
     onChange({ provider, model, effort })
   }
 
   const applyModel = (modelId: string) => {
-    const effort = resolveEffort(slot.provider, modelId, slot.effort) ?? DEFAULT_EFFORT
+    const effort = fastOnly
+      ? resolveSettingsPickerEffort(slot.effort)
+      : (resolveEffort(slot.provider, modelId, slot.effort) ?? DEFAULT_EFFORT)
     onChange({ ...slot, model: modelId, effort })
+  }
+
+  const effortHint = (opt: ModelOption) => {
+    const levels = fastOnly
+      ? settingsPickerEffortLevels(slot.provider, opt.id)
+      : opt.effort
+    return levels ? `Effort: ${levels.join(', ')}` : 'No effort setting'
   }
 
   const providerBtn = (provider: AIProviderName, label: string, sub: string) => {
@@ -320,7 +349,7 @@ function ModelSlotCard({
                   <span className="min-w-0">
                     <span className="block truncate">{opt.label}</span>
                     <span className={`block truncate text-[11px] ${opt.id === slot.model ? 'text-blue-500' : 'text-gray-400'}`}>
-                      {opt.effort ? `Effort: ${opt.effort.join(', ')}` : 'No effort setting'}
+                      {effortHint(opt)}
                     </span>
                   </span>
                   {opt.id === slot.model && (
@@ -381,7 +410,11 @@ function ModelSlotCard({
           </p>
         )}
         {effortLevels && (
-          <p className="text-xs text-gray-400">Only the levels this model accepts. Higher is slower and more thorough.</p>
+          <p className="text-xs text-gray-400">
+            {fastOnly
+              ? 'Fast settings only. Session memory and Live assist are not affected.'
+              : 'Only the levels this model accepts. Higher is slower and more thorough.'}
+          </p>
         )}
       </div>
     </div>

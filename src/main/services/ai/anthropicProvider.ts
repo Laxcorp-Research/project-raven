@@ -79,19 +79,22 @@ export class AnthropicProvider implements AIProvider {
       { role: 'user', content: params.prompt },
     ];
 
-    // generateShort is for quick title/summary generations. We do NOT enable
-    // thinking here even on thinking-capable models: callers expect a 60-token
-    // single-line output and the thinking overhead would dominate. The cap
-    // stays at the caller's request (default 60).
-    const response = await client.messages.create({
+    // Anthropic rejects non-streaming messages.create when max_tokens is
+    // large enough that the call may exceed 10 minutes (Sonnet 5 at 128k
+    // + high effort). Stream the same budget Assist uses.
+    let fullText = '';
+    const stream = client.messages.stream({
       model: this.model,
-      max_tokens: params.maxTokens ?? 60,
+      max_tokens: streamMaxTokensFor('anthropic', this.model),
       ...(params.system ? { system: params.system } : {}),
       messages,
+      ...this.thinkingParams(),
     });
-
-    const block = response.content[0];
-    return (block.type === 'text' ? block.text : '').trim();
+    stream.on('text', (text: string) => {
+      fullText += text;
+    });
+    await stream.finalMessage();
+    return fullText.trim();
   }
 
   private convertContent(

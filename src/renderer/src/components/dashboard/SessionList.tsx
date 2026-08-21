@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 
 import { ConfirmModal } from '../shared/ConfirmModal'
 import { Toast } from '../shared/Toast'
 import { createLogger } from '../../lib/logger'
+import { shouldShowSessionNotesGenerating } from '../../../../shared/sessionDisplay'
 
 const log = createLogger('SessionList')
 
@@ -18,6 +19,7 @@ interface Session {
   duration: number // in seconds
   createdAt: number
   updatedAt: number
+  hasSummary: boolean
   isActive?: boolean
 }
 
@@ -122,13 +124,28 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
   })
   const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' } | null>(null)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [pendingNotesIds, setPendingNotesIds] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     loadSessions()
     const unsubscribe = window.raven.sessions.onListUpdated(() => {
       loadSessions()
     })
-    return () => unsubscribe()
+    const unsubPending = window.raven.sessions.onSummaryPending((sessionId) => {
+      setPendingNotesIds((prev) => new Set(prev).add(sessionId))
+    })
+    const unsubDone = window.raven.sessions.onSummaryDone((sessionId) => {
+      setPendingNotesIds((prev) => {
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+    })
+    return () => {
+      unsubscribe()
+      unsubPending()
+      unsubDone()
+    }
   }, [])
 
   useEffect(() => {
@@ -151,6 +168,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
         duration: session.durationSeconds ?? 0,
         createdAt: session.startedAt ?? session.createdAt,
         updatedAt: session.endedAt ?? session.createdAt,
+        hasSummary: Boolean(session.summary?.trim()),
       }))
       setSessions(mapped)
     } catch (err) {
@@ -202,7 +220,11 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
     setRegeneratingId(sessionId)
     try {
-      await window.raven.sessions.regenerateSummary(sessionId)
+      const result = await window.raven.sessions.regenerateSummary(sessionId)
+      if (result !== true) {
+        setToast({ message: 'Could not generate title or summary', type: 'error' })
+        return
+      }
       setToast({ message: 'Regenerated summary', type: 'success' })
     } catch (err) {
       log.error('Failed to regenerate:', err)
@@ -252,6 +274,7 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
           duration: activeSession.durationSeconds ?? 0,
           createdAt: activeSession.startedAt,
           updatedAt: activeSession.startedAt,
+          hasSummary: false,
         }
         const existingIndex = sessions.findIndex((session) => session.id === activeSession.id)
         if (existingIndex === -1) {
@@ -287,8 +310,15 @@ export function SessionList({ onSessionSelect, activeSessionId, activeSession, s
 
             {groupSessions.map((session) => {
               const isActive = session.id === activeId
-              const sessionAgeMs = Date.now() - session.updatedAt
-              const isProcessing = !isActive && (!session.title || session.title === 'Untitled Session') && session.duration > 0 && sessionAgeMs < 120_000
+              const isProcessing = shouldShowSessionNotesGenerating({
+                isActive,
+                title: session.title,
+                durationSeconds: session.duration,
+                updatedAt: session.updatedAt,
+                now: Date.now(),
+                pending: pendingNotesIds.has(session.id) || regeneratingId === session.id,
+                hasSummary: session.hasSummary,
+              })
               const displayTitle = isActive
                 ? 'Untitled session'
                 : regeneratingId === session.id

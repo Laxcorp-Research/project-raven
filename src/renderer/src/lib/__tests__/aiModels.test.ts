@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_MODELS, EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, type AIProviderName } from '../aiModels'
+import { DEFAULT_MODELS, EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, settingsPickerEffortLevels, settingsPickerModels, type AIProviderName } from '../aiModels'
 import { MEMORY_MODELS, NOTES_FAST_MODELS } from '../../../../shared/aiSlots'
 
 describe('Settings model catalog', () => {
@@ -56,8 +56,19 @@ describe('Settings model catalog', () => {
     expect(effortLevelsForModel('openai', 'gpt-5.2')).not.toContain('max')
   })
 
-  it('keeps Settings defaults aligned with the notes-slot cheap models', () => {
+  it('Notes dropdowns only list Haiku and Luna', () => {
     expect(DEFAULT_MODELS).toEqual(NOTES_FAST_MODELS)
+    expect(settingsPickerModels('anthropic').map((m) => m.id)).toEqual(['claude-haiku-4-5'])
+    expect(settingsPickerModels('openai').map((m) => m.id)).toEqual(['gpt-5.6-luna'])
+    expect(settingsPickerEffortLevels('anthropic', 'claude-haiku-4-5')).toBeNull()
+    expect(settingsPickerEffortLevels('openai', 'gpt-5.6-luna')).toEqual(['none', 'low'])
+  })
+
+  it('Live assist catalog still includes Sonnet and Terra', () => {
+    expect(MODEL_CATALOG.anthropic.map((m) => m.id)).toContain('claude-sonnet-5')
+    expect(MODEL_CATALOG.openai.map((m) => m.id)).toContain('gpt-5.6-terra')
+    expect(settingsPickerModels('anthropic').map((m) => m.id)).not.toContain('claude-sonnet-5')
+    expect(settingsPickerModels('openai').map((m) => m.id)).not.toContain('gpt-5.6-terra')
   })
 
   it('shows Sonnet 5 / Terra for session memory, not Haiku / Luna', () => {

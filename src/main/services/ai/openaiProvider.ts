@@ -100,8 +100,9 @@ export class OpenAIProvider implements AIProvider {
 
     const response = await client.chat.completions.create({
       model: this.model,
-      max_tokens: params.maxTokens ?? 60,
+      max_tokens: streamMaxTokensFor('openai', this.model),
       messages,
+      ...this.effortParams(),
     });
 
     return response.choices[0]?.message?.content?.trim() || '';

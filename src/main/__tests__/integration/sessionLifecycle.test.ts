@@ -31,6 +31,7 @@ vi.mock('../../services/database', () => ({
     addSessionMessage: mockAddSessionMessage,
     getSessionMessages: mockGetSessionMessages,
     getActiveMode: vi.fn().mockReturnValue(null),
+    getAllSessionSummaries: vi.fn().mockReturnValue([]),
   },
 }))
 
