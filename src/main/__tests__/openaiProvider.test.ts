@@ -43,7 +43,7 @@ describe('OpenAIProvider', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'gpt-5.2',
-          max_tokens: 60,
+          max_tokens: 128000,
           messages: [{ role: 'user', content: 'Generate something' }],
         })
       )
@@ -62,7 +62,7 @@ describe('OpenAIProvider', () => {
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          max_tokens: 200,
+          max_tokens: 128000,
           messages: [
             { role: 'system', content: 'Be concise' },
             { role: 'user', content: 'Test' },
@@ -87,6 +87,20 @@ describe('OpenAIProvider', () => {
       const result = await provider.generateShort({ prompt: 'Test' })
 
       expect(result).toBe('')
+    })
+
+    it('sends the selected reasoning_effort on generateShort with the model max output', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'max')
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'ok' } }],
+      })
+      await provider.generateShort({ prompt: 'summarize', maxTokens: 2000 })
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          max_tokens: 128000,
+          reasoning_effort: 'max',
+        }),
+      )
     })
 
     it('propagates API errors', async () => {

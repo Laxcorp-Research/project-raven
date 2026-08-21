@@ -1,5 +1,5 @@
 import type { AIProvider, AIProviderConfig, AIProviderName } from './types';
-import { DEFAULT_EFFORT, PROVIDER_MODELS, resolveCatalogModel, resolveEffort } from './types';
+import { DEFAULT_EFFORT, resolveCatalogModel } from './types';
 import { AnthropicProvider } from './anthropicProvider';
 import { OpenAIProvider } from './openaiProvider';
 import { createLogger } from '../../logger';
@@ -7,8 +7,9 @@ import {
   NOTES_FAST_MODELS,
   resolveMemoryModel,
   resolveMemoryProvider,
-  resolveNotesModel,
   resolveNotesProvider,
+  resolveSettingsPickerEffort,
+  resolveSettingsPickerModel,
 } from '../../../shared/aiSlots';
 
 const log = createLogger('AI');
@@ -80,8 +81,8 @@ export async function getNotesProvider(): Promise<AIProvider> {
   const { getSetting, getApiKey } = await import('../../store');
 
   const provider = resolveNotesProvider(getSetting('notesProvider'), getSetting('aiProvider'));
-  const model = resolveNotesModel(provider, getSetting('notesModel'), PROVIDER_MODELS[provider]);
-  const effort = resolveEffort(provider, model, getSetting('notesEffort') as string) ?? DEFAULT_EFFORT;
+  const model = resolveSettingsPickerModel(provider, getSetting('notesModel'));
+  const effort = resolveSettingsPickerEffort(getSetting('notesEffort'));
   const apiKey = requireApiKey(provider, getApiKey);
 
   return getProvider({ provider, model, apiKey, effort });

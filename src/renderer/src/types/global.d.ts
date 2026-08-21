@@ -159,6 +159,8 @@ declare global {
         hasActive: () => Promise<boolean>;
         regenerateTitle: (id: string) => Promise<string>;
         onListUpdated: (callback: () => void) => () => void;
+        onSummaryPending: (callback: (sessionId: string) => void) => () => void;
+        onSummaryDone: (callback: (sessionId: string) => void) => () => void;
         onSessionUpdated: (callback: (session: { id: string; title: string; startedAt: number } | null) => void) => () => void;
       };
       modes: {

@@ -59,6 +59,23 @@ export function effortLevelsForModel(provider: AIProviderName, model: string): E
   return MODEL_CATALOG[provider].find((m) => m.id === model)?.effort ?? null
 }
 
+/** Notes dropdown only. Live assist uses MODEL_CATALOG. */
+export function settingsPickerModels(provider: AIProviderName): ModelOption[] {
+  const id = DEFAULT_MODELS[provider]
+  return MODEL_CATALOG[provider].filter((m) => m.id === id)
+}
+
+/** Fast picker: hide high/max effort even if Luna's API ladder includes them. */
+export function settingsPickerEffortLevels(
+  provider: AIProviderName,
+  model: string,
+): EffortLevel[] | null {
+  const levels = effortLevelsForModel(provider, model)
+  if (!levels) return null
+  const allowed = levels.filter((level) => level === 'none' || level === 'low')
+  return allowed.length > 0 ? allowed : null
+}
+
 export function resolveEffort(
   provider: AIProviderName,
   model: string,

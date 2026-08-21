@@ -10,7 +10,16 @@ import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
 import { getSetting } from '../store';
 import { createLogger } from '../logger';
-import { SESSION_AUTOSAVE_INTERVAL_MS } from '../constants';
+import {
+  NOTES_RETRY_LIMIT,
+  NOTES_RETRY_SCAN,
+  SESSION_AUTOSAVE_INTERVAL_MS,
+  SUMMARY_MIN_TRANSCRIPT_LENGTH,
+} from '../constants';
+import {
+  isPlaceholderSessionTitle,
+  PLACEHOLDER_SESSION_TITLE,
+} from '../../shared/sessionDisplay';
 
 const log = createLogger('SessionManager');
 
@@ -37,6 +46,7 @@ class SessionManager {
   private overlayWindow: BrowserWindow | null = null;
   private isIncognito = false;
   private _queueForSync: QueueFn | null = null;
+  private notesJobs = new Map<string, Promise<boolean>>();
 
   /**
    * Called by proLoader once syncService is loaded - eliminates
@@ -70,7 +80,7 @@ class SessionManager {
     const now = Date.now();
     const session: Session = {
       id: uuidv4(),
-      title: this.isIncognito ? 'Incognito Session' : 'Untitled Session',
+      title: this.isIncognito ? 'Incognito Session' : PLACEHOLDER_SESSION_TITLE,
       transcript: [],
       aiResponses: [],
       summary: null,
@@ -234,23 +244,123 @@ class SessionManager {
 
     this.activeSession = null;
     this.broadcastSessionUpdate();
-    this.dashboardWindow?.webContents.send('sessions:list-updated');
+    this.sendDashboard('sessions:list-updated');
 
-    generateSessionSummary(transcriptText, modeId)
-      .then((result) => {
-        databaseService.updateSession(sessionId, {
-          title: result.title || endedSession.title,
-          summary: result.summary,
-        });
-        this.dashboardWindow?.webContents.send('sessions:list-updated');
-        this.syncSessionToCloud(sessionId);
-      })
-      .catch((err) => {
-        log.error('Async summary generation failed:', err);
-        this.syncSessionToCloud(sessionId);
-      });
+    void this.generateAndStoreNotes(sessionId, {
+      transcriptText,
+      modeId,
+      fallbackTitle: endedSession.title,
+    });
 
     return endedSession;
+  }
+
+  /**
+   * Generate title + summary for a session. Dedupes in-flight work so
+   * session-end, boot retry, and the regenerate IPC share one job.
+   */
+  generateAndStoreNotes(
+    sessionId: string,
+    preloaded?: { transcriptText: string; modeId: string | null; fallbackTitle: string },
+  ): Promise<boolean> {
+    const existing = this.notesJobs.get(sessionId);
+    if (existing) return existing;
+
+    const job = this.runNotesGeneration(sessionId, preloaded).finally(() => {
+      this.notesJobs.delete(sessionId);
+    });
+    this.notesJobs.set(sessionId, job);
+    return job;
+  }
+
+  /**
+   * On boot, retry notes for ended sessions that still have a transcript
+   * but no summary. Session-end generation is fire-and-forget; quitting
+   * or a thrown notes-slot error left those rows as Untitled forever.
+   */
+  async retryMissingNotes(): Promise<number> {
+    let started = 0;
+    const rows = databaseService.getAllSessionSummaries(NOTES_RETRY_SCAN);
+    for (const row of rows) {
+      if (started >= NOTES_RETRY_LIMIT) break;
+      if (row.summary?.trim()) continue;
+      if (!row.endedAt) continue;
+      if ((row.durationSeconds ?? 0) <= 0) continue;
+
+      const session = databaseService.getSession(row.id);
+      if (!session?.transcript?.length) continue;
+
+      const transcriptText = this.formatTranscript(session.transcript);
+      if (transcriptText.trim().length < SUMMARY_MIN_TRANSCRIPT_LENGTH) continue;
+
+      started += 1;
+      await this.generateAndStoreNotes(row.id, {
+        transcriptText,
+        modeId: session.modeId,
+        fallbackTitle: session.title,
+      });
+    }
+    if (started > 0) {
+      log.info(`Retried notes generation for ${started} session(s) missing a summary`);
+    }
+    return started;
+  }
+
+  private formatTranscript(transcript: TranscriptEntry[]): string {
+    const displayName = getSetting('displayName') || 'You';
+    return transcript
+      .filter((e) => e.isFinal)
+      .map((e) => `${e.source === 'mic' ? displayName : 'Them'}: ${e.text}`)
+      .join('\n');
+  }
+
+  private sendDashboard(channel: string, ...args: unknown[]): void {
+    this.dashboardWindow?.webContents?.send(channel, ...args);
+  }
+
+  private async runNotesGeneration(
+    sessionId: string,
+    preloaded?: { transcriptText: string; modeId: string | null; fallbackTitle: string },
+  ): Promise<boolean> {
+    this.sendDashboard('sessions:summary-pending', sessionId);
+    try {
+      let transcriptText = preloaded?.transcriptText;
+      let modeId = preloaded?.modeId ?? null;
+      let fallbackTitle = preloaded?.fallbackTitle ?? PLACEHOLDER_SESSION_TITLE;
+
+      if (!transcriptText) {
+        const session = databaseService.getSession(sessionId);
+        if (!session?.transcript?.length) return false;
+        transcriptText = this.formatTranscript(session.transcript);
+        modeId = session.modeId;
+        fallbackTitle = session.title;
+      }
+
+      if (!transcriptText.trim()) return false;
+
+      const result = await generateSessionSummary(transcriptText, modeId);
+      if (result.summary?.trim()) {
+        databaseService.updateSession(sessionId, {
+          title: result.title || fallbackTitle,
+          summary: result.summary,
+        });
+        this.syncSessionToCloud(sessionId);
+        return true;
+      }
+
+      if (result.title && !isPlaceholderSessionTitle(result.title)) {
+        databaseService.updateSession(sessionId, { title: result.title });
+      }
+      this.syncSessionToCloud(sessionId);
+      return false;
+    } catch (err) {
+      log.error('Async summary generation failed:', err);
+      this.syncSessionToCloud(sessionId);
+      return false;
+    } finally {
+      this.sendDashboard('sessions:summary-done', sessionId);
+      this.sendDashboard('sessions:list-updated');
+    }
   }
 
   /**
@@ -260,7 +370,7 @@ class SessionManager {
     const session = databaseService.getSession(sessionId);
     if (!session) {
       log.warn('Cannot generate title: session not found');
-      return 'Untitled Session';
+      return PLACEHOLDER_SESSION_TITLE;
     }
 
     const titleDisplayName = getSetting('displayName') || 'You';
@@ -270,7 +380,7 @@ class SessionManager {
       .join('\n');
 
     if (!transcriptText.trim()) {
-      return session.title || 'Untitled Session';
+      return session.title || PLACEHOLDER_SESSION_TITLE;
     }
 
     try {
@@ -425,10 +535,8 @@ class SessionManager {
     // handful of rows on boot. Each iteration closes one session,
     // so the next getInProgressSession call returns the next oldest
     // or null.
-    while (true) {
-      const inProgress = databaseService.getInProgressSession();
-      if (!inProgress) break;
-
+    let inProgress = databaseService.getInProgressSession();
+    while (inProgress) {
       count += 1;
       if (!firstRecovered) firstRecovered = inProgress;
 
@@ -443,9 +551,10 @@ class SessionManager {
       databaseService.updateSession(inProgress.id, {
         endedAt: Date.now(),
         durationSeconds,
-        title: inProgress.title === 'Untitled Session' ? 'Recovered Session' : inProgress.title,
+        title: isPlaceholderSessionTitle(inProgress.title) ? 'Recovered Session' : inProgress.title,
       });
       log.info(`Recovered and closed session ${inProgress.id}`);
+      inProgress = databaseService.getInProgressSession();
     }
 
     if (count > 1) {

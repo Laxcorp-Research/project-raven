@@ -8,6 +8,7 @@ const mockDatabaseService = vi.hoisted(() => ({
   getInProgressSession: vi.fn(() => null),
   getMode: vi.fn(),
   addSessionMessage: vi.fn(),
+  getAllSessionSummaries: vi.fn(() => []),
 }));
 
 vi.mock('electron', () => ({
@@ -548,6 +549,114 @@ describe('SessionManager', () => {
       await vi.waitFor(() => {
         expect(generateSessionSummary).toHaveBeenCalled();
       });
+    });
+
+    it('does not persist an empty summary when generation fails', async () => {
+      vi.mocked(generateSessionSummary).mockRejectedValueOnce(new Error('No API key'));
+      sessionManager.startSession();
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello there this is a longer line',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      await vi.waitFor(() => {
+        expect(generateSessionSummary).toHaveBeenCalled();
+      });
+
+      const summaryWrites = mockDatabaseService.updateSession.mock.calls.filter(
+        (call) => call[1] && Object.prototype.hasOwnProperty.call(call[1], 'summary'),
+      );
+      expect(summaryWrites).toHaveLength(0);
+    });
+
+    it('broadcasts summary-pending while notes are generating', async () => {
+      const send = vi.fn();
+      sessionManager.setWindows({ webContents: { send } } as never, null);
+      sessionManager.startSession();
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello there this is a longer line',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      await vi.waitFor(() => {
+        expect(send).toHaveBeenCalledWith('sessions:summary-pending', 'test-uuid-1234');
+      });
+      await vi.waitFor(() => {
+        expect(send).toHaveBeenCalledWith('sessions:summary-done', 'test-uuid-1234');
+      });
+    });
+  });
+
+  describe('retryMissingNotes', () => {
+    it('generates notes for ended sessions that still have a transcript and no summary', async () => {
+      vi.mocked(generateSessionSummary).mockClear()
+      mockDatabaseService.getAllSessionSummaries.mockReturnValue([
+        {
+          id: 'stuck',
+          title: 'Untitled session',
+          summary: null,
+          modeId: null,
+          durationSeconds: 3600,
+          startedAt: Date.now() - 12 * 60 * 60 * 1000,
+          endedAt: Date.now() - 12 * 60 * 60 * 1000,
+          createdAt: Date.now() - 12 * 60 * 60 * 1000,
+        },
+      ]);
+      mockDatabaseService.getSession.mockReturnValue({
+        id: 'stuck',
+        title: 'Untitled session',
+        summary: null,
+        modeId: null,
+        transcript: [
+          {
+            id: 't1',
+            source: 'mic',
+            text: 'This is a long enough transcript to pass the minimum length check easily',
+            timestamp: 1,
+            isFinal: true,
+          },
+        ],
+      });
+
+      const started = await sessionManager.retryMissingNotes();
+
+      expect(started).toBe(1);
+      expect(generateSessionSummary).toHaveBeenCalled();
+      expect(mockDatabaseService.updateSession).toHaveBeenCalledWith(
+        'stuck',
+        expect.objectContaining({ title: 'Test Title', summary: 'Test Summary' }),
+      );
+    });
+
+    it('skips sessions that already have a summary', async () => {
+      vi.mocked(generateSessionSummary).mockClear()
+      mockDatabaseService.getAllSessionSummaries.mockReturnValue([
+        {
+          id: 'done',
+          title: 'Done',
+          summary: 'Already summarized',
+          modeId: null,
+          durationSeconds: 60,
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+          createdAt: Date.now(),
+        },
+      ]);
+
+      const started = await sessionManager.retryMissingNotes();
+
+      expect(started).toBe(0);
+      expect(generateSessionSummary).not.toHaveBeenCalled();
     });
   });
 

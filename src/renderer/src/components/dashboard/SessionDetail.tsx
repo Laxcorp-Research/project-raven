@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { createLogger } from '../../lib/logger'
+import { isPlaceholderSessionTitle } from '../../../../shared/sessionDisplay'
 
 const log = createLogger('SessionDetail')
 
@@ -60,6 +61,11 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   })
   const [messages, setMessages] = useState<SessionMessage[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [notesStatus, setNotesStatus] = useState<'idle' | 'generating' | 'failed'>('idle')
+  const [notesError, setNotesError] = useState<string | null>(null)
+  const notesAttemptedForId = useRef<string | null>(null)
+  const currentSessionIdRef = useRef(session.id)
+  currentSessionIdRef.current = session.id
   const titleRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const tabContainerRef = useRef<HTMLDivElement>(null)
@@ -101,6 +107,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     setLoadingMessages(false)
     setActiveTab('summary')
     setCurrentInsightsJson(session.insightsJson ?? null)
+    setNotesStatus('idle')
+    setNotesError(null)
+    notesAttemptedForId.current = null
     // session.insightsJson intentionally omitted: this effect resets UI
     // state on SESSION switch only. Re-running every time insightsJson
     // changes would clobber in-flight user edits of the insights panel.
@@ -221,6 +230,50 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     })
     .join('\n')
   const hasTranscript = transcriptText.trim().length > 0
+  const needsSummary = hasTranscript && !session.summary?.trim()
+  const showTitleGenerating =
+    isPlaceholderSessionTitle(session.title) && hasTranscript && notesStatus === 'generating'
+
+  useEffect(() => {
+    if (session.summary?.trim()) {
+      setNotesStatus('idle')
+      setNotesError(null)
+    }
+  }, [session.summary])
+
+  async function generateNotes() {
+    const requestId = session.id
+    setNotesStatus('generating')
+    setNotesError(null)
+    try {
+      const ok = await window.raven.sessions.regenerateSummary(requestId)
+      if (currentSessionIdRef.current !== requestId) return
+      if (ok !== true && !session.summary?.trim()) {
+        setNotesStatus('failed')
+        setNotesError(
+          'Could not generate a title or summary. Check that the notes model API key is set in Settings, then try again.',
+        )
+      }
+    } catch (err) {
+      if (currentSessionIdRef.current !== requestId) return
+      log.error('Failed to generate summary:', err)
+      setNotesStatus('failed')
+      setNotesError(
+        err instanceof Error
+          ? err.message
+          : 'Could not generate a title or summary. Try again from Settings if your API key is missing.',
+      )
+    }
+  }
+
+  useEffect(() => {
+    if (!needsSummary) return
+    if (notesAttemptedForId.current === session.id) return
+    notesAttemptedForId.current = session.id
+    void generateNotes()
+    // generateNotes is recreated each render; we only want one auto-attempt per session id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, needsSummary])
 
   const loadMessages = async () => {
     setLoadingMessages(true)
@@ -337,7 +390,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                   minHeight: '1.2em',
                 }}
               />
-            ) : session.title === 'Untitled Session' && hasTranscript ? (
+            ) : showTitleGenerating ? (
               <div className="px-2 py-1 -mx-2">
                 <div className="h-7 bg-gray-200 rounded w-[60%] animate-pulse" />
               </div>
@@ -445,7 +498,18 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               )}
 
               {activeTab === 'summary' && (
-                <SummaryTab summary={session.summary} hasTranscript={hasTranscript} sessionId={session.id} />
+                <SummaryTab
+                  summary={session.summary}
+                  hasTranscript={hasTranscript}
+                  sessionId={session.id}
+                  generating={notesStatus === 'generating'}
+                  failed={notesStatus === 'failed'}
+                  error={notesError}
+                  onRetry={() => {
+                    notesAttemptedForId.current = session.id
+                    void generateNotes()
+                  }}
+                />
               )}
               {activeTab === 'transcript' && (
                 <TranscriptTab transcript={session.transcript} displayName={displayName} />
@@ -504,7 +568,23 @@ function SummarySkeleton() {
   )
 }
 
-function SummaryTab({ summary, hasTranscript, sessionId }: { summary: string | null; hasTranscript: boolean; sessionId: string }) {
+function SummaryTab({
+  summary,
+  hasTranscript,
+  sessionId,
+  generating,
+  failed,
+  error,
+  onRetry,
+}: {
+  summary: string | null
+  hasTranscript: boolean
+  sessionId: string
+  generating: boolean
+  failed: boolean
+  error: string | null
+  onRetry: () => void
+}) {
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState(summary || '')
   const [savedSummary, setSavedSummary] = useState(summary)
@@ -537,6 +617,27 @@ function SummaryTab({ summary, hasTranscript, sessionId }: { summary: string | n
     setEditText(text)
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(() => handleSave(text), 1000)
+  }
+
+  if (generating && !savedSummary) {
+    return <SummarySkeleton />
+  }
+
+  if (failed && !savedSummary && hasTranscript && !editing) {
+    return (
+      <div className="max-w-3xl py-8">
+        <p className="text-gray-700 text-base mb-2">Title and summary did not generate.</p>
+        <p className="text-sm text-gray-500 mb-4">
+          {error || 'The transcript is saved. Usage and transcript tabs are available while this is fixed.'}
+        </p>
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Try again
+        </button>
+      </div>
+    )
   }
 
   if (!savedSummary && hasTranscript && !editing) {

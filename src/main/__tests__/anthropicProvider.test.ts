@@ -18,6 +18,18 @@ vi.mock('@anthropic-ai/sdk', () => ({
 
 import { AnthropicProvider } from '../services/ai/anthropicProvider'
 
+function mockTextStream(chunks: string[]) {
+  const mockStreamInstance = {
+    on: vi.fn((event: string, callback: (text: string) => void) => {
+      if (event === 'text') chunks.forEach((chunk) => callback(chunk))
+      return mockStreamInstance
+    }),
+    finalMessage: vi.fn().mockResolvedValue({}),
+  }
+  mockStream.mockReturnValueOnce(mockStreamInstance)
+  return mockStreamInstance
+}
+
 describe('AnthropicProvider', () => {
   let provider: AnthropicProvider
 
@@ -30,29 +42,26 @@ describe('AnthropicProvider', () => {
   })
 
   describe('generateShort', () => {
-    it('returns trimmed text from API response', async () => {
-      mockCreate.mockResolvedValueOnce({
-        content: [{ type: 'text', text: '  Hello World  ' }],
-      })
+    it('returns trimmed streamed text and does not use non-streaming create', async () => {
+      mockTextStream(['  Hello', ' World  '])
 
       const result = await provider.generateShort({
         prompt: 'Say hello',
       })
 
       expect(result).toBe('Hello World')
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockCreate).not.toHaveBeenCalled()
+      expect(mockStream).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'claude-sonnet-4-6',
-          max_tokens: 60,
+          max_tokens: 128000,
           messages: [{ role: 'user', content: 'Say hello' }],
         })
       )
     })
 
     it('passes system prompt when provided', async () => {
-      mockCreate.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Response' }],
-      })
+      mockTextStream(['Response'])
 
       await provider.generateShort({
         system: 'You are helpful',
@@ -60,18 +69,16 @@ describe('AnthropicProvider', () => {
         maxTokens: 100,
       })
 
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockStream).toHaveBeenCalledWith(
         expect.objectContaining({
           system: 'You are helpful',
-          max_tokens: 100,
+          max_tokens: 128000,
         })
       )
     })
 
-    it('returns empty string when no text in response', async () => {
-      mockCreate.mockResolvedValueOnce({
-        content: [{ type: 'text', text: '' }],
-      })
+    it('returns empty string when the stream emits no text', async () => {
+      mockTextStream([])
 
       const result = await provider.generateShort({ prompt: 'Test' })
 
@@ -79,7 +86,9 @@ describe('AnthropicProvider', () => {
     })
 
     it('propagates API errors', async () => {
-      mockCreate.mockRejectedValueOnce(new Error('API rate limit'))
+      mockStream.mockImplementationOnce(() => {
+        throw new Error('API rate limit')
+      })
 
       await expect(
         provider.generateShort({ prompt: 'Test' })
@@ -299,16 +308,30 @@ describe('AnthropicProvider', () => {
       )
     })
 
-    it('does NOT attach thinking params to generateShort', async () => {
-      const provider = new AnthropicProvider('test-ant-placeholder', 'claude-sonnet-5')
-      mockCreate.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'short answer' }],
-      })
-      await provider.generateShort({ prompt: 'one-liner please' })
-      const args = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0]
+    it('uses the notes-slot effort and the model max output so thinking cannot eat the reply', async () => {
+      const provider = new AnthropicProvider('test-ant-placeholder', 'claude-sonnet-5', 'high')
+      mockTextStream(['short answer'])
+      await provider.generateShort({ prompt: 'one-liner please', maxTokens: 2000 })
+      const args = mockStream.mock.calls[mockStream.mock.calls.length - 1][0]
       expect(args.thinking).toBeUndefined()
+      expect(args.output_config).toEqual({ effort: 'high' })
+      expect(args.max_tokens).toBe(128000)
+    })
+
+    it('uses Haiku official max and sends no effort (Haiku has none)', async () => {
+      const provider = new AnthropicProvider('test-ant-placeholder', 'claude-haiku-4-5')
+      mockTextStream(['ok'])
+      await provider.generateShort({ prompt: 'title' })
+      const args = mockStream.mock.calls[mockStream.mock.calls.length - 1][0]
       expect(args.output_config).toBeUndefined()
-      expect(args.max_tokens).toBe(60)
+      expect(args.max_tokens).toBe(64000)
+    })
+
+    it('collects streamed text (thinking is not in the text event)', async () => {
+      const provider = new AnthropicProvider('test-ant-placeholder', 'claude-sonnet-5')
+      mockTextStream(['TITLE: Real title\nSUMMARY:\n- notes'])
+      const result = await provider.generateShort({ prompt: 'summarize' })
+      expect(result).toContain('Real title')
     })
   })
 })

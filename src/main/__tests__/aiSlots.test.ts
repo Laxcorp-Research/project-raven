@@ -8,6 +8,8 @@ import {
   resolveMemoryProvider,
   resolveNotesModel,
   resolveNotesProvider,
+  resolveSettingsPickerEffort,
+  resolveSettingsPickerModel,
 } from '../../shared/aiSlots'
 
 const ANTHROPIC_CATALOG = ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5']
@@ -33,6 +35,20 @@ describe('aiSlots', () => {
     expect(resolveNotesModel('anthropic', '', ANTHROPIC_CATALOG)).toBe(NOTES_FAST_MODELS.anthropic)
     expect(resolveNotesModel('anthropic', 'gpt-5.2', ANTHROPIC_CATALOG)).toBe(NOTES_FAST_MODELS.anthropic)
     expect(resolveNotesModel('openai', undefined, OPENAI_CATALOG)).toBe(NOTES_FAST_MODELS.openai)
+  })
+
+  it('resolveSettingsPickerModel only allows Haiku / Luna', () => {
+    expect(resolveSettingsPickerModel('anthropic', 'claude-sonnet-5')).toBe(NOTES_FAST_MODELS.anthropic)
+    expect(resolveSettingsPickerModel('anthropic', 'claude-haiku-4-5')).toBe('claude-haiku-4-5')
+    expect(resolveSettingsPickerModel('openai', 'gpt-5.6-sol')).toBe(NOTES_FAST_MODELS.openai)
+    expect(resolveSettingsPickerModel('openai', 'gpt-5.6-luna')).toBe('gpt-5.6-luna')
+  })
+
+  it('resolveSettingsPickerEffort keeps none/low and clamps everything else to low', () => {
+    expect(resolveSettingsPickerEffort('none')).toBe('none')
+    expect(resolveSettingsPickerEffort('low')).toBe('low')
+    expect(resolveSettingsPickerEffort('max')).toBe('low')
+    expect(resolveSettingsPickerEffort(undefined)).toBe('low')
   })
 
   it('notesSlotIsExplicit is true only when both provider and model are set', () => {

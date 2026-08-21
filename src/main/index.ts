@@ -68,7 +68,6 @@ import { registerSystemAudioHandlers } from './systemAudioNative'
 import { databaseService, type Session, type Mode } from './services/database'
 import { sessionManager } from './services/sessionManager'
 import { ensureActiveMode, createDefaultMode, migrateGeneralAssistantPromptV21 } from './services/builtinModes'
-import { generateSessionSummary } from './services/summaryService'
 import { initializeVendorFeatures, shutdownVendorFeatures } from './services/vendorFeatures'
 import { createTray, destroyTray, setTrayOnboarding, setTrayVisibility } from './trayManager'
 import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
@@ -323,6 +322,9 @@ function boot(): void {
 
   sessionManager.setWindows(dashboard, overlay)
   sessionManager.recoverSession()
+  if (hasApiKeys()) {
+    void sessionManager.retryMissingNotes()
+  }
 
   audioManager.setWindows(dashboard, overlay)
 
@@ -509,31 +511,8 @@ app.whenReady().then(() => {
     return sessionManager.generateTitle(sessionId)
   })
 
-  inflightHandle('sessions:regenerate-summary', async (sessionId: string) => {
-    const session = databaseService.getSession(sessionId)
-    if (!session || !session.transcript || session.transcript.length === 0) return false
-
-    const regenDisplayName = getSetting('displayName') || 'You'
-    const transcriptText = session.transcript
-      .filter((e) => e.isFinal)
-      .map((e) => `${e.source === 'mic' ? regenDisplayName : 'Them'}: ${e.text}`)
-      .join('\n')
-
-    try {
-      const result = await generateSessionSummary(transcriptText, session.modeId)
-      databaseService.updateSession(sessionId, {
-        title: result.title || session.title,
-        summary: result.summary,
-      })
-
-      BrowserWindow.getAllWindows().forEach((win) => {
-        win.webContents.send('sessions:list-updated')
-      })
-      return true
-    } catch (err) {
-      ipcLog.error('Regenerate summary failed:', err)
-      return false
-    }
+  safeHandle('sessions:regenerate-summary', async (sessionId: string) => {
+    return sessionManager.generateAndStoreNotes(sessionId)
   })
 
   // ==================== MODE IPC HANDLERS ====================

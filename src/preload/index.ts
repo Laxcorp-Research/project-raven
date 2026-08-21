@@ -81,6 +81,16 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.on('sessions:list-updated', handler)
       return () => ipcRenderer.removeListener('sessions:list-updated', handler)
     },
+    onSummaryPending: (callback: (sessionId: string) => void) => {
+      const handler = (_event: unknown, sessionId: string) => callback(sessionId)
+      ipcRenderer.on('sessions:summary-pending', handler)
+      return () => ipcRenderer.removeListener('sessions:summary-pending', handler)
+    },
+    onSummaryDone: (callback: (sessionId: string) => void) => {
+      const handler = (_event: unknown, sessionId: string) => callback(sessionId)
+      ipcRenderer.on('sessions:summary-done', handler)
+      return () => ipcRenderer.removeListener('sessions:summary-done', handler)
+    },
     onSessionUpdated: (callback: (session: unknown) => void) => {
       const handler = (_event: unknown, session: unknown) => callback(session)
       ipcRenderer.on('session:updated', handler)

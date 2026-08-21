@@ -409,7 +409,7 @@ describe('providerFactory', () => {
       expect(notesProvider).not.toBe(storeProvider)
     })
 
-    it('uses notesModel when set, even if aiModel is a different catalog id', async () => {
+    it('snaps a stored notes Sonnet id to Haiku', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
@@ -422,14 +422,21 @@ describe('providerFactory', () => {
       })
 
       const notes = await getNotesProvider()
-      const asNotesModel = getProvider({
+      const asHaiku = getProvider({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        apiKey: 'test-ant-key',
+        effort: 'low',
+      })
+      const asSonnet = getProvider({
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         apiKey: 'test-ant-key',
         effort: 'low',
       })
 
-      expect(notes).toBe(asNotesModel)
+      expect(notes).toBe(asHaiku)
+      expect(notes).not.toBe(asSonnet)
     })
 
     it('uses notesProvider when it differs from aiProvider', async () => {
@@ -451,7 +458,7 @@ describe('providerFactory', () => {
       expect(provider.name).toBe('openai')
     })
 
-    it('applies notesEffort so summaries use the Models tab value', async () => {
+    it('clamps notesEffort max to low on the fast picker', async () => {
       mockStoreGet.mockImplementation((key: string, defaultVal?: unknown) => {
         const data: Record<string, unknown> = {
           aiProvider: 'anthropic',
@@ -465,21 +472,21 @@ describe('providerFactory', () => {
       })
 
       const notes = await getNotesProvider()
-      const sameEffort = getProvider({
+      const asHaikuLow = getProvider({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        apiKey: 'test-ant-key',
+        effort: 'low',
+      })
+      const asSonnetMax = getProvider({
         provider: 'anthropic',
         model: 'claude-sonnet-5',
         apiKey: 'test-ant-key',
         effort: 'max',
       })
-      const otherEffort = getProvider({
-        provider: 'anthropic',
-        model: 'claude-sonnet-5',
-        apiKey: 'test-ant-key',
-        effort: 'low',
-      })
 
-      expect(notes).toBe(sameEffort)
-      expect(notes).not.toBe(otherEffort)
+      expect(notes).toBe(asHaikuLow)
+      expect(notes).not.toBe(asSonnetMax)
     })
 
     it('throws when notesProvider is openai but no OpenAI key is configured', async () => {

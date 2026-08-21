@@ -6,9 +6,10 @@
  */
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-const { mockStoreGet, mockAnthropicCreate, mockOpenAICreate } = vi.hoisted(() => ({
+const { mockStoreGet, mockAnthropicCreate, mockAnthropicStream, mockOpenAICreate } = vi.hoisted(() => ({
   mockStoreGet: vi.fn(),
   mockAnthropicCreate: vi.fn(),
+  mockAnthropicStream: vi.fn(),
   mockOpenAICreate: vi.fn(),
 }))
 
@@ -22,7 +23,7 @@ vi.mock('../../store', () => ({
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn(function () {
-    return { messages: { create: mockAnthropicCreate } }
+    return { messages: { create: mockAnthropicCreate, stream: mockAnthropicStream } }
   }),
 }))
 
@@ -47,6 +48,17 @@ vi.mock('../../logger', () => ({
 
 import { clearProviderCache, getProviderFromStore } from '../../services/ai/providerFactory'
 
+function mockAnthropicTextStream(text: string) {
+  const stream = {
+    on: vi.fn((event: string, callback: (chunk: string) => void) => {
+      if (event === 'text') callback(text)
+      return stream
+    }),
+    finalMessage: vi.fn().mockResolvedValue({}),
+  }
+  mockAnthropicStream.mockReturnValueOnce(stream)
+}
+
 describe('AI Pipeline Integration', () => {
   beforeEach(() => {
     clearProviderCache()
@@ -62,9 +74,7 @@ describe('AI Pipeline Integration', () => {
       return data[key] ?? defaultVal
     })
 
-    mockAnthropicCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: 'Integration test response' }],
-    })
+    mockAnthropicTextStream('Integration test response')
 
     const provider = await getProviderFromStore()
     const result = await provider.generateShort({
@@ -110,9 +120,7 @@ describe('AI Pipeline Integration', () => {
       return data[key] ?? defaultVal
     })
 
-    mockAnthropicCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: 'From Claude' }],
-    })
+    mockAnthropicTextStream('From Claude')
 
     const provider1 = await getProviderFromStore()
     const result1 = await provider1.generateShort({ prompt: 'Test' })
