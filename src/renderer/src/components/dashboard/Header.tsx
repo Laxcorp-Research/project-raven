@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, HelpCircle, Layers, Search, FileText, Power, RefreshCw, WifiOff } from 'lucide-react'
+import { Eye, EyeOff, Settings, MessageSquarePlus, Layers, Search, FileText, Power, RefreshCw, WifiOff } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
 
@@ -279,11 +279,14 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
                     <span>Settings</span>
                   </button>
                   <button
-                    onClick={() => window.raven.openExternal('https://github.com/Laxcorp-Research/project-raven')}
+                    onClick={() => {
+                      setUserMenuOpen(false)
+                      void window.raven.openExternal('https://laxcorphq.wixforms.com/f/7497329197333873820')
+                    }}
                     className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3 transition-colors"
                   >
-                    <HelpCircle size={16} className="text-gray-400 shrink-0" />
-                    <span>Get Help</span>
+                    <MessageSquarePlus size={16} className="text-gray-400 shrink-0" />
+                    <span>Send Feedback</span>
                   </button>
                   {onReplayTour && (
                     <button

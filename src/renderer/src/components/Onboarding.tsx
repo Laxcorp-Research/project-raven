@@ -4,6 +4,7 @@ import ravenFullLogo from '../../../../logo/raven_full.svg'
 import { OverlayTour } from './OverlayTour'
 import { detectMacPlatform, shortcutKeycaps } from '../lib/shortcutLabels'
 import { shouldOpenAccessibilitySettingsAfterPrompt } from '../../../shared/macAccessibilityGrant'
+import { ONBOARDING_STEP, onboardingPermissionsReady, parseOnboardingStep } from '../../../shared/onboardingFlow'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -12,7 +13,8 @@ interface OnboardingProps {
 type AiProvider = 'anthropic' | 'openai'
 
 export function Onboarding({ onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(ONBOARDING_STEP.welcome)
+  const [stepHydrated, setStepHydrated] = useState(false)
 
   // Fire-and-forget product event the first time this component
   // mounts on a fresh signup. Pairs with the existing
@@ -27,6 +29,34 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     // intentionally empty deps - fire once per mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [storedStep, dg, aai, ant, oai, provider] = await Promise.all([
+          window.raven.storeGet('onboardingStep'),
+          window.raven.storeGet('deepgramApiKey'),
+          window.raven.storeGet('assemblyaiApiKey'),
+          window.raven.storeGet('anthropicApiKey'),
+          window.raven.storeGet('openaiApiKey'),
+          window.raven.storeGet('aiProvider'),
+        ])
+        setStep(parseOnboardingStep(storedStep) as 1 | 2 | 3 | 4 | 5 | 6)
+        if (typeof dg === 'string' && dg) setDeepgramKey(dg)
+        if (typeof aai === 'string' && aai) setAssemblyKey(aai)
+        if (typeof ant === 'string' && ant) setAnthropicKey(ant)
+        if (typeof oai === 'string' && oai) setOpenaiKey(oai)
+        if (provider === 'openai' || provider === 'anthropic') setAiProvider(provider)
+      } finally {
+        setStepHydrated(true)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!stepHydrated) return
+    void window.raven.storeSet('onboardingStep', step)
+  }, [step, stepHydrated])
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [screenPermission, setScreenPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [accessibilityPermission, setAccessibilityPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
@@ -51,7 +81,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const TOTAL_STEPS = 6
 
   const handleNext = async () => {
-    if (step === 2) {
+    if (step === ONBOARDING_STEP.keys) {
       const hasStt = !!deepgramKey.trim() || !!assemblyKey.trim()
       if (!hasStt || !aiKey.trim()) {
         setError('Add a transcription key (Deepgram or AssemblyAI) and an AI key.')
@@ -101,6 +131,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       setDeepgramInvalid(false)
       setAssemblyInvalid(false)
       setAiKeyInvalid(false)
+      try {
+        await persistValidatedKeys()
+      } catch {
+        setError('Failed to save keys. Please try again.')
+        return
+      }
     }
 
     if (step < TOTAL_STEPS) {
@@ -127,7 +163,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   }, [])
 
   useEffect(() => {
-    if (step === 3) {
+    if (step === ONBOARDING_STEP.permissions) {
       const fetchStatus = async () => {
         try {
           const status = await window.raven.permissionsGetStatus()
@@ -189,23 +225,28 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     }
   }
 
+  const persistValidatedKeys = async () => {
+    await window.raven.apiKeysSave(
+      deepgramKey.trim(),
+      aiProvider === 'anthropic' ? anthropicKey.trim() : '',
+      aiProvider === 'openai' ? openaiKey.trim() : undefined,
+      assemblyKey.trim() ? { assemblyaiApiKey: assemblyKey.trim() } : undefined
+    )
+    await window.raven.storeSet('aiProvider', aiProvider)
+    await window.raven.storeSet(
+      'aiModel',
+      aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5.6-luna'
+    )
+  }
+
   const handleSaveKeys = async () => {
     setValidating(true)
     setError(null)
 
     try {
-      await window.raven.apiKeysSave(
-        deepgramKey.trim(),
-        aiProvider === 'anthropic' ? anthropicKey.trim() : '',
-        aiProvider === 'openai' ? openaiKey.trim() : undefined,
-        assemblyKey.trim() ? { assemblyaiApiKey: assemblyKey.trim() } : undefined
-      )
-      await window.raven.storeSet('aiProvider', aiProvider)
-      await window.raven.storeSet(
-        'aiModel',
-        aiProvider === 'anthropic' ? 'claude-haiku-4-5' : 'gpt-5.6-luna'
-      )
+      await persistValidatedKeys()
       await window.raven.storeSet('onboardingComplete', true)
+      await window.raven.storeSet('onboardingStep', ONBOARDING_STEP.welcome)
       onComplete()
     } catch {
       setError('Failed to save keys. Please try again.')
@@ -284,8 +325,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             )}
 
-            {/* Step 2: API Keys */}
-            {step === 2 && (
+            {/* Step 3: API Keys — after permissions so a TCC relaunch cannot wipe unsaved keys */}
+            {step === ONBOARDING_STEP.keys && (
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">API Keys</h2>
@@ -546,8 +587,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             )}
 
-            {/* Step 3: Permissions */}
-            {step === 3 && (
+            {/* Step 2: Permissions — macOS Screen Recording often requires Quit & Reopen */}
+            {step === ONBOARDING_STEP.permissions && (
               <div className="space-y-5">
                 <div className="text-center mb-1">
                   <h2 className="text-lg font-semibold text-gray-900 mb-0.5">Permissions</h2>
@@ -607,7 +648,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     )}
                   </div>
 
-                  {screenNeedsRestart && screenPermission !== 'granted' && (
+                  {isMac && screenNeedsRestart && screenPermission !== 'granted' && (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3">
                       <div className="shrink-0 mt-0.5 text-amber-500">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
@@ -662,7 +703,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
 
                 {(() => {
-                  const allGranted = micPermission === 'granted' && screenPermission === 'granted' && accessibilityPermission === 'granted'
+                  const allGranted = onboardingPermissionsReady({
+                    microphone: micPermission,
+                    screen: screenPermission,
+                    accessibility: accessibilityPermission,
+                  })
                   return (
                     <>
                       <p className="text-xs text-gray-400 text-center">

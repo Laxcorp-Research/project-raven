@@ -14,7 +14,7 @@ import { test, expect } from './fixtures/electronApp'
 
 test.describe('Onboarding Flow', () => {
   test('fresh app launch shows onboarding screen', async ({ dashboardPage }) => {
-    // The onboarding screen should show the welcome step or API key step
+    // The onboarding screen should show the welcome step or permissions step
     // Look for onboarding-specific text
     const page = dashboardPage
 

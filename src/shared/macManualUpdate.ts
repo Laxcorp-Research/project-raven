@@ -12,9 +12,17 @@ export function parseLatestMacYmlVersion(yml: string): string | null {
   return match?.[1] ?? null
 }
 
+/** `2.3.11`, `v2.3.11`, `2.3.11-arm64` → `2.3.11`. */
+export function normalizeSemver(raw: string): string | null {
+  const match = raw.trim().replace(/^v/i, '').match(/^(\d+\.\d+\.\d+)/)
+  return match?.[1] ?? null
+}
+
 export function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map((n) => Number.parseInt(n, 10) || 0)
-  const pb = b.split('.').map((n) => Number.parseInt(n, 10) || 0)
+  const na = normalizeSemver(a) ?? '0.0.0'
+  const nb = normalizeSemver(b) ?? '0.0.0'
+  const pa = na.split('.').map((n) => Number.parseInt(n, 10) || 0)
+  const pb = nb.split('.').map((n) => Number.parseInt(n, 10) || 0)
   for (let i = 0; i < 3; i++) {
     if (pa[i] > pb[i]) return 1
     if (pa[i] < pb[i]) return -1
@@ -30,14 +38,16 @@ export function evaluateMacManualUpdate(opts: {
   currentVersion: string
   remoteVersion: string | null
 }): { available: boolean; version?: string; dmgUrl?: string } {
-  if (!opts.remoteVersion) return { available: false }
-  if (compareSemver(opts.remoteVersion, opts.currentVersion) <= 0) {
+  const remote = opts.remoteVersion ? normalizeSemver(opts.remoteVersion) : null
+  const current = normalizeSemver(opts.currentVersion)
+  if (!remote) return { available: false }
+  if (current && compareSemver(remote, current) <= 0) {
     return { available: false }
   }
   return {
     available: true,
-    version: opts.remoteVersion,
-    dmgUrl: macDmgDownloadUrl(opts.remoteVersion),
+    version: remote,
+    dmgUrl: macDmgDownloadUrl(remote),
   }
 }
 
@@ -58,12 +68,20 @@ export function shouldShowMacUpdateModal(opts: {
   status: string
   install?: string
   version?: string
+  currentVersion?: string
   dismissedVersion?: string
   forcePrompt?: boolean
 }): boolean {
   if (!opts.isMac) return false
   if (opts.status !== 'available' || opts.install !== 'mac-dmg') return false
   if (opts.isRecording && !opts.forcePrompt) return false
+  if (
+    opts.currentVersion
+    && opts.version
+    && compareSemver(opts.version, opts.currentVersion) <= 0
+  ) {
+    return false
+  }
   return shouldShowMacUpdateDialog({
     available: true,
     version: opts.version,

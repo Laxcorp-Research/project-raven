@@ -6,6 +6,7 @@ import {
 export {
   MAC_UPDATE_FEED_URL,
   parseLatestMacYmlVersion,
+  normalizeSemver,
   compareSemver,
   macDmgDownloadUrl,
   evaluateMacManualUpdate,

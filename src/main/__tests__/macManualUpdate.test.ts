@@ -5,6 +5,7 @@ import {
   evaluateMacManualUpdate,
   fetchMacFeedVersion,
   macDmgDownloadUrl,
+  normalizeSemver,
   parseLatestMacYmlVersion,
   shouldShowMacUpdateDialog,
   shouldShowMacUpdateModal,
@@ -33,6 +34,12 @@ describe('compareSemver', () => {
     expect(compareSemver('2.3.9', '2.3.9')).toBe(0)
     expect(compareSemver('2.3.9', '2.4.0')).toBe(-1)
   })
+
+  it('treats v-prefix and leftover build suffixes as the same release', () => {
+    expect(normalizeSemver('v2.3.11')).toBe('2.3.11')
+    expect(normalizeSemver('2.3.11-arm64')).toBe('2.3.11')
+    expect(compareSemver('v2.3.11', '2.3.11')).toBe(0)
+  })
 })
 
 describe('evaluateMacManualUpdate', () => {
@@ -48,6 +55,17 @@ describe('evaluateMacManualUpdate', () => {
       version: '2.4.0',
       dmgUrl: macDmgDownloadUrl('2.4.0'),
     })
+  })
+
+  it('does not offer 2.3.11 again when this copy is already 2.3.11', () => {
+    expect(evaluateMacManualUpdate({
+      currentVersion: '2.3.11',
+      remoteVersion: '2.3.11',
+    })).toEqual({ available: false })
+    expect(evaluateMacManualUpdate({
+      currentVersion: 'v2.3.11',
+      remoteVersion: '2.3.11',
+    })).toEqual({ available: false })
   })
 })
 
@@ -91,6 +109,16 @@ describe('shouldShowMacUpdateModal', () => {
     ).toBe(true)
     expect(shouldShowMacUpdateModal({ ...available, install: 'auto' })).toBe(false)
     expect(shouldShowMacUpdateModal(available)).toBe(true)
+  })
+
+  it('does not announce a feed version this copy already has', () => {
+    expect(
+      shouldShowMacUpdateModal({
+        ...available,
+        version: '2.3.11',
+        currentVersion: '2.3.11',
+      }),
+    ).toBe(false)
   })
 })
 
