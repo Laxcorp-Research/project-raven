@@ -130,6 +130,7 @@ describe('store', () => {
         anthropicApiKey: 'ant-key',
         apiKeysConfigured: true,
         onboardingComplete: false,
+        onboardingStep: 1,
         dashboardBounds: null,
         overlayBounds: null,
         stealthEnabled: true,

@@ -64,15 +64,15 @@ export function AboutTab() {
         </button>
 
         <button
-          onClick={() => handleOpenLink('https://github.com/Laxcorp-Research/project-raven/discussions')}
+          onClick={() => handleOpenLink('https://docs.useraven.ai')}
           className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all text-center"
         >
           <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-            <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <svg className="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
             </svg>
           </div>
-          <div className="text-xs font-medium text-gray-700">Discussions</div>
+          <div className="text-xs font-medium text-gray-700">Docs</div>
         </button>
       </div>
 
@@ -81,10 +81,9 @@ export function AboutTab() {
         <div className="space-y-0.5">
           {[
             { label: 'Blog', url: 'https://useraven.ai/blog', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" /> },
-            { label: 'Changelog', url: 'https://useraven.ai/changelog', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /> },
             { label: 'Privacy Policy', url: 'https://useraven.ai/legal/privacy-policy', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" /> },
             { label: 'Terms of Service', url: 'https://useraven.ai/legal/terms-of-service', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /> },
-            { label: 'Report a Bug', url: 'https://github.com/Laxcorp-Research/project-raven/issues/new', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.867.966 1.867 2.013 0 .89-.616 1.688-1.489 1.866a15.18 15.18 0 01-7.522 0C7.366 16.688 6.75 15.89 6.75 15c0-1.047.83-1.867 1.867-2.013A15.247 15.247 0 0112 12.75zm0 0c-2.209 0-4.267.427-6.108 1.177M12 12.75c2.209 0 4.267.427 6.108 1.177M12 12.75V9m0 0a3 3 0 10-6 0v1.5M12 9a3 3 0 016 0v1.5" /> },
+            { label: 'Send Feedback', url: 'https://laxcorphq.wixforms.com/f/7497329197333873820', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.867.966 1.867 2.013 0 .89-.616 1.688-1.489 1.866a15.18 15.18 0 01-7.522 0C7.366 16.688 6.75 15.89 6.75 15c0-1.047.83-1.867 1.867-2.013A15.247 15.247 0 0112 12.75zm0 0c-2.209 0-4.267.427-6.108 1.177M12 12.75c2.209 0 4.267.427 6.108 1.177M12 12.75V9m0 0a3 3 0 10-6 0v1.5M12 9a3 3 0 016 0v1.5" /> },
           ].map((link) => (
             <button
               key={link.label}

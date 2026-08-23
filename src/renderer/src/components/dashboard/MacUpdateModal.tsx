@@ -16,6 +16,7 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
   const isMac = detectMacPlatform()
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' })
   const [dismissedVersion, setDismissedVersion] = useState('')
+  const [currentVersion, setCurrentVersion] = useState('')
   const [busy, setBusy] = useState(false)
   const [laterUntilNextCheck, setLaterUntilNextCheck] = useState(false)
   const [settingsPrompt, setSettingsPrompt] = useState(false)
@@ -24,6 +25,9 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
     if (!isMac) return
     void window.raven.storeGet('macUpdateDismissedVersion').then((value) => {
       if (typeof value === 'string') setDismissedVersion(value)
+    })
+    void window.raven.getAppVersion().then((value) => {
+      if (typeof value === 'string') setCurrentVersion(value)
     })
     void window.raven.updateGetState().then((state) => setUpdateState(state as UpdateState))
   }, [isMac])
@@ -53,6 +57,7 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
     status: updateState.status,
     install: updateState.install,
     version: updateState.version,
+    currentVersion,
     dismissedVersion,
     forcePrompt:
       settingsPrompt || (Boolean(updateState.forcePrompt) && !laterUntilNextCheck),
@@ -113,8 +118,9 @@ export function MacUpdateModal({ isRecording }: { isRecording: boolean }) {
               {version ? `Raven ${version} is ready` : 'An update is ready'}
             </h2>
             <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-              On Mac, install this update from a disk image. Drag Raven into Applications, then
-              open it.
+              {currentVersion
+                ? `This window is Raven ${currentVersion}. Install from a disk image, then open the new app from Applications.`
+                : 'On Mac, install this update from a disk image. Drag Raven into Applications, then open it.'}
             </p>
           </div>
         </div>

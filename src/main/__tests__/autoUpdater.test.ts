@@ -404,6 +404,23 @@ describe('autoUpdater', () => {
       expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
     })
 
+    it('after 10s, a same-version GitHub feed does not announce an update', async () => {
+      mockApp.getVersion.mockReturnValue('2.3.11')
+      mockFetchMacFeedVersion.mockResolvedValue('2.3.11')
+      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
+
+      initAutoUpdater()
+      vi.advanceTimersByTime(10_000)
+      await Promise.resolve()
+
+      expect(mockWin.webContents.send).not.toHaveBeenCalledWith(
+        'update:state-changed',
+        expect.objectContaining({ status: 'available' }),
+      )
+      expect(mockIpcHandlers['update:get-state']()).toEqual({ status: 'idle' })
+    })
+
     it('after 10s, a newer GitHub feed broadcasts the Mac DMG prompt and never calls ShipIt', async () => {
       mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
       const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }

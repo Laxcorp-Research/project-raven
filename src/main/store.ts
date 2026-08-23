@@ -31,6 +31,8 @@ export interface LocalSettings {
 
   // Onboarding
   onboardingComplete: boolean;
+  /** Wizard index so a permission relaunch resumes instead of starting over. */
+  onboardingStep: number;
   proOnboardingComplete: boolean;
   proOnboardingStep: string;
 
@@ -90,6 +92,7 @@ const STORE_DEFAULTS: LocalSettings = {
   recallApiUrl: 'https://ap-northeast-1.recall.ai',
   apiKeysConfigured: false,
   onboardingComplete: false,
+  onboardingStep: 1,
   proOnboardingComplete: false,
   proOnboardingStep: '',
   dashboardBounds: null,
@@ -175,6 +178,7 @@ export function getAllSettings(): LocalSettings {
     recallApiUrl: store.get('recallApiUrl'),
     apiKeysConfigured: store.get('apiKeysConfigured'),
     onboardingComplete: store.get('onboardingComplete'),
+    onboardingStep: store.get('onboardingStep'),
     dashboardBounds: store.get('dashboardBounds'),
     overlayBounds: store.get('overlayBounds'),
     stealthEnabled: store.get('stealthEnabled'),

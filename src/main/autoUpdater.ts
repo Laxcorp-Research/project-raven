@@ -108,7 +108,9 @@ async function checkMacManualUpdate(opts: { forcePrompt: boolean }): Promise<{
       remoteVersion,
     })
     if (!result.available) {
-      if (opts.forcePrompt) setTransientUpToDate()
+      if (opts.forcePrompt || state.status === 'available') {
+        setTransientUpToDate()
+      }
       return { success: true }
     }
     state = {
