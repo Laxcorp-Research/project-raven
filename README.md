@@ -24,7 +24,7 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows 10/11 (x64)** | [Raven-Windows-2.3.11-Setup.exe](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.11/Raven-Windows-2.3.11-Setup.exe) |
+| **Windows 10/11 (x64)** | [Raven-Windows-2.3.12-Setup.exe](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.12/Raven-Windows-2.3.12-Setup.exe) |
 | **macOS 12+ (Apple Silicon)** | [Raven-Mac-2.3.12-Installer.dmg](https://github.com/Laxcorp-Research/project-raven/releases/download/v2.3.12/Raven-Mac-2.3.12-Installer.dmg) |
 
 **Windows:** run the setup executable. SmartScreen may warn on an unsigned OSS build — choose **More info → Run anyway**.
