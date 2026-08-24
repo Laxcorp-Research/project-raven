@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a bug or request a feature (no GitHub account needed)
+    url: https://laxcorphq.wixforms.com/f/7497329197333873820
+    about: Prefer a form? Send bugs or feature requests without a GitHub account.
+  - name: Documentation
+    url: https://docs.useraven.ai
+    about: Setup guides, features, and troubleshooting.
