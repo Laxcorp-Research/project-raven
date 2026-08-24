@@ -1,8 +1,11 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
+import { useAskConversation, type AskFn } from '../../lib/useAskConversation'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { createLogger } from '../../lib/logger'
 import { isPlaceholderSessionTitle } from '../../../../shared/sessionDisplay'
+import { parseActionItems, type ActionItem } from '../../../../shared/actionItems'
+import { computeTalkRatio } from '../../../../shared/talkRatio'
 
 const log = createLogger('SessionDetail')
 
@@ -21,6 +24,8 @@ interface SessionDetailData {
   transcript: TranscriptEntry[]
   summary: string | null
   insightsJson?: string | null
+  actionItemsJson?: string | null
+  followUpEmail?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null
@@ -40,7 +45,7 @@ interface SessionDetailProps {
   onUpdateTitle?: (sessionId: string, newTitle: string) => void
 }
 
-type Tab = 'summary' | 'transcript' | 'usage' | 'insights'
+type Tab = 'summary' | 'transcript' | 'usage' | 'insights' | 'ask'
 
 const MAX_TITLE_LENGTH = 200
 
@@ -58,6 +63,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     transcript: { left: 0, width: 0 },
     usage: { left: 0, width: 0 },
     insights: { left: 0, width: 0 },
+    ask: { left: 0, width: 0 },
   })
   const [messages, setMessages] = useState<SessionMessage[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -73,6 +79,7 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
   const transcriptTabRef = useRef<HTMLButtonElement>(null)
   const usageTabRef = useRef<HTMLButtonElement>(null)
   const insightsTabRef = useRef<HTMLButtonElement>(null)
+  const askTabRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     async function loadName() {
@@ -149,6 +156,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
           },
           insights: insightsTabRef.current
             ? { left: insightsTabRef.current.offsetLeft, width: insightsTabRef.current.offsetWidth }
+            : { left: 0, width: 0 },
+          ask: askTabRef.current
+            ? { left: askTabRef.current.offsetLeft, width: askTabRef.current.offsetWidth }
             : { left: 0, width: 0 },
         })
       }
@@ -356,17 +366,23 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-1 flex flex-col min-h-0">
         <div className="max-w-[900px] mx-auto w-full px-6 pt-8 pb-6">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors mb-6 cursor-pointer"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span className="text-sm">Back</span>
-          </button>
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm">Back</span>
+            </button>
+            <ExportMenu sessionId={session.id} disabled={!hasTranscript && !session.summary} />
+          </div>
 
-          <p className="text-sm text-gray-500 mb-1">{formatDate(session.startedAt)}</p>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <p className="text-sm text-gray-500">{formatDate(session.startedAt)}</p>
+            <TalkRatioChip transcript={session.transcript} />
+          </div>
 
           <div
             className="relative max-w-lg"
@@ -476,13 +492,25 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
             >
               Insights
             </button>
+            <button
+              ref={askTabRef}
+              onClick={() => setActiveTab('ask')}
+              className={`relative z-10 px-5 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                activeTab === 'ask'
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Ask
+            </button>
           </div>
         </div>
 
         <div className="flex-1 h-0 relative">
           <div ref={scrollContainerRef} className="h-full overflow-y-auto scrollbar-thin">
             <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
-              {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
+              {activeTab !== 'ask' &&
+                (hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
                 !(activeTab === 'summary' && !session.summary && hasTranscript) && (
                 <div className="flex justify-end mb-4">
                   <button
@@ -500,6 +528,8 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               {activeTab === 'summary' && (
                 <SummaryTab
                   summary={session.summary}
+                  actionItemsJson={session.actionItemsJson ?? null}
+                  followUpEmail={session.followUpEmail ?? null}
                   hasTranscript={hasTranscript}
                   sessionId={session.id}
                   generating={notesStatus === 'generating'}
@@ -519,6 +549,9 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               )}
               {activeTab === 'insights' && (
                 <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={currentInsightsJson} onInsightsSaved={setCurrentInsightsJson} />
+              )}
+              {activeTab === 'ask' && (
+                <SessionAskTab sessionId={session.id} hasTranscript={hasTranscript} />
               )}
             </div>
           </div>
@@ -570,6 +603,8 @@ function SummarySkeleton() {
 
 function SummaryTab({
   summary,
+  actionItemsJson,
+  followUpEmail,
   hasTranscript,
   sessionId,
   generating,
@@ -578,6 +613,8 @@ function SummaryTab({
   onRetry,
 }: {
   summary: string | null
+  actionItemsJson: string | null
+  followUpEmail: string | null
   hasTranscript: boolean
   sessionId: string
   generating: boolean
@@ -683,11 +720,14 @@ function SummaryTab({
   const sections = parseSummary(savedSummary)
 
   return (
-    <div
-      className="space-y-6 max-w-3xl cursor-text group"
-      onClick={() => setEditing(true)}
-      title="Click to edit"
-    >
+    <div className="space-y-6 max-w-3xl">
+      <ActionItemsCard actionItemsJson={actionItemsJson} sessionId={sessionId} />
+      <FollowupDraft sessionId={sessionId} initialDraft={followUpEmail} />
+      <div
+        className="space-y-6 cursor-text group"
+        onClick={() => setEditing(true)}
+        title="Click to edit"
+      >
       <div className="flex items-center justify-between mb-2">
         <div />
         <button
@@ -721,6 +761,382 @@ function SummaryTab({
           ) : null}
         </div>
       ))}
+      </div>
+    </div>
+  )
+}
+
+function FollowupDraft({ sessionId, initialDraft }: { sessionId: string; initialDraft: string | null }) {
+  const [loading, setLoading] = useState(false)
+  const [draft, setDraft] = useState<string | null>(initialDraft ?? null)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Sync to the persisted draft when the session changes (or one is saved).
+  useEffect(() => {
+    setDraft(initialDraft ?? null)
+    setError(null)
+  }, [sessionId, initialDraft])
+
+  const handleDraft = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await window.raven.sessions.draftFollowup(sessionId)
+      if (result && typeof result === 'object' && 'email' in result && result.email) {
+        setDraft(result.email)
+      } else {
+        const message =
+          result && typeof result === 'object' && 'error' in result && result.error
+            ? result.error
+            : 'Could not draft a follow-up email.'
+        setError(message)
+      }
+    } catch {
+      setError('Could not draft a follow-up email.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCopy = async () => {
+    if (!draft) return
+    try {
+      await navigator.clipboard.writeText(draft)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy follow-up email:', err)
+    }
+  }
+
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      {!draft ? (
+        <button
+          onClick={handleDraft}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50"
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              Drafting...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              Draft follow-up email
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">Follow-up email</h3>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCopy}
+                className="text-xs text-gray-500 hover:text-blue-600 transition-colors"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+              <button
+                onClick={handleDraft}
+                disabled={loading}
+                className="text-xs text-gray-500 hover:text-blue-600 transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Regenerating...' : 'Regenerate'}
+              </button>
+            </div>
+          </div>
+          <textarea
+            readOnly
+            value={draft}
+            className="w-full min-h-[200px] p-3 text-sm text-gray-700 leading-relaxed border border-gray-200 rounded-lg bg-gray-50 resize-y focus:outline-none focus:ring-2 focus:ring-blue-200"
+          />
+        </div>
+      )}
+      {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+    </div>
+  )
+}
+
+function ExportMenu({ sessionId, disabled }: { sessionId: string; disabled: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [includeTranscript, setIncludeTranscript] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  useEffect(() => {
+    if (!status) return
+    const t = setTimeout(() => setStatus(null), 3000)
+    return () => clearTimeout(t)
+  }, [status])
+
+  const doExport = async (format: 'markdown' | 'pdf') => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      const result = await window.raven.sessions.export(sessionId, format, includeTranscript)
+      if (result?.ok) {
+        setStatus('Saved')
+        setOpen(false)
+      } else if (result?.canceled) {
+        // User dismissed the save dialog; leave the menu open, no message.
+      } else {
+        setStatus(result?.error || 'Export failed')
+      }
+    } catch {
+      setStatus('Export failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled || busy}
+        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+        {busy ? 'Exporting...' : 'Export'}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+          <button
+            onClick={() => doExport('markdown')}
+            disabled={busy}
+            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Markdown (.md)
+          </button>
+          <button
+            onClick={() => doExport('pdf')}
+            disabled={busy}
+            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            PDF (.pdf)
+          </button>
+          <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border-t border-gray-100 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeTranscript}
+              onChange={(e) => setIncludeTranscript(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Include transcript
+          </label>
+        </div>
+      )}
+      {status && (
+        <span className="absolute right-0 top-full mt-1 text-xs text-gray-400 whitespace-nowrap">{status}</span>
+      )}
+    </div>
+  )
+}
+
+function TalkRatioChip({ transcript }: { transcript: TranscriptEntry[] }) {
+  const ratio = computeTalkRatio(transcript)
+  if (ratio.totalWords === 0) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5"
+      title="Share of words spoken (approximate, based on word count)"
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+      You {ratio.youPct}%
+      <span className="text-gray-300">·</span>
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+      Them {ratio.themPct}%
+    </span>
+  )
+}
+
+function ActionItemsCard({ actionItemsJson, sessionId }: { actionItemsJson: string | null; sessionId: string }) {
+  const [items, setItems] = useState<ActionItem[]>(() => parseActionItems(actionItemsJson))
+
+  // Re-sync when the session (or its stored items) changes. Keyed on the JSON
+  // string so a parent re-render doesn't clobber an in-flight toggle.
+  useEffect(() => {
+    setItems(parseActionItems(actionItemsJson))
+  }, [actionItemsJson])
+
+  if (items.length === 0) return null
+
+  const toggle = (index: number) => {
+    const next = items.map((it, i) => {
+      if (i !== index) return it
+      const copy = { ...it }
+      if (copy.done) delete copy.done
+      else copy.done = true
+      return copy
+    })
+    setItems(next)
+    // Persist the checked state so it survives navigation (best-effort).
+    window.raven.sessions
+      .update(sessionId, { actionItemsJson: JSON.stringify(next) } as Record<string, unknown>)
+      .catch((err) => console.error('Failed to save action item state:', err))
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-5" onClick={(e) => e.stopPropagation()}>
+      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+        <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+        Action items
+      </h3>
+      <ul className="space-y-2.5">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <button
+              onClick={() => toggle(i)}
+              role="checkbox"
+              aria-checked={!!item.done}
+              aria-label={item.done ? `Mark "${item.task}" not done` : `Mark "${item.task}" done`}
+              className={`mt-0.5 w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                item.done ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-green-400'
+              }`}
+            >
+              {item.done && (
+                <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+              )}
+            </button>
+            <span className={`text-sm leading-relaxed ${item.done ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+              {item.task}
+              {(item.assignee || item.deadline) && (
+                <span className="text-gray-400">
+                  {' — '}
+                  {[item.assignee, item.deadline].filter(Boolean).join(' · ')}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function SessionAskTab({ sessionId, hasTranscript }: { sessionId: string; hasTranscript: boolean }) {
+  const [input, setInput] = useState('')
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  const ask = useCallback<AskFn>(
+    (question, ctx) => window.raven.sessions.askOne(sessionId, question, ctx),
+    [sessionId],
+  )
+  const { exchanges, busy, submit } = useAskConversation(ask)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [exchanges])
+
+  const send = () => {
+    const q = input
+    setInput('')
+    void submit(q)
+  }
+
+  if (!hasTranscript) {
+    return <p className="text-gray-400 text-lg">No transcript to ask about</p>
+  }
+
+  const hasExchanges = exchanges.length > 0
+  const examples = ['How did I do?', 'What are my action items?', 'Summarize the key decisions']
+
+  const inputBar = (
+    <div className="flex items-end gap-2 rounded-2xl border border-gray-200/70 bg-white/70 backdrop-blur-xl shadow-lg shadow-gray-900/5 pl-4 pr-2 py-2">
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            send()
+          }
+        }}
+        placeholder="Ask about this meeting..."
+        rows={1}
+        className="flex-1 bg-transparent resize-none max-h-32 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
+      />
+      <button
+        onClick={send}
+        disabled={busy || !input.trim()}
+        aria-label="Ask"
+        className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center shadow-sm hover:from-blue-400 hover:to-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        {busy ? (
+          <div className="w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+        )}
+      </button>
+    </div>
+  )
+
+  if (!hasExchanges) {
+    return (
+      <div className="max-w-2xl mx-auto flex flex-col items-center text-center pt-10 pb-6">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
+          <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" /></svg>
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900">Ask this meeting anything</h3>
+        <p className="text-sm text-gray-500 mt-1.5 mb-6 max-w-md">
+          Answered locally from this session&apos;s transcript. Only your own model call leaves your device.
+        </p>
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {examples.map((ex) => (
+            <button
+              key={ex}
+              onClick={() => setInput(ex)}
+              className="text-sm text-gray-600 bg-gray-100/80 hover:bg-gray-200/80 border border-gray-200/60 rounded-full px-3.5 py-1.5 transition-colors"
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+        <div className="w-full">{inputBar}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-5">
+      {exchanges.map((exchange) => (
+        <div key={exchange.id} className="space-y-2.5">
+          <div className="flex justify-end">
+            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-b from-blue-500 to-blue-600 text-white px-4 py-2 text-sm shadow-sm">
+              {exchange.question}
+            </div>
+          </div>
+          {exchange.loading ? (
+            <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+              Reading this meeting...
+            </div>
+          ) : exchange.error ? (
+            <p className="text-sm text-red-500">{exchange.error}</p>
+          ) : (
+            <div className="rounded-2xl rounded-bl-md bg-gray-50 border border-gray-100 px-4 py-3 text-gray-700 leading-relaxed prose prose-sm prose-gray max-w-none [&_strong]:font-semibold [&_strong]:text-gray-900 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
+              <Markdown>{exchange.answer || ''}</Markdown>
+            </div>
+          )}
+        </div>
+      ))}
+      <div ref={bottomRef} />
+      <div className="pt-1">{inputBar}</div>
     </div>
   )
 }

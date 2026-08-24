@@ -74,6 +74,7 @@ import { initAutoUpdater, stopAutoUpdater } from './autoUpdater'
 import { initAnalytics, shutdownAnalytics } from './analytics'
 import { initClientEvents, shutdownClientEvents } from './services/clientEvents'
 import { inflightHandle, cooldownHandle } from './ipcThrottle'
+import { startMeetingDetector, stopMeetingDetector } from './meetingDetector'
 import { initSentry, captureException } from './sentry'
 import { registerPermissionHandlers, getPermissionStatus, permissionsAllowOverlay } from './permissions'
 import { createLogger } from './logger'
@@ -360,6 +361,9 @@ function boot(): void {
     }
 
     registerGlobalHotkeys(dashboard, overlay)
+    // Only run meeting detection for fully-onboarded users; the poller
+    // self-gates on the meetingAutoStart setting and active-session state.
+    startMeetingDetector()
   }
 
   if (!shouldShowOverlayNow) {
@@ -378,6 +382,7 @@ function boot(): void {
     if (process.platform === 'win32') showOverlayWindow()
     else overlay.show()
     registerGlobalHotkeys(dashboard, overlay)
+    startMeetingDetector()
     setTrayOnboarding(false)
   })
 
@@ -473,6 +478,11 @@ app.whenReady().then(() => {
   safeHandle('sessions:delete', (id: string) => {
     const deleted = databaseService.deleteSession(id)
     if (deleted) {
+      // Drop the in-memory QA index cache so a deleted session's chunks
+      // (already removed from the DB) are not served in future answers.
+      void import('./services/sessionQaService')
+        .then((m) => m.invalidateSessionQaCache())
+        .catch(() => {})
       BrowserWindow.getAllWindows().forEach((win) => {
         win.webContents.send('sessions:list-updated')
       })
@@ -513,6 +523,102 @@ app.whenReady().then(() => {
 
   safeHandle('sessions:regenerate-summary', async (sessionId: string) => {
     return sessionManager.generateAndStoreNotes(sessionId)
+  })
+
+  inflightHandle('sessions:draft-followup', async (sessionId: string) => {
+    const session = databaseService.getSession(sessionId)
+    if (!session) return { error: 'Session not found' }
+
+    const displayName = (getSetting('displayName') as string) || 'You'
+    const transcript = session.transcript
+      .filter((entry) => entry.isFinal)
+      .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
+      .join('\n')
+
+    const { draftFollowupEmail } = await import('./services/followupEmailService')
+    const result = await draftFollowupEmail({
+      title: session.title,
+      summary: session.summary,
+      actionItemsJson: session.actionItemsJson,
+      transcript,
+      senderName: displayName,
+    })
+    // Persist the draft so it survives navigation — it cost a model call.
+    if ('email' in result && result.email) {
+      databaseService.updateSession(sessionId, { followUpEmail: result.email })
+    }
+    return result
+  })
+
+  inflightHandle(
+    'sessions:export',
+    async (sessionId: string, format: 'markdown' | 'pdf', includeTranscript?: boolean) => {
+      const session = databaseService.getSession(sessionId)
+      if (!session) return { ok: false, error: 'Session not found' }
+
+      const displayName = (getSetting('displayName') as string) || 'You'
+      const { exportSession } = await import('./services/sessionExportService')
+      return exportSession({
+        format,
+        data: {
+          title: session.title,
+          startedAt: session.startedAt,
+          durationSeconds: session.durationSeconds,
+          summary: session.summary,
+          actionItemsJson: session.actionItemsJson,
+          transcript: session.transcript,
+          displayName,
+          includeTranscript: !!includeTranscript,
+        },
+      })
+    },
+  )
+
+  // Ask-my-meetings: local Q&A across the session transcript index.
+  inflightHandle(
+    'sessions:ask',
+    async (question: string, ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> }) => {
+      const { askQuestion } = await import('./services/sessionQaService')
+      return askQuestion(question, {
+        summary: ctx?.summary ?? '',
+        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
+      })
+    },
+  )
+
+  // Ask about a single session: feeds that session's transcript directly.
+  inflightHandle(
+    'sessions:ask-one',
+    async (
+      sessionId: string,
+      question: string,
+      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+    ) => {
+      const session = databaseService.getSession(sessionId)
+      if (!session) return { error: 'Session not found' }
+
+      const displayName = (getSetting('displayName') as string) || 'You'
+      const transcript = session.transcript
+        .filter((entry) => entry.isFinal)
+        .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
+        .join('\n')
+
+      const { askSessionScoped } = await import('./services/sessionQaService')
+      return askSessionScoped({
+        question,
+        transcript,
+        summary: ctx?.summary ?? '',
+        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
+      })
+    },
+  )
+
+  // Lazily index sessions recorded before the feature shipped. Called when the
+  // Ask view opens so the embedding model only loads if Ask is actually used.
+  safeHandle('sessions:ensure-index', async () => {
+    const { backfillSessionIndex } = await import('./services/sessionIndexService')
+    void backfillSessionIndex()
+    return true
   })
 
   // ==================== MODE IPC HANDLERS ====================
@@ -1033,6 +1139,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   destroyTray()
   stopAutoUpdater()
+  stopMeetingDetector()
   void shutdownAnalytics()
   void shutdownClientEvents()
 

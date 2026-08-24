@@ -1,10 +1,26 @@
 import { TITLE_TRANSCRIPT_SLICE } from '../constants'
 
-export function notesTemplateHeadings(
-  notesTemplate: Array<{ title: string }> | null | undefined,
-): string[] {
+export interface NotesTemplateSection {
+  title: string
+  instructions: string
+}
+
+/**
+ * Normalize a mode's stored notesTemplate into the {title, instructions}
+ * pairs the summary prompt sends to the model. Sections without a title are
+ * dropped; a missing/blank instruction is preserved as an empty string so the
+ * section still appears as a heading hint.
+ */
+export function notesTemplateSections(
+  notesTemplate: Array<{ title: string; instructions?: string }> | null | undefined,
+): NotesTemplateSection[] {
   if (!notesTemplate?.length) return []
-  return notesTemplate.map((section) => section.title).filter(Boolean)
+  return notesTemplate
+    .filter((section) => section.title)
+    .map((section) => ({
+      title: section.title,
+      instructions: section.instructions?.trim() ?? '',
+    }))
 }
 
 export function buildSessionTitlePrompt(transcript: string): string {
@@ -33,17 +49,21 @@ export function buildSessionSummaryPrompt(opts: {
   transcript: string
   slice: number
   modeName?: string | null
-  notesHeadings?: string[]
+  notesSections?: NotesTemplateSection[]
 }): string {
-  const headings = opts.notesHeadings?.filter(Boolean) ?? []
+  const sections = (opts.notesSections ?? []).filter((section) => section.title)
   const modeLine = opts.modeName
     ? `\nSession mode name (do not let this invent a topic): ${opts.modeName}`
     : ''
-  const headingLine = headings.length
-    ? `\nOptional headings (use only when the transcript supports them; skip the rest): ${headings.join(', ')}`
+  const sectionsBlock = sections.length
+    ? `\n\nNOTES TEMPLATE — the user set up these sections for this mode. Use each section the transcript supports and follow its guidance. Skip a section only when the transcript genuinely has nothing for it:\n${sections
+        .map((section) =>
+          section.instructions ? `- ${section.title}: ${section.instructions}` : `- ${section.title}`,
+        )
+        .join('\n')}`
     : ''
 
-  return `Write a title and notes for this transcript.${modeLine}${headingLine}
+  return `Write a title and notes for this transcript.${modeLine}${sectionsBlock}
 
 The transcript may be a meeting, a casual chat, a live demo, or audio from a video playing on the call. Treat it as speech, not as a brief you must complete.
 
@@ -52,6 +72,7 @@ HARD RULES:
 - Do not upgrade casual or fragmented speech into corporate or technical jargon. "Train ten minutes a day" is not "AI/ML training" unless those words appear.
 - If speakers talk over each other, test a YouTube video, or the audio is incomplete, say that. Do not invent a coherent professional agenda to fill the gaps.
 - If there is not enough to recap, use a short What was said section and one line that the transcript is incomplete. Do not pad with Open Questions or Next Steps the speakers did not raise.
+- If anyone commits to a task, next step, or deliverable (for example "I'll send the deck", "we'll follow up next week", "due Friday"), you MUST include an "Action items" section listing them with the owner and any deadline that was stated. Only capture commitments that were actually spoken.
 
 FORMAT:
 - Title: 5-10 words, no quotes, from the actual topic.

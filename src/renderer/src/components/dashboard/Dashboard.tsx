@@ -8,6 +8,7 @@ import { RecordingChip } from './RecordingChip'
 import { SessionDetail } from './SessionDetail'
 import { SettingsModal } from './SettingsModal'
 import { SearchResultsView } from './SearchResultsView'
+import { AskView } from './AskView'
 import { UpdateBanner } from './UpdateBanner'
 import { MacUpdateModal } from './MacUpdateModal'
 import { OverlayTour } from '../OverlayTour'
@@ -27,6 +28,8 @@ interface SessionDetailData {
   transcript: TranscriptEntry[]
   summary: string | null
   insightsJson?: string | null
+  actionItemsJson?: string | null
+  followUpEmail?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null
@@ -47,6 +50,7 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
   const [showOverlayTour, setShowOverlayTour] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null)
+  const [askOpen, setAskOpen] = useState(false)
 
   useEffect(() => {
     async function loadState() {
@@ -198,6 +202,7 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
   const handleSearchSubmit = useCallback((query: string) => {
     setActiveSearchQuery(query)
     setSelectedSession(null)
+    setAskOpen(false)
   }, [])
 
   const handleSearchBack = useCallback(() => {
@@ -238,6 +243,11 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
         onSearchChange={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
         onSessionSelect={handleSessionSelect}
+        onOpenAsk={() => {
+          setSelectedSession(null)
+          setActiveSearchQuery(null)
+          setAskOpen(true)
+        }}
       />
 
       <UpdateBanner />
@@ -254,6 +264,14 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
             query={activeSearchQuery}
             onBack={handleSearchBack}
             onSessionSelect={handleSessionSelect}
+          />
+        ) : askOpen ? (
+          <AskView
+            onBack={() => setAskOpen(false)}
+            onSessionSelect={(s) => {
+              setAskOpen(false)
+              handleSessionSelect(s)
+            }}
           />
         ) : (
           <SessionList

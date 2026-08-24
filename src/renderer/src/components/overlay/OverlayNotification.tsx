@@ -69,9 +69,9 @@ export function OverlayNotification({ notification, onDismiss }: OverlayNotifica
       dragElastic={{ left: 0.01, right: 1 }}
       onDragEnd={handleDragEnd}
       style={{ x, opacity, WebkitAppRegion: 'no-drag' } as unknown as CSSProperties}
-      className={`pointer-events-auto w-[320px] rounded-xl border ${typeColors[notification.type]} bg-[#18171C]/85 backdrop-blur-xl cursor-grab active:cursor-grabbing`}
+      className={`pointer-events-auto w-[320px] rounded-xl border ${typeColors[notification.type]} bg-[#18171C] cursor-grab active:cursor-grabbing`}
     >
-      <div className="p-3 flex items-start gap-3" style={{ boxShadow: 'inset 0 1px 0 0 rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.3)' }}>
+      <div className="p-3 flex items-start gap-3" style={{ boxShadow: 'inset 0 1px 0 0 rgba(255,255,255,0.08), 0 8px 28px rgba(0,0,0,0.55)' }}>
         <div className="text-white/70 mt-0.5 shrink-0">
           {typeIcons[notification.type]}
         </div>

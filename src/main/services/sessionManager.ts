@@ -8,6 +8,9 @@ import { databaseService, type Session, type TranscriptEntry, type AIResponse } 
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
+import { analyzeSession } from './insightsService';
+import { indexSession } from './sessionIndexService';
+import { normalizeActionItemsForStorage } from '../../shared/actionItems';
 import { getSetting } from '../store';
 import { createLogger } from '../logger';
 import {
@@ -85,6 +88,8 @@ class SessionManager {
       aiResponses: [],
       summary: null,
       insightsJson: null,
+      actionItemsJson: null,
+      followUpEmail: null,
       modeId: resolvedModeId,
       durationSeconds: 0,
       startedAt: now,
@@ -339,20 +344,31 @@ class SessionManager {
       if (!transcriptText.trim()) return false;
 
       const result = await generateSessionSummary(transcriptText, modeId);
+
+      let notesOk = false;
       if (result.summary?.trim()) {
         databaseService.updateSession(sessionId, {
           title: result.title || fallbackTitle,
           summary: result.summary,
         });
-        this.syncSessionToCloud(sessionId);
-        return true;
-      }
-
-      if (result.title && !isPlaceholderSessionTitle(result.title)) {
+        notesOk = true;
+      } else if (result.title && !isPlaceholderSessionTitle(result.title)) {
         databaseService.updateSession(sessionId, { title: result.title });
       }
+
+      // Best-effort structured action items. Runs after the summary is stored
+      // so it never delays the summary write, and its own try/catch means a
+      // failure here never affects the summary result.
+      await this.generateAndStoreActionItems(sessionId, transcriptText);
+
+      // Fire-and-forget local transcript indexing for ask-my-meetings. Never
+      // awaited or allowed to affect the notes result; embeddings are local.
+      void indexSession(sessionId).catch((err) => {
+        log.error('Session indexing failed (non-fatal):', err);
+      });
+
       this.syncSessionToCloud(sessionId);
-      return false;
+      return notesOk;
     } catch (err) {
       log.error('Async summary generation failed:', err);
       this.syncSessionToCloud(sessionId);
@@ -360,6 +376,38 @@ class SessionManager {
     } finally {
       this.sendDashboard('sessions:summary-done', sessionId);
       this.sendDashboard('sessions:list-updated');
+    }
+  }
+
+  /**
+   * Extract structured action items ({task, assignee, deadline}) from the
+   * transcript and persist them as JSON. Fully best-effort: any failure
+   * (no API key, model error, unparseable output) is logged and swallowed so
+   * the notes pipeline is never blocked. Reuses the notes-model action_items
+   * prompt via analyzeSession, so it runs on the user's own cheap notes model.
+   */
+  private async generateAndStoreActionItems(
+    sessionId: string,
+    transcriptText: string,
+  ): Promise<void> {
+    try {
+      const result = await analyzeSession({
+        transcript: transcriptText,
+        features: ['action_items'],
+        sessionId,
+      });
+      if (result.error) {
+        log.warn('Action item extraction skipped:', result.error);
+        return;
+      }
+      const normalized = normalizeActionItemsForStorage(
+        typeof result.actionItems === 'string' ? result.actionItems : null,
+      );
+      if (normalized) {
+        databaseService.updateSession(sessionId, { actionItemsJson: normalized });
+      }
+    } catch (err) {
+      log.error('Action item extraction failed (non-fatal):', err);
     }
   }
 

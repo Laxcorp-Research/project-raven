@@ -38,6 +38,12 @@ export const AI_STREAM_TIMEOUT_MS = 1_800_000
 export const SUMMARY_MAX_TOKENS = 2000
 export const SUMMARY_TRANSCRIPT_SLICE = 8000
 export const SUMMARY_MIN_TRANSCRIPT_LENGTH = 20
+
+// Follow-up email draft: a short artifact, so a smaller output budget than
+// the summary, but a generous transcript tail so the closing of the call
+// (where next steps are usually agreed) is always in context.
+export const FOLLOWUP_MAX_TOKENS = 1200
+export const FOLLOWUP_TRANSCRIPT_SLICE = 6000
 /** Ended sessions scanned on boot for missing title/summary. */
 export const NOTES_RETRY_SCAN = 40
 /** Max notes regenerations kicked off on a single boot. */
@@ -48,6 +54,31 @@ export const RAG_DEFAULT_TOP_K = 5
 export const RAG_MAX_CONTEXT_TOKENS = 3000
 export const RAG_CHUNK_SIZE = 500
 export const RAG_CHUNK_OVERLAP = 50
+
+// Ask-my-meetings: local Q&A across the transcript index. Higher top-K and
+// token budget than per-mode RAG because it searches across many sessions.
+export const SESSION_QA_TOP_K = 8
+export const SESSION_QA_MAX_CONTEXT_TOKENS = 4000
+export const SESSION_QA_MAX_TOKENS = 1024
+/** Single-session Q&A feeds the transcript directly (no retrieval); slice cap. */
+export const SESSION_SCOPED_QA_TRANSCRIPT_SLICE = 24000
+/**
+ * Recent-turn budget (characters) kept VERBATIM in each Ask call. Turns older
+ * than this aren't dropped — they're folded into a running summary (see below)
+ * so earlier context is never lost, only compressed. ~12k chars ≈ 4k tokens.
+ */
+export const SESSION_QA_HISTORY_MAX_CHARS = 12000
+/** Output budget for the rolling summary of older conversation turns. */
+export const SESSION_QA_SUMMARY_MAX_TOKENS = 512
+/**
+ * Cap on how much older-turn text is fed into a single summarization pass.
+ * Large enough (~13k tokens) that only extreme conversations approach it; the
+ * summary itself is carried forward so memory compounds rather than resets.
+ */
+export const SESSION_QA_SUMMARY_INPUT_SLICE = 40000
+/** Sessions scanned/indexed lazily when the Ask view first opens. */
+export const SESSION_INDEX_BACKFILL_SCAN = 40
+export const SESSION_INDEX_BACKFILL_LIMIT = 10
 
 // RAM / overlay bound for stored Assist turns. The model only sees the
 // last RECENT_HISTORY_MESSAGES plus session_memory / pinned opening.

@@ -36,6 +36,10 @@ vi.mock('../services/summaryService', () => ({
   generateSessionSummary: vi.fn().mockResolvedValue({ title: 'Test Title', summary: 'Test Summary' }),
 }));
 
+vi.mock('../services/insightsService', () => ({
+  analyzeSession: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock('../store', () => ({
   getSetting: vi.fn(() => ''),
   isProMode: vi.fn(() => false),
@@ -57,6 +61,7 @@ vi.mock('uuid', () => ({
 // Import after mocks are set up
 import { sessionManager } from '../services/sessionManager';
 import { generateSessionSummary } from '../services/summaryService';
+import { analyzeSession } from '../services/insightsService';
 import { generateSessionTitle } from '../claudeService';
 import { getSetting } from '../store';
 
@@ -80,6 +85,7 @@ describe('SessionManager', () => {
     // Re-apply summary/title mocks (mockReset clears implementations)
     vi.mocked(generateSessionSummary).mockResolvedValue({ title: 'Test Title', summary: 'Test Summary' });
     vi.mocked(generateSessionTitle).mockRejectedValue(new Error('no key'));
+    vi.mocked(analyzeSession).mockResolvedValue({});
 
     if (sessionManager.hasActiveSession()) {
       sessionManager.endSession();
@@ -590,6 +596,87 @@ describe('SessionManager', () => {
 
       await vi.waitFor(() => {
         expect(send).toHaveBeenCalledWith('sessions:summary-pending', 'test-uuid-1234');
+      });
+      await vi.waitFor(() => {
+        expect(send).toHaveBeenCalledWith('sessions:summary-done', 'test-uuid-1234');
+      });
+    });
+
+    it('stores normalized structured action items extracted from the transcript', async () => {
+      vi.mocked(analyzeSession).mockResolvedValueOnce({
+        actionItems: JSON.stringify([
+          { task: 'Send the deck', assignee: 'Sam', deadline: 'Friday' },
+        ]),
+      });
+      sessionManager.startSession();
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'I will send the deck by Friday',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      await vi.waitFor(() => {
+        const writes = mockDatabaseService.updateSession.mock.calls.filter(
+          (call) => call[1] && Object.prototype.hasOwnProperty.call(call[1], 'actionItemsJson'),
+        );
+        expect(writes.length).toBeGreaterThan(0);
+      });
+
+      const write = mockDatabaseService.updateSession.mock.calls.find(
+        (call) => call[1] && Object.prototype.hasOwnProperty.call(call[1], 'actionItemsJson'),
+      );
+      const stored = JSON.parse((write![1] as { actionItemsJson: string }).actionItemsJson);
+      expect(stored).toEqual([{ task: 'Send the deck', assignee: 'Sam', deadline: 'Friday' }]);
+    });
+
+    it('does not write action items when the model returns unparseable output', async () => {
+      vi.mocked(analyzeSession).mockResolvedValueOnce({ actionItems: 'not json at all' });
+      sessionManager.startSession();
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello there this is a longer line',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      await vi.waitFor(() => {
+        expect(analyzeSession).toHaveBeenCalled();
+      });
+
+      const writes = mockDatabaseService.updateSession.mock.calls.filter(
+        (call) => call[1] && Object.prototype.hasOwnProperty.call(call[1], 'actionItemsJson'),
+      );
+      expect(writes).toHaveLength(0);
+    });
+
+    it('never fails the notes job when action item extraction throws', async () => {
+      vi.mocked(analyzeSession).mockRejectedValueOnce(new Error('provider exploded'));
+      const send = vi.fn();
+      sessionManager.setWindows({ webContents: { send } } as never, null);
+      sessionManager.startSession();
+      sessionManager.addTranscriptEntry({
+        id: 'entry-1',
+        source: 'mic',
+        text: 'Hello there this is a longer line',
+        timestamp: 1000,
+        isFinal: true,
+      });
+
+      sessionManager.endSession();
+
+      // summary still stored, summary-done still broadcast despite the throw
+      await vi.waitFor(() => {
+        const summaryWrites = mockDatabaseService.updateSession.mock.calls.filter(
+          (call) => call[1] && Object.prototype.hasOwnProperty.call(call[1], 'summary'),
+        );
+        expect(summaryWrites.length).toBeGreaterThan(0);
       });
       await vi.waitFor(() => {
         expect(send).toHaveBeenCalledWith('sessions:summary-done', 'test-uuid-1234');

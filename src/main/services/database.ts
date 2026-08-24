@@ -52,6 +52,8 @@ export interface Session {
   aiResponses: AIResponse[];
   summary: string | null;
   insightsJson: string | null;
+  actionItemsJson: string | null;
+  followUpEmail: string | null;
   modeId: string | null;
   durationSeconds: number;
   startedAt: number;
@@ -68,6 +70,8 @@ export interface SessionRow {
   ai_responses_json: string;
   summary: string | null;
   insights_json: string | null;
+  action_items_json: string | null;
+  follow_up_email: string | null;
   mode_id: string | null;
   duration_seconds: number;
   started_at: number;
@@ -431,6 +435,44 @@ class DatabaseService {
           UPDATE modes SET synced_at = COALESCE(updated_at, created_at) WHERE synced_at IS NULL;
         `,
       },
+      {
+        // Structured action items extracted from the transcript, stored as a
+        // JSON array of {task, assignee, deadline}. Separate column from
+        // insights_json because the Insights tab rewrites insights_json wholesale
+        // (sentiment/topics/keyPhrases) and would clobber action items.
+        name: '015_add_session_action_items',
+        sql: `
+          ALTER TABLE sessions ADD COLUMN action_items_json TEXT DEFAULT NULL;
+        `,
+      },
+      {
+        // Per-session transcript chunks + embeddings for "ask my meetings"
+        // (local Q&A across session history). Separate table from
+        // mode_context_chunks, which is hard-keyed to modes(id). ON DELETE
+        // CASCADE removes a session's chunks when the session is deleted
+        // (foreign_keys pragma is ON).
+        name: '016_add_session_chunks',
+        sql: `
+          CREATE TABLE IF NOT EXISTS session_context_chunks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            chunk_text TEXT NOT NULL,
+            embedding_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_session_chunks_session ON session_context_chunks(session_id);
+        `,
+      },
+      {
+        // Persist the generated follow-up email so it survives navigation
+        // (it costs a model call to produce — don't throw that away).
+        name: '017_add_session_followup_email',
+        sql: `
+          ALTER TABLE sessions ADD COLUMN follow_up_email TEXT DEFAULT NULL;
+        `,
+      },
     ];
 
     // Capture `this.db` to a local after the !null guard above so the
@@ -467,7 +509,7 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const now = Date.now();
-    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, createdAt: now, updatedAt: now, syncedAt: null };
+    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, actionItemsJson: session.actionItemsJson ?? null, followUpEmail: session.followUpEmail ?? null, createdAt: now, updatedAt: now, syncedAt: null };
 
     this.db
       .prepare(
@@ -521,6 +563,14 @@ class DatabaseService {
     if (updates.insightsJson !== undefined) {
       setClauses.push('insights_json = ?');
       values.push(updates.insightsJson);
+    }
+    if (updates.actionItemsJson !== undefined) {
+      setClauses.push('action_items_json = ?');
+      values.push(updates.actionItemsJson);
+    }
+    if (updates.followUpEmail !== undefined) {
+      setClauses.push('follow_up_email = ?');
+      values.push(updates.followUpEmail);
     }
     if (updates.modeId !== undefined) {
       setClauses.push('mode_id = ?');
@@ -656,6 +706,11 @@ class DatabaseService {
         `INSERT OR REPLACE INTO session_tombstones (id, deleted_at, server_confirmed_at)
          VALUES (?, ?, NULL)`
       ).run(id, Date.now());
+      // Explicit chunk cleanup. ON DELETE CASCADE handles this when
+      // foreign_keys=ON (it is), but repeating the delete is cheap and makes
+      // the cleanup obvious + robust to pragma regressions. Mirrors the
+      // context-file cleanup in deleteMode.
+      db.prepare('DELETE FROM session_context_chunks WHERE session_id = ?').run(id);
       const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
       return result.changes;
     })();
@@ -853,6 +908,8 @@ class DatabaseService {
       aiResponses,
       summary: row.summary || null,
       insightsJson: row.insights_json || null,
+      actionItemsJson: row.action_items_json || null,
+      followUpEmail: row.follow_up_email || null,
       modeId: row.mode_id,
       durationSeconds: row.duration_seconds,
       startedAt: row.started_at,
@@ -1256,6 +1313,59 @@ class DatabaseService {
       `INSERT INTO mode_context_chunks (id, mode_id, file_id, file_name, chunk_index, chunk_text, embedding_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(params.id, params.modeId, params.fileId, params.fileName, params.chunkIndex, params.chunkText, params.embeddingJson, Date.now());
+  }
+
+  // ==================== SESSION CHUNKS (ask-my-meetings) ====================
+
+  insertSessionChunk(params: {
+    id: string;
+    sessionId: string;
+    chunkIndex: number;
+    chunkText: string;
+    embeddingJson: string;
+  }): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare(
+      `INSERT INTO session_context_chunks (id, session_id, chunk_index, chunk_text, embedding_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(params.id, params.sessionId, params.chunkIndex, params.chunkText, params.embeddingJson, Date.now());
+  }
+
+  deleteSessionChunks(sessionId: string): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db.prepare('DELETE FROM session_context_chunks WHERE session_id = ?').run(sessionId);
+  }
+
+  /** Distinct session ids that already have chunks — used to skip re-indexing. */
+  getIndexedSessionIds(): Set<string> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db
+      .prepare('SELECT DISTINCT session_id FROM session_context_chunks')
+      .all() as Array<{ session_id: string }>;
+    return new Set(rows.map((r) => r.session_id));
+  }
+
+  /** All session chunks across every session — used to build the QA index. */
+  getAllSessionChunks(): Array<{ sessionId: string; chunkText: string; embeddingJson: string }> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db
+      .prepare('SELECT session_id, chunk_text, embedding_json FROM session_context_chunks')
+      .all() as Array<{ session_id: string; chunk_text: string; embedding_json: string }>;
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      chunkText: r.chunk_text,
+      embeddingJson: r.embedding_json,
+    }));
+  }
+
+  /** Lightweight session metadata (no transcript load) for citations. */
+  getSessionMeta(id: string): { id: string; title: string; startedAt: number } | null {
+    if (!this.db) throw new Error('Database not initialized');
+    const row = this.db
+      .prepare('SELECT id, title, started_at FROM sessions WHERE id = ?')
+      .get(id) as { id: string; title: string; started_at: number } | undefined;
+    if (!row) return null;
+    return { id: row.id, title: row.title, startedAt: row.started_at };
   }
 
   getContextFiles(modeId: string): Array<{
