@@ -10,9 +10,12 @@ interface UpdateState {
   install?: 'auto' | 'mac-dmg'
 }
 
+type MeetingAutoStart = 'off' | 'prompt' | 'auto'
+
 export function GeneralTab() {
   const [stealth, setStealth] = useState(false)
   const [openOnLogin, setOpenOnLogin] = useState(false)
+  const [meetingAutoStart, setMeetingAutoStart] = useState<MeetingAutoStart>('prompt')
   const [appVersion, setAppVersion] = useState('...')
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' })
   const checkInFlightRef = useRef(false)
@@ -22,6 +25,9 @@ export function GeneralTab() {
       const settings = await window.raven.storeGetAll()
       setStealth(settings.stealthEnabled as boolean)
       setOpenOnLogin(settings.openOnLogin as boolean)
+      if (settings.meetingAutoStart) {
+        setMeetingAutoStart(settings.meetingAutoStart as MeetingAutoStart)
+      }
       const v = await window.raven.getAppVersion()
       setAppVersion(v)
       const state = await window.raven.updateGetState()
@@ -45,6 +51,11 @@ export function GeneralTab() {
   const handleOpenOnLogin = async (enabled: boolean) => {
     setOpenOnLogin(enabled)
     await window.raven.storeSet('openOnLogin', enabled)
+  }
+
+  const handleMeetingAutoStart = async (value: MeetingAutoStart) => {
+    setMeetingAutoStart(value)
+    await window.raven.storeSet('meetingAutoStart', value)
   }
 
   const handleCheckUpdate = useCallback(async () => {
@@ -163,6 +174,56 @@ export function GeneralTab() {
               }`}
             />
           </button>
+        </div>
+
+        {/* Meeting auto-start */}
+        <div className="py-4 border-b border-gray-100">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14v-4zM5 8h8a2 2 0 012 2v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4a2 2 0 012-2z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-900">When a meeting starts</p>
+              <p className="text-xs text-gray-400 mt-0.5 mb-3">
+                Raven can notice Zoom, Google Meet, Teams, or Webex meetings and offer to start. No bot joins your call.
+              </p>
+              <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Meeting auto-start">
+                {([
+                  { value: 'prompt', label: 'Ask me to start', hint: 'Show a quick prompt' },
+                  { value: 'auto', label: 'Start automatically', hint: 'Begin recording right away' },
+                  { value: 'off', label: 'Do nothing', hint: 'Never detect meetings' },
+                ] as Array<{ value: MeetingAutoStart; label: string; hint: string }>).map((opt) => (
+                  <button
+                    key={opt.value}
+                    role="radio"
+                    aria-checked={meetingAutoStart === opt.value}
+                    onClick={() => handleMeetingAutoStart(opt.value)}
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      meetingAutoStart === opt.value
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        meetingAutoStart === opt.value ? 'border-blue-600' : 'border-gray-300'
+                      }`}
+                    >
+                      {meetingAutoStart === opt.value && (
+                        <span className="w-2 h-2 rounded-full bg-blue-600" />
+                      )}
+                    </span>
+                    <span className="flex-1">
+                      <span className="block text-sm text-gray-900">{opt.label}</span>
+                      <span className="block text-xs text-gray-400">{opt.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center justify-between py-4">

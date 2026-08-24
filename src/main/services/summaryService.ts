@@ -10,7 +10,8 @@ import { SUMMARY_MAX_TOKENS, SUMMARY_TRANSCRIPT_SLICE, SUMMARY_MIN_TRANSCRIPT_LE
 import { PLACEHOLDER_SESSION_TITLE, isPlaceholderSessionTitle } from '../../shared/sessionDisplay'
 import {
   buildSessionSummaryPrompt,
-  notesTemplateHeadings,
+  notesTemplateSections,
+  type NotesTemplateSection,
 } from './sessionNotesPrompt'
 
 const log = createLogger('Summary')
@@ -78,12 +79,12 @@ export async function generateSessionSummary(
   }
 
   let modeName: string | null = null
-  let notesHeadings: string[] = []
+  let notesSections: NotesTemplateSection[] = []
   if (modeId) {
     const mode = databaseService.getMode(modeId)
     if (mode) {
       modeName = mode.name
-      notesHeadings = notesTemplateHeadings(mode.notesTemplate)
+      notesSections = notesTemplateSections(mode.notesTemplate)
     }
   }
 
@@ -91,7 +92,7 @@ export async function generateSessionSummary(
     transcript,
     slice: SUMMARY_TRANSCRIPT_SLICE,
     modeName,
-    notesHeadings,
+    notesSections,
   })
 
   try {

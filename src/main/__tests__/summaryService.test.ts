@@ -118,7 +118,7 @@ describe('generateSessionSummary', () => {
     ).rejects.toThrow('No API key configured')
   })
 
-  it('sends heading titles from the mode template, not instructions that invent a meeting', async () => {
+  it('sends the mode template section titles AND instructions to the model', async () => {
     mockGenerateShort.mockResolvedValueOnce('TITLE: Demo\nSUMMARY:\n## What was said\n- YouTube')
     vi.mocked(databaseService.getMode).mockReturnValue({
       name: 'Meeting Notes',
@@ -135,6 +135,7 @@ describe('generateSessionSummary', () => {
     const prompt = mockGenerateShort.mock.calls[0][0].prompt as string
     expect(prompt).toContain('Overview')
     expect(prompt).toContain('Meeting Notes')
-    expect(prompt).not.toContain('who attended')
+    // instructions are now sent so the user's configured guidance is honored
+    expect(prompt).toContain('who attended')
   })
 })

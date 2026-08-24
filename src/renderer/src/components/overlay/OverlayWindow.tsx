@@ -483,6 +483,10 @@ export function OverlayWindow() {
         setIsStarting(false)
       }
     }
+    // pushNotification is a stable useCallback defined later in the component,
+    // so it cannot be referenced in this dependency array (temporal dead zone)
+    // and does not need to be — its identity never changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording])
 
   useEffect(() => {
@@ -572,6 +576,58 @@ export function OverlayWindow() {
       notificationTimersRef.current.set(n.id, timerId)
     }
   }, [])
+
+  // Meeting auto-start: main detects a Zoom/Meet/Teams/Webex window and pushes
+  // this event. In 'auto' mode it also asks us to start immediately; in
+  // 'prompt' mode we show a toast with a Start button. The action's onClick is
+  // built here (functions can't cross IPC), which is why this is a dedicated
+  // channel rather than the generic overlay:notification path.
+  useEffect(() => {
+    const unsub = window.raven.on('meeting:detected', (data: unknown) => {
+      const d = (data ?? {}) as { platform?: string; title?: string; autoStart?: boolean }
+      if (isRecording) return
+
+      const platformLabel =
+        d.platform === 'zoom'
+          ? 'Zoom'
+          : d.platform === 'teams'
+            ? 'Microsoft Teams'
+            : d.platform === 'meet'
+              ? 'Google Meet'
+              : d.platform === 'webex'
+                ? 'Webex'
+                : 'a'
+
+      if (d.autoStart) {
+        void handleToggleRecording()
+        pushNotification({
+          id: `meeting-auto-${Date.now()}`,
+          title: 'Recording started',
+          body: `${platformLabel} meeting detected.`,
+          type: 'meeting',
+          autoDismissMs: 5000,
+        })
+        return
+      }
+
+      const id = `meeting-${Date.now()}`
+      pushNotification({
+        id,
+        title: 'Meeting detected',
+        body: `Start Raven for your ${platformLabel} meeting?`,
+        type: 'meeting',
+        autoDismissMs: 15000,
+        action: {
+          label: 'Start Raven',
+          onClick: () => {
+            dismissNotification(id)
+            void handleToggleRecording()
+          },
+        },
+      })
+    })
+    return () => unsub()
+  }, [isRecording, handleToggleRecording, pushNotification, dismissNotification])
 
   const handleToggleIncognito = useCallback(async () => {
     const next = !incognitoMode

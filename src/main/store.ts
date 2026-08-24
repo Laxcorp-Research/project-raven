@@ -68,6 +68,13 @@ export interface LocalSettings {
   notesEffort: string;
   openaiApiKey: string;
 
+  /**
+   * Auto-start on meeting detection. 'off' disables detection entirely,
+   * 'prompt' shows a non-intrusive "start Raven?" toast, 'auto' starts a
+   * session automatically. No meeting bot; capture stays local either way.
+   */
+  meetingAutoStart: 'off' | 'prompt' | 'auto';
+
   // Active mode
   activeModeId: string | null;
 
@@ -111,6 +118,7 @@ const STORE_DEFAULTS: LocalSettings = {
   notesModel: '',
   notesEffort: '',
   openaiApiKey: '',
+  meetingAutoStart: 'prompt',
   activeModeId: null,
   displayName: '',
   profilePicturePath: '',
@@ -195,6 +203,7 @@ export function getAllSettings(): LocalSettings {
     notesModel: store.get('notesModel'),
     notesEffort: store.get('notesEffort'),
     openaiApiKey: '',
+    meetingAutoStart: store.get('meetingAutoStart'),
     activeModeId: store.get('activeModeId'),
     displayName: store.get('displayName'),
     profilePicturePath: store.get('profilePicturePath'),

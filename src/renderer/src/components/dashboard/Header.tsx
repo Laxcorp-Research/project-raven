@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { ModeEditorModal } from './ModeEditorModal'
-import { Eye, EyeOff, Settings, MessageSquarePlus, Layers, Search, FileText, Power, RefreshCw, WifiOff } from 'lucide-react'
+import { Eye, EyeOff, Settings, MessageSquarePlus, Layers, Search, FileText, Power, RefreshCw, WifiOff, Sparkles } from 'lucide-react'
 import ravenFullLogo from '../../../../../logo/raven_full.svg'
 import ravenLogo from '../../../../../logo/raven.svg'
 
@@ -23,6 +23,7 @@ interface HeaderProps {
   onSearchChange: (query: string) => void
   onSearchSubmit: (query: string) => void
   onSessionSelect: (session: { id: string }) => void
+  onOpenAsk?: () => void
 }
 
 function highlightMatch(text: string, query: string): ReactNode {
@@ -47,7 +48,7 @@ function getInitials(name: string): string {
   return parts[0][0].toUpperCase()
 }
 
-export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, initialUserProfile, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect }: HeaderProps) {
+export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, onOpenSettings, onReplayTour, initialUserProfile, searchQuery, onSearchChange, onSearchSubmit, onSessionSelect, onOpenAsk }: HeaderProps) {
   const [modeEditorOpen, setModeEditorOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -171,6 +172,21 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
 
         {/* Right section */}
         <div className="flex items-center gap-2">
+          {/* Ask my meetings */}
+          {onOpenAsk && (
+            <div className="relative group">
+              <button
+                onClick={onOpenAsk}
+                className="p-2.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+              >
+                <Sparkles size={18} />
+              </button>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                Ask my meetings
+              </div>
+            </div>
+          )}
+
           {/* Detectability icon toggle with tooltip */}
           <div className="relative group">
             <button

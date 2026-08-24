@@ -185,8 +185,8 @@ describe('DatabaseService', () => {
 
       // The migrate() method calls exec() for the migrations table creation
       expect(mockExec).toHaveBeenCalled()
-      // transaction() should be called once per unapplied migration (14 total)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(14)
+      // transaction() should be called once per unapplied migration (17 total)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(17)
     })
 
     it('skips migrations already applied', () => {
@@ -205,6 +205,9 @@ describe('DatabaseService', () => {
         { name: '012_add_context_file_tombstones' },
         { name: '013_add_synced_at' },
         { name: '014_backfill_synced_at' },
+        { name: '015_add_session_action_items' },
+        { name: '016_add_session_chunks' },
+        { name: '017_add_session_followup_email' },
       ])
 
       databaseService.initialize()
@@ -220,8 +223,8 @@ describe('DatabaseService', () => {
 
       databaseService.initialize()
 
-      // 12 unapplied migrations remain (003 through 014)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(12)
+      // 15 unapplied migrations remain (003 through 017)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(15)
     })
 
     it('is idempotent - second call is a no-op', () => {
@@ -444,6 +447,17 @@ describe('DatabaseService', () => {
       expect(mockRun).toHaveBeenCalledWith(expect.any(Number), JSON.stringify(transcript), 'sess-1')
     })
 
+    it('persists action_items_json when actionItemsJson is provided', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const json = JSON.stringify([{ task: 'Send deck', assignee: null, deadline: null }])
+      databaseService.updateSession('sess-1', { actionItemsJson: json })
+
+      const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).toContain('action_items_json = ?')
+      expect(mockRun).toHaveBeenCalledWith(expect.any(Number), json, 'sess-1')
+    })
+
     it('always bumps updated_at even with empty updates', () => {
       mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
 
@@ -499,6 +513,19 @@ describe('DatabaseService', () => {
         (q: string) => q.includes('session_tombstones') && q.includes('INSERT')
       )
       expect(sawTombstoneInsert).toBe(true)
+    })
+
+    it('deletes the session transcript chunks (ask-my-meetings index cleanup)', () => {
+      mockRun.mockReturnValue({ changes: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.deleteSession('sess-1')
+
+      const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+      const sawChunkDelete = sqlQueries.some(
+        (q: string) => q.includes('DELETE FROM session_context_chunks') && q.includes('session_id'),
+      )
+      expect(sawChunkDelete).toBe(true)
     })
   })
 

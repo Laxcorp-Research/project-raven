@@ -86,7 +86,7 @@ async function parseFile(filePath: string): Promise<string> {
 
 // ==================== CHUNKING ====================
 
-function chunkText(text: string, chunkSize = RAG_CHUNK_SIZE, overlap = RAG_CHUNK_OVERLAP): string[] {
+export function chunkText(text: string, chunkSize = RAG_CHUNK_SIZE, overlap = RAG_CHUNK_OVERLAP): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   if (words.length <= chunkSize) return [words.join(' ')];
@@ -106,7 +106,7 @@ function chunkText(text: string, chunkSize = RAG_CHUNK_SIZE, overlap = RAG_CHUNK
 
 // ==================== EMBEDDING ====================
 
-async function embedText(text: string): Promise<number[]> {
+export async function embedText(text: string): Promise<number[]> {
   const model = await getEmbeddingPipeline();
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data);
@@ -130,7 +130,7 @@ async function embedChunks(
 
 // ==================== COSINE SIMILARITY ====================
 
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0;
   let normA = 0;
   let normB = 0;

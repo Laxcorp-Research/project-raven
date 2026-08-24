@@ -71,6 +71,19 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.invoke('sessions:add-message', sessionId, role, content),
     delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
     regenerateSummary: (id: string) => ipcRenderer.invoke('sessions:regenerate-summary', id),
+    draftFollowup: (id: string) => ipcRenderer.invoke('sessions:draft-followup', id),
+    export: (id: string, format: 'markdown' | 'pdf', includeTranscript?: boolean) =>
+      ipcRenderer.invoke('sessions:export', id, format, includeTranscript),
+    ask: (
+      question: string,
+      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+    ) => ipcRenderer.invoke('sessions:ask', question, ctx),
+    askOne: (
+      id: string,
+      question: string,
+      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+    ) => ipcRenderer.invoke('sessions:ask-one', id, question, ctx),
+    ensureIndex: () => ipcRenderer.invoke('sessions:ensure-index'),
     updateTitle: (id: string, title: string) => ipcRenderer.invoke('sessions:update-title', id, title),
     getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
@@ -358,6 +371,7 @@ contextBridge.exposeInMainWorld('raven', {
     const ALLOWED_CHANNELS = [
       'overlay:notification',
       'tray:open-settings',
+      'meeting:detected',
       'recall:meeting-detected',
       'recall:meeting-closed',
       'recall:participant-joined',

@@ -153,6 +153,28 @@ declare global {
         addMessage: (sessionId: string, role: 'user' | 'assistant', content: string) => Promise<SessionMessage>;
         delete: (id: string) => Promise<boolean>;
         regenerateSummary: (id: string) => Promise<boolean>;
+        draftFollowup: (id: string) => Promise<{ email?: string; error?: string }>;
+        export: (
+          id: string,
+          format: 'markdown' | 'pdf',
+          includeTranscript?: boolean,
+        ) => Promise<{ ok: boolean; filePath?: string; canceled?: boolean; error?: string }>;
+        ask: (
+          question: string,
+          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+        ) => Promise<{
+          answer?: string
+          sources?: Array<{ sessionId: string; title: string; startedAt: number }>
+          summary?: string
+          foldedCount?: number
+          error?: string
+        }>;
+        askOne: (
+          id: string,
+          question: string,
+          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+        ) => Promise<{ answer?: string; summary?: string; foldedCount?: number; error?: string }>;
+        ensureIndex: () => Promise<boolean>;
         updateTitle: (id: string, title: string) => Promise<boolean>;
         getInProgress: () => Promise<Session | null>;
         getActive: () => Promise<Session | null>;
