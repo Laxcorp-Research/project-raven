@@ -574,42 +574,49 @@ app.whenReady().then(() => {
     },
   )
 
-  // Ask-my-meetings: local Q&A across the session transcript index.
-  inflightHandle(
-    'sessions:ask',
-    async (question: string, ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> }) => {
-      const { askQuestion } = await import('./services/sessionQaService')
-      return askQuestion(question, {
-        summary: ctx?.summary ?? '',
-        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
-      })
-    },
-  )
-
-  // Ask about a single session: feeds that session's transcript directly.
-  inflightHandle(
-    'sessions:ask-one',
+  // Ask (streaming): both "ask my meetings" (scope 'all') and per-session
+  // ("one") answer token-by-token. Uses ipcMain.on (not handle) so main can
+  // emit deltas as it generates. Generation runs to completion in main
+  // regardless of renderer navigation, so a turn is never lost mid-answer —
+  // the renderer persists progress + the final answer, even after unmount.
+  ipcMain.on(
+    'sessions:ask-stream:start',
     async (
-      sessionId: string,
-      question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+      event,
+      payload: {
+        requestId: string
+        scope: 'one' | 'all'
+        sessionId?: string | null
+        question: string
+        ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> }
+      },
     ) => {
-      const session = databaseService.getSession(sessionId)
-      if (!session) return { error: 'Session not found' }
-
-      const displayName = (getSetting('displayName') as string) || 'You'
-      const transcript = session.transcript
-        .filter((entry) => entry.isFinal)
-        .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
-        .join('\n')
-
-      const { askSessionScoped } = await import('./services/sessionQaService')
-      return askSessionScoped({
-        question,
-        transcript,
-        summary: ctx?.summary ?? '',
-        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
-      })
+      const { requestId, scope, sessionId, question, ctx } = payload || ({} as typeof payload)
+      const send = (channel: string, data: unknown) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, data)
+      }
+      const finish = (result: unknown): void => send('sessions:ask-stream:final', { requestId, result })
+      const onToken = (text: string): void => send('sessions:ask-stream:delta', { requestId, text })
+      const recent = Array.isArray(ctx?.recent) ? ctx!.recent : []
+      const summary = ctx?.summary ?? ''
+      try {
+        if (scope === 'one') {
+          const session = sessionId ? databaseService.getSession(sessionId) : null
+          if (!session) { finish({ error: 'Session not found' }); return }
+          const displayName = (getSetting('displayName') as string) || 'You'
+          const transcript = session.transcript
+            .filter((entry) => entry.isFinal)
+            .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
+            .join('\n')
+          const { askSessionScoped } = await import('./services/sessionQaService')
+          finish(await askSessionScoped({ question, transcript, summary, recent, onToken }))
+        } else {
+          const { askQuestion } = await import('./services/sessionQaService')
+          finish(await askQuestion(question, { summary, recent, onToken }))
+        }
+      } catch (err) {
+        finish({ error: err instanceof Error ? err.message : 'Failed to answer the question' })
+      }
     },
   )
 
@@ -620,6 +627,64 @@ app.whenReady().then(() => {
     void backfillSessionIndex()
     return true
   })
+
+  // ---- Ask conversation persistence ----
+  // Per-session Ask: exactly one persisted conversation, keyed by session id.
+  // State is an opaque renderer blob ({exchanges, summary, summarizedUpTo});
+  // main just stringifies/parses so the DB stays shape-agnostic.
+  safeHandle('sessions:get-ask', (sessionId: string) => {
+    const raw = databaseService.getSessionAsk(sessionId)
+    if (!raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  })
+
+  safeHandle('sessions:save-ask', (sessionId: string, state: unknown) => {
+    databaseService.saveSessionAsk(sessionId, JSON.stringify(state ?? {}))
+    return true
+  })
+
+  // Standalone "Ask my meetings" threads (multi-chat).
+  safeHandle('ask:list', () => databaseService.listAskConversations())
+
+  safeHandle('ask:create', (id: string, title: string) =>
+    databaseService.createAskConversation(id, title),
+  )
+
+  safeHandle('ask:get', (id: string) => {
+    const row = databaseService.getAskConversation(id)
+    if (!row) return null
+    let state: unknown = null
+    try {
+      const parsed = JSON.parse(row.stateJson)
+      // A freshly-created thread stores '{}' — normalize to null so the
+      // renderer treats it as an empty conversation, not a broken one.
+      state = parsed && typeof parsed === 'object' && Array.isArray((parsed as { exchanges?: unknown }).exchanges)
+        ? parsed
+        : null
+    } catch {
+      state = null
+    }
+    return { id: row.id, title: row.title, state }
+  })
+
+  safeHandle('ask:save', (id: string, updates: { title?: string; state?: unknown }) => {
+    databaseService.saveAskConversation(id, {
+      title: updates?.title,
+      stateJson: updates?.state !== undefined ? JSON.stringify(updates.state) : undefined,
+    })
+    return true
+  })
+
+  safeHandle('ask:rename', (id: string, title: string) => {
+    databaseService.renameAskConversation(id, title)
+    return true
+  })
+
+  safeHandle('ask:delete', (id: string) => databaseService.deleteAskConversation(id))
 
   // ==================== MODE IPC HANDLERS ====================
 

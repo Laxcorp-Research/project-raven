@@ -134,10 +134,45 @@ export function budgetHistory(history: QaTurn[], maxChars = SESSION_QA_HISTORY_M
 type NotesProvider = Awaited<ReturnType<typeof getNotesProvider>>
 
 /** Conversation context carried into an Ask call: a running summary of older
- * turns plus the recent turns not yet folded into it. */
+ * turns plus the recent turns not yet folded into it. `onToken`, when present,
+ * streams the answer token-by-token (used by the IPC streaming path). */
 export interface AskContext {
   summary?: string
   recent?: QaTurn[]
+  onToken?: (text: string) => void
+}
+
+/**
+ * Produce an answer for `prompt`. When `onToken` is given, stream via the
+ * provider's streaming API and forward each delta; otherwise fall back to a
+ * single blocking call. Both resolve to the full answer text, so callers and
+ * their tests behave identically regardless of transport.
+ */
+async function generateAnswer(
+  provider: NotesProvider,
+  prompt: string,
+  maxTokens: number,
+  onToken?: (text: string) => void,
+): Promise<string> {
+  if (!onToken) {
+    return provider.generateShort({ prompt, maxTokens })
+  }
+  return new Promise<string>((resolve, reject) => {
+    provider
+      .streamResponse(
+        { system: '', messages: [{ role: 'user', content: prompt }], maxTokens },
+        {
+          onText: (t) => {
+            // A dead renderer must not abort a generation that is still
+            // valuable (it's persisted on completion); swallow forward errors.
+            try { onToken(t) } catch { /* renderer gone */ }
+          },
+          onDone: (full) => resolve(full),
+          onError: (e) => reject(new Error(e)),
+        },
+      )
+      .catch(reject)
+  })
 }
 
 /**
@@ -237,15 +272,17 @@ export async function askSessionScoped(params: {
   )
 
   try {
-    const answer = await provider.generateShort({
-      prompt: buildSessionScopedQaPrompt(
+    const answer = await generateAnswer(
+      provider,
+      buildSessionScopedQaPrompt(
         params.question,
         params.transcript.slice(0, SESSION_SCOPED_QA_TRANSCRIPT_SLICE),
         recent,
         summary,
       ),
-      maxTokens: SESSION_QA_MAX_TOKENS,
-    })
+      SESSION_QA_MAX_TOKENS,
+      params.onToken,
+    )
     const trimmed = answer.trim()
     if (!trimmed) {
       return { error: 'The model returned an empty answer. Try again.' }
@@ -329,10 +366,12 @@ export async function askQuestion(
   })
 
   try {
-    const answer = await provider.generateShort({
-      prompt: buildQaPrompt(question, contexts, compacted.recent, compacted.summary),
-      maxTokens: SESSION_QA_MAX_TOKENS,
-    })
+    const answer = await generateAnswer(
+      provider,
+      buildQaPrompt(question, contexts, compacted.recent, compacted.summary),
+      SESSION_QA_MAX_TOKENS,
+      ctx.onToken,
+    )
     const trimmed = answer.trim()
     if (!trimmed) {
       return { error: 'The model returned an empty answer. Try again.' }

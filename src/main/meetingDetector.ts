@@ -84,10 +84,17 @@ async function poll(): Promise<void> {
       fetchWindowIcons: false,
     })
 
+    const windowTitles = sources.map((s) => s.name)
+    // Debug-only aid for tuning platform matchers against real window titles
+    // (e.g. Teams 1:1 call windows, which vary by client version). Never logged
+    // at info level — titles can contain sensitive document/meeting names.
+    const candidates = windowTitles.filter((n) => /teams|zoom|meet|webex/i.test(n || ''))
+    if (candidates.length) log.debug('Meeting detect candidates:', candidates)
+
     const decision = evaluateDetection({
       mode,
       hasActiveSession: sessionManager.hasActiveSession(),
-      windowTitles: sources.map((s) => s.name),
+      windowTitles,
       lastNotifiedPlatform,
     })
     lastNotifiedPlatform = decision.lastNotifiedPlatform

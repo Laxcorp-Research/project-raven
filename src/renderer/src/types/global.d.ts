@@ -1,3 +1,5 @@
+import type { AskConversationState } from '../lib/useAskConversation';
+
 interface TranscriptEntry {
   id: string;
   source: 'mic' | 'system';
@@ -159,9 +161,12 @@ declare global {
           format: 'markdown' | 'pdf',
           includeTranscript?: boolean,
         ) => Promise<{ ok: boolean; filePath?: string; canceled?: boolean; error?: string }>;
-        ask: (
+        askStream: (
+          scope: 'one' | 'all',
+          sessionId: string | null,
           question: string,
-          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+          ctx: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+          onToken: (text: string) => void,
         ) => Promise<{
           answer?: string
           sources?: Array<{ sessionId: string; title: string; startedAt: number }>
@@ -169,12 +174,9 @@ declare global {
           foldedCount?: number
           error?: string
         }>;
-        askOne: (
-          id: string,
-          question: string,
-          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-        ) => Promise<{ answer?: string; summary?: string; foldedCount?: number; error?: string }>;
         ensureIndex: () => Promise<boolean>;
+        getAsk: (id: string) => Promise<AskConversationState | null>;
+        saveAsk: (id: string, state: AskConversationState) => Promise<boolean>;
         updateTitle: (id: string, title: string) => Promise<boolean>;
         getInProgress: () => Promise<Session | null>;
         getActive: () => Promise<Session | null>;
@@ -184,6 +186,14 @@ declare global {
         onSummaryPending: (callback: (sessionId: string) => void) => () => void;
         onSummaryDone: (callback: (sessionId: string) => void) => () => void;
         onSessionUpdated: (callback: (session: { id: string; title: string; startedAt: number } | null) => void) => () => void;
+      };
+      askConversations: {
+        list: () => Promise<Array<{ id: string; title: string; updatedAt: number }>>;
+        create: (id: string, title: string) => Promise<{ id: string; title: string; updatedAt: number }>;
+        get: (id: string) => Promise<{ id: string; title: string; state: AskConversationState | null } | null>;
+        save: (id: string, updates: { title?: string; state?: AskConversationState }) => Promise<boolean>;
+        rename: (id: string, title: string) => Promise<boolean>;
+        delete: (id: string) => Promise<boolean>;
       };
       modes: {
         getAll: () => Promise<Mode[]>;

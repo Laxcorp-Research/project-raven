@@ -74,16 +74,36 @@ contextBridge.exposeInMainWorld('raven', {
     draftFollowup: (id: string) => ipcRenderer.invoke('sessions:draft-followup', id),
     export: (id: string, format: 'markdown' | 'pdf', includeTranscript?: boolean) =>
       ipcRenderer.invoke('sessions:export', id, format, includeTranscript),
-    ask: (
+    // Streaming Ask. Returns a promise that resolves with the final result
+    // ({answer, sources, summary, foldedCount, error}); onToken fires for each
+    // streamed delta. Event plumbing (requestId scoping, listener cleanup) is
+    // hidden here so callers just get a promise + a token callback.
+    askStream: (
+      scope: 'one' | 'all',
+      sessionId: string | null,
       question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-    ) => ipcRenderer.invoke('sessions:ask', question, ctx),
-    askOne: (
-      id: string,
-      question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-    ) => ipcRenderer.invoke('sessions:ask-one', id, question, ctx),
+      ctx: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+      onToken: (text: string) => void,
+    ) => {
+      const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      return new Promise((resolve) => {
+        const onDelta = (_e: unknown, msg: { requestId?: string; text?: string }) => {
+          if (msg && msg.requestId === requestId && typeof msg.text === 'string') onToken(msg.text)
+        }
+        const onFinal = (_e: unknown, msg: { requestId?: string; result?: unknown }) => {
+          if (!msg || msg.requestId !== requestId) return
+          ipcRenderer.removeListener('sessions:ask-stream:delta', onDelta)
+          ipcRenderer.removeListener('sessions:ask-stream:final', onFinal)
+          resolve(msg.result)
+        }
+        ipcRenderer.on('sessions:ask-stream:delta', onDelta)
+        ipcRenderer.on('sessions:ask-stream:final', onFinal)
+        ipcRenderer.send('sessions:ask-stream:start', { requestId, scope, sessionId, question, ctx })
+      })
+    },
     ensureIndex: () => ipcRenderer.invoke('sessions:ensure-index'),
+    getAsk: (id: string) => ipcRenderer.invoke('sessions:get-ask', id),
+    saveAsk: (id: string, state: unknown) => ipcRenderer.invoke('sessions:save-ask', id, state),
     updateTitle: (id: string, title: string) => ipcRenderer.invoke('sessions:update-title', id, title),
     getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
@@ -109,6 +129,16 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.on('session:updated', handler)
       return () => ipcRenderer.removeListener('session:updated', handler)
     },
+  },
+  // Standalone "Ask my meetings" chat threads (multi-chat, ChatGPT/Claude-style).
+  askConversations: {
+    list: () => ipcRenderer.invoke('ask:list'),
+    create: (id: string, title: string) => ipcRenderer.invoke('ask:create', id, title),
+    get: (id: string) => ipcRenderer.invoke('ask:get', id),
+    save: (id: string, updates: { title?: string; state?: unknown }) =>
+      ipcRenderer.invoke('ask:save', id, updates),
+    rename: (id: string, title: string) => ipcRenderer.invoke('ask:rename', id, title),
+    delete: (id: string) => ipcRenderer.invoke('ask:delete', id),
   },
   modes: {
     getAll: () => ipcRenderer.invoke('modes:get-all'),
