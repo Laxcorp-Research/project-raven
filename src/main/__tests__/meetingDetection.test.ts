@@ -16,6 +16,25 @@ describe('detectMeetingFromWindows', () => {
     expect(detectMeetingFromWindows(['Calendar | Microsoft Teams'])).toBeNull()
   })
 
+  it('detects a 1:1 Teams call (no "meeting" keyword) by the callee/subject title', () => {
+    // Regression: the old matcher required the literal word "meeting", so a
+    // 1:1 call window titled with the person or subject was silently missed.
+    expect(detectMeetingFromWindows(['Jane Cooper | Microsoft Teams'])?.platform).toBe('teams')
+    expect(detectMeetingFromWindows(['Weekly Standup | Microsoft Teams'])?.platform).toBe('teams')
+    // Classic in-call window without the pipe separator.
+    expect(detectMeetingFromWindows(['Microsoft Teams Meeting'])?.platform).toBe('teams')
+    expect(detectMeetingFromWindows(['Call with Jane | Microsoft Teams'])?.platform).toBe('teams')
+  })
+
+  it('ignores Teams section tabs, the bare app window, and unread badges', () => {
+    expect(detectMeetingFromWindows(['Microsoft Teams'])).toBeNull()
+    expect(detectMeetingFromWindows(['Activity | Microsoft Teams'])).toBeNull()
+    expect(detectMeetingFromWindows(['(3) Chat | Microsoft Teams'])).toBeNull()
+    expect(detectMeetingFromWindows(['Chat (12) | Microsoft Teams'])).toBeNull()
+    // Non-call auxiliary windows without a section but also without a call keyword.
+    expect(detectMeetingFromWindows(['Microsoft Teams Notification'])).toBeNull()
+  })
+
   it('detects a Google Meet call by its room code but not the landing page', () => {
     expect(detectMeetingFromWindows(['Meet - abc-defg-hij - Google Chrome'])?.platform).toBe('meet')
     expect(detectMeetingFromWindows(['Google Meet'])).toBeNull()

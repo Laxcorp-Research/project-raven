@@ -473,6 +473,37 @@ class DatabaseService {
           ALTER TABLE sessions ADD COLUMN follow_up_email TEXT DEFAULT NULL;
         `,
       },
+      {
+        // Persisted Ask conversations. Two shapes:
+        //  - session_ask_conversation: exactly one conversation per session
+        //    (the per-session "Ask this meeting" tab). Keyed by session_id and
+        //    cascade-deleted with the session so an Ask history never outlives
+        //    the recording it discusses.
+        //  - ask_conversations: standalone, multi-chat "Ask my meetings"
+        //    threads (ChatGPT/Claude-style), not tied to any single session.
+        // Both store the renderer conversation state as an opaque JSON blob
+        // ({exchanges, summary, summarizedUpTo}); the shape is owned by the
+        // renderer hook, so the DB stays agnostic and needs no future
+        // migrations when that shape evolves.
+        name: '018_add_ask_conversations',
+        sql: `
+          CREATE TABLE IF NOT EXISTS session_ask_conversation (
+            session_id TEXT PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+          );
+
+          CREATE TABLE IF NOT EXISTS ask_conversations (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            state_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_ask_conversations_updated ON ask_conversations(updated_at DESC);
+        `,
+      },
     ];
 
     // Capture `this.db` to a local after the !null guard above so the
@@ -711,6 +742,8 @@ class DatabaseService {
       // the cleanup obvious + robust to pragma regressions. Mirrors the
       // context-file cleanup in deleteMode.
       db.prepare('DELETE FROM session_context_chunks WHERE session_id = ?').run(id);
+      // Same rationale for the per-session Ask conversation.
+      db.prepare('DELETE FROM session_ask_conversation WHERE session_id = ?').run(id);
       const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
       return result.changes;
     })();
@@ -1366,6 +1399,100 @@ class DatabaseService {
       .get(id) as { id: string; title: string; started_at: number } | undefined;
     if (!row) return null;
     return { id: row.id, title: row.title, startedAt: row.started_at };
+  }
+
+  // ==================== ASK CONVERSATIONS (persistence) ==================
+
+  /**
+   * The single persisted Ask conversation for a session, as an opaque JSON
+   * blob owned by the renderer. Null when the user has never asked anything
+   * about this session.
+   */
+  getSessionAsk(sessionId: string): string | null {
+    if (!this.db) throw new Error('Database not initialized');
+    const row = this.db
+      .prepare('SELECT state_json FROM session_ask_conversation WHERE session_id = ?')
+      .get(sessionId) as { state_json: string } | undefined;
+    return row?.state_json ?? null;
+  }
+
+  /** Upsert the per-session Ask conversation. */
+  saveSessionAsk(sessionId: string, stateJson: string): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db
+      .prepare(
+        `INSERT INTO session_ask_conversation (session_id, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
+      )
+      .run(sessionId, stateJson, Date.now());
+  }
+
+  /** Create a standalone "Ask my meetings" conversation thread. */
+  createAskConversation(id: string, title: string): { id: string; title: string; updatedAt: number } {
+    if (!this.db) throw new Error('Database not initialized');
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO ask_conversations (id, title, state_json, created_at, updated_at)
+         VALUES (?, ?, '{}', ?, ?)`,
+      )
+      .run(id, title, now, now);
+    return { id, title, updatedAt: now };
+  }
+
+  /** List standalone Ask threads for the sidebar (no state payload). */
+  listAskConversations(): Array<{ id: string; title: string; updatedAt: number }> {
+    if (!this.db) throw new Error('Database not initialized');
+    const rows = this.db
+      .prepare('SELECT id, title, updated_at FROM ask_conversations ORDER BY updated_at DESC')
+      .all() as Array<{ id: string; title: string; updated_at: number }>;
+    return rows.map((r) => ({ id: r.id, title: r.title, updatedAt: r.updated_at }));
+  }
+
+  /** Full state for one standalone Ask thread. */
+  getAskConversation(id: string): { id: string; title: string; stateJson: string } | null {
+    if (!this.db) throw new Error('Database not initialized');
+    const row = this.db
+      .prepare('SELECT id, title, state_json FROM ask_conversations WHERE id = ?')
+      .get(id) as { id: string; title: string; state_json: string } | undefined;
+    if (!row) return null;
+    return { id: row.id, title: row.title, stateJson: row.state_json };
+  }
+
+  /**
+   * Update a standalone Ask thread's state and/or title. Always bumps
+   * updated_at so the sidebar reorders the just-used thread to the top.
+   */
+  saveAskConversation(id: string, updates: { title?: string; stateJson?: string }): void {
+    if (!this.db) throw new Error('Database not initialized');
+    const setClauses: string[] = ['updated_at = ?'];
+    const values: (string | number)[] = [Date.now()];
+    if (updates.title !== undefined) {
+      setClauses.push('title = ?');
+      values.push(updates.title);
+    }
+    if (updates.stateJson !== undefined) {
+      setClauses.push('state_json = ?');
+      values.push(updates.stateJson);
+    }
+    values.push(id);
+    this.db.prepare(`UPDATE ask_conversations SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  /** Rename a standalone Ask thread. */
+  renameAskConversation(id: string, title: string): void {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db
+      .prepare('UPDATE ask_conversations SET title = ?, updated_at = ? WHERE id = ?')
+      .run(title, Date.now(), id);
+  }
+
+  /** Delete a standalone Ask thread. */
+  deleteAskConversation(id: string): boolean {
+    if (!this.db) throw new Error('Database not initialized');
+    const result = this.db.prepare('DELETE FROM ask_conversations WHERE id = ?').run(id);
+    return result.changes > 0;
   }
 
   getContextFiles(modeId: string): Array<{

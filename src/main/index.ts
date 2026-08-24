@@ -621,6 +621,64 @@ app.whenReady().then(() => {
     return true
   })
 
+  // ---- Ask conversation persistence ----
+  // Per-session Ask: exactly one persisted conversation, keyed by session id.
+  // State is an opaque renderer blob ({exchanges, summary, summarizedUpTo});
+  // main just stringifies/parses so the DB stays shape-agnostic.
+  safeHandle('sessions:get-ask', (sessionId: string) => {
+    const raw = databaseService.getSessionAsk(sessionId)
+    if (!raw) return null
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  })
+
+  safeHandle('sessions:save-ask', (sessionId: string, state: unknown) => {
+    databaseService.saveSessionAsk(sessionId, JSON.stringify(state ?? {}))
+    return true
+  })
+
+  // Standalone "Ask my meetings" threads (multi-chat).
+  safeHandle('ask:list', () => databaseService.listAskConversations())
+
+  safeHandle('ask:create', (id: string, title: string) =>
+    databaseService.createAskConversation(id, title),
+  )
+
+  safeHandle('ask:get', (id: string) => {
+    const row = databaseService.getAskConversation(id)
+    if (!row) return null
+    let state: unknown = null
+    try {
+      const parsed = JSON.parse(row.stateJson)
+      // A freshly-created thread stores '{}' — normalize to null so the
+      // renderer treats it as an empty conversation, not a broken one.
+      state = parsed && typeof parsed === 'object' && Array.isArray((parsed as { exchanges?: unknown }).exchanges)
+        ? parsed
+        : null
+    } catch {
+      state = null
+    }
+    return { id: row.id, title: row.title, state }
+  })
+
+  safeHandle('ask:save', (id: string, updates: { title?: string; state?: unknown }) => {
+    databaseService.saveAskConversation(id, {
+      title: updates?.title,
+      stateJson: updates?.state !== undefined ? JSON.stringify(updates.state) : undefined,
+    })
+    return true
+  })
+
+  safeHandle('ask:rename', (id: string, title: string) => {
+    databaseService.renameAskConversation(id, title)
+    return true
+  })
+
+  safeHandle('ask:delete', (id: string) => databaseService.deleteAskConversation(id))
+
   // ==================== MODE IPC HANDLERS ====================
 
   function syncModeToCloud(): void {

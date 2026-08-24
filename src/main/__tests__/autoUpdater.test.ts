@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp, mockOpenExternal, mockFetchMacFeedVersion } = vi.hoisted(() => {
+const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp } = vi.hoisted(() => {
   const mockIpcHandlers: Record<string, (...args: unknown[]) => unknown> = {}
   const updaterListeners: Record<string, (...args: unknown[]) => void> = {}
   const mockAutoUpdater = {
@@ -15,15 +15,11 @@ const { mockIpcHandlers, updaterListeners, mockAutoUpdater, mockApp, mockOpenExt
     quitAndInstall: vi.fn(),
   }
   const mockApp = { isPackaged: true, getVersion: vi.fn(() => '2.3.9') }
-  const mockOpenExternal = vi.fn().mockResolvedValue(undefined)
-  const mockFetchMacFeedVersion = vi.fn().mockResolvedValue(null)
   return {
     mockIpcHandlers,
     updaterListeners,
     mockAutoUpdater,
     mockApp,
-    mockOpenExternal,
-    mockFetchMacFeedVersion,
   }
 })
 
@@ -44,9 +40,6 @@ vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
   },
-  shell: {
-    openExternal: mockOpenExternal,
-  },
 }))
 
 vi.mock('../logger', () => ({
@@ -58,14 +51,6 @@ vi.mock('../logger', () => ({
   }),
 }))
 
-vi.mock('../macManualUpdate', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../macManualUpdate')>()
-  return {
-    ...actual,
-    fetchMacFeedVersion: mockFetchMacFeedVersion,
-  }
-})
-
 import { initAutoUpdater, stopAutoUpdater, shouldRunElectronUpdater, _resetForTesting } from '../autoUpdater'
 import { BrowserWindow } from 'electron'
 
@@ -76,13 +61,10 @@ describe('autoUpdater', () => {
     Object.keys(mockIpcHandlers).forEach((k) => delete mockIpcHandlers[k])
     Object.keys(updaterListeners).forEach((k) => delete updaterListeners[k])
     mockAutoUpdater.checkForUpdates.mockResolvedValue(undefined)
-    mockFetchMacFeedVersion.mockResolvedValue(null)
-    mockOpenExternal.mockResolvedValue(undefined)
     mockApp.isPackaged = true
     mockApp.getVersion.mockReturnValue('2.3.9')
-    // Packaged tests exercise the Windows updater path. On a Mac host
-    // process.platform is darwin and would skip checks after the OSS
-    // ShipIt signature fix.
+    // Default the platform to Windows for the shared packaged-updater tests.
+    // macOS now runs the identical electron-updater path (see its own block).
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     _resetForTesting()
   })
@@ -387,117 +369,59 @@ describe('autoUpdater', () => {
     })
   })
 
-  describe('packaged macOS (unsigned OSS)', () => {
+  describe('packaged macOS (notarized — same ShipIt path as Windows)', () => {
     beforeEach(() => {
       mockApp.isPackaged = true
       vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
       _resetForTesting()
     })
 
-    it('does not schedule ShipIt checks', async () => {
+    it('schedules the initial + periodic ShipIt checks like Windows', () => {
       initAutoUpdater()
-      vi.advanceTimersByTime(10_000)
-      await Promise.resolve()
+
       expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(10_000)
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
+
       vi.advanceTimersByTime(60 * 60 * 1000)
-      await Promise.resolve()
-      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(2)
     })
 
-    it('after 10s, a same-version GitHub feed does not announce an update', async () => {
-      mockApp.getVersion.mockReturnValue('2.3.11')
-      mockFetchMacFeedVersion.mockResolvedValue('2.3.11')
+    it('update-available broadcasts the auto (electron-updater) install path, not a DMG prompt', () => {
       const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
       vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
 
       initAutoUpdater()
-      vi.advanceTimersByTime(10_000)
-      await Promise.resolve()
+      updaterListeners['update-available']({ version: '2.4.1' })
 
-      expect(mockWin.webContents.send).not.toHaveBeenCalledWith(
-        'update:state-changed',
-        expect.objectContaining({ status: 'available' }),
-      )
-      expect(mockIpcHandlers['update:get-state']()).toEqual({ status: 'idle' })
-    })
-
-    it('after 10s, a newer GitHub feed broadcasts the Mac DMG prompt and never calls ShipIt', async () => {
-      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
-      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
-
-      initAutoUpdater()
-      vi.advanceTimersByTime(10_000)
-      await Promise.resolve()
-
-      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
       expect(mockWin.webContents.send).toHaveBeenCalledWith('update:state-changed', {
         status: 'available',
-        version: '2.4.0',
-        install: 'mac-dmg',
-        dmgUrl: 'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
-        forcePrompt: false,
+        version: '2.4.1',
+        install: 'auto',
       })
     })
 
-    it('scheduled feed failures stay silent (no error banner state)', async () => {
-      mockFetchMacFeedVersion.mockRejectedValue(new Error('net::ERR_INTERNET_DISCONNECTED'))
-      const mockWin = { isDestroyed: () => false, webContents: { send: vi.fn() } }
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([mockWin as any])
-
-      initAutoUpdater()
-      vi.advanceTimersByTime(10_000)
-      await Promise.resolve()
-
-      expect(mockWin.webContents.send).not.toHaveBeenCalled()
-      expect(mockIpcHandlers['update:get-state']()).toEqual({ status: 'idle' })
-    })
-
-    it('update:check uses the GitHub feed, not electron-updater', async () => {
-      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
+    it('update:check drives electron-updater directly', async () => {
       initAutoUpdater()
       const result = await mockIpcHandlers['update:check']()
       expect(result).toEqual({ success: true })
-      expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
-      expect(mockIpcHandlers['update:get-state']()).toEqual({
-        status: 'available',
-        version: '2.4.0',
-        install: 'mac-dmg',
-        dmgUrl: 'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
-        forcePrompt: true,
-      })
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalled()
     })
 
-    it('update:download opens the GitHub DMG and never calls ShipIt', async () => {
-      mockFetchMacFeedVersion.mockResolvedValue('2.4.0')
+    it('update:download downloads via electron-updater (no external DMG URL)', async () => {
       initAutoUpdater()
-      await mockIpcHandlers['update:check']()
       const result = await mockIpcHandlers['update:download']()
       expect(result).toEqual({ success: true })
-      expect(mockOpenExternal).toHaveBeenCalledWith(
-        'https://github.com/Laxcorp-Research/project-raven/releases/download/v2.4.0/Raven-Mac-2.4.0-Installer.dmg',
-      )
-      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
-    })
-
-    it('update:download without a detected update does not open a URL', async () => {
-      initAutoUpdater()
-      const result = await mockIpcHandlers['update:download']()
-      expect(result).toEqual({
-        success: false,
-        error: 'No Mac installer is ready. Check for updates first.',
-      })
-      expect(mockOpenExternal).not.toHaveBeenCalled()
-      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+      expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalled()
     })
   })
 })
 
 describe('shouldRunElectronUpdater', () => {
-  it('skips unpackaged and packaged Mac; allows packaged Windows and Linux', () => {
+  it('runs on every packaged platform (macOS now notarized) and never in dev', () => {
     expect(shouldRunElectronUpdater({ packaged: false, platform: 'darwin' })).toBe(false)
     expect(shouldRunElectronUpdater({ packaged: false, platform: 'win32' })).toBe(false)
-    expect(shouldRunElectronUpdater({ packaged: true, platform: 'darwin' })).toBe(false)
+    expect(shouldRunElectronUpdater({ packaged: true, platform: 'darwin' })).toBe(true)
     expect(shouldRunElectronUpdater({ packaged: true, platform: 'win32' })).toBe(true)
     expect(shouldRunElectronUpdater({ packaged: true, platform: 'linux' })).toBe(true)
   })

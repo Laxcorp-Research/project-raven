@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
-import { useAskConversation, type AskFn } from '../../lib/useAskConversation'
+import { useAskConversation, type AskFn, type AskConversationState } from '../../lib/useAskConversation'
 import ravenLogo from '../../../../../logo/raven.svg'
 import { createLogger } from '../../lib/logger'
 import { isPlaceholderSessionTitle } from '../../../../shared/sessionDisplay'
@@ -507,56 +507,61 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
         </div>
 
         <div className="flex-1 h-0 relative">
-          <div ref={scrollContainerRef} className="h-full overflow-y-auto scrollbar-thin">
-            <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
-              {activeTab !== 'ask' &&
-                (hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
-                !(activeTab === 'summary' && !session.summary && hasTranscript) && (
-                <div className="flex justify-end mb-4">
-                  <button
-                    onClick={() => handleCopy(getCopyText(), activeTab)}
-                    className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    {copySuccess === activeTab ? 'Copied!' : `Copy full ${activeTab}`}
-                  </button>
+          {activeTab === 'ask' ? (
+            // The Ask tab is a chat surface: it owns the full content region so
+            // its input pins to the bottom (like ChatGPT/Claude) instead of
+            // scrolling with the shared container used by the other tabs.
+            <SessionAskTab sessionId={session.id} hasTranscript={hasTranscript} />
+          ) : (
+            <>
+              <div ref={scrollContainerRef} className="h-full overflow-y-auto scrollbar-thin">
+                <div className="max-w-[900px] mx-auto w-full px-6 pb-16">
+                  {(hasTranscript || (activeTab === 'usage' && messages.length > 0) || (activeTab === 'insights' && currentInsightsJson)) &&
+                    !(activeTab === 'summary' && !session.summary && hasTranscript) && (
+                    <div className="flex justify-end mb-4">
+                      <button
+                        onClick={() => handleCopy(getCopyText(), activeTab)}
+                        className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        {copySuccess === activeTab ? 'Copied!' : `Copy full ${activeTab}`}
+                      </button>
+                    </div>
+                  )}
+
+                  {activeTab === 'summary' && (
+                    <SummaryTab
+                      summary={session.summary}
+                      actionItemsJson={session.actionItemsJson ?? null}
+                      followUpEmail={session.followUpEmail ?? null}
+                      hasTranscript={hasTranscript}
+                      sessionId={session.id}
+                      generating={notesStatus === 'generating'}
+                      failed={notesStatus === 'failed'}
+                      error={notesError}
+                      onRetry={() => {
+                        notesAttemptedForId.current = session.id
+                        void generateNotes()
+                      }}
+                    />
+                  )}
+                  {activeTab === 'transcript' && (
+                    <TranscriptTab transcript={session.transcript} displayName={displayName} />
+                  )}
+                  {activeTab === 'usage' && (
+                    <UsageTab messages={messages} loading={loadingMessages} />
+                  )}
+                  {activeTab === 'insights' && (
+                    <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={currentInsightsJson} onInsightsSaved={setCurrentInsightsJson} />
+                  )}
                 </div>
-              )}
+              </div>
 
-              {activeTab === 'summary' && (
-                <SummaryTab
-                  summary={session.summary}
-                  actionItemsJson={session.actionItemsJson ?? null}
-                  followUpEmail={session.followUpEmail ?? null}
-                  hasTranscript={hasTranscript}
-                  sessionId={session.id}
-                  generating={notesStatus === 'generating'}
-                  failed={notesStatus === 'failed'}
-                  error={notesError}
-                  onRetry={() => {
-                    notesAttemptedForId.current = session.id
-                    void generateNotes()
-                  }}
-                />
-              )}
-              {activeTab === 'transcript' && (
-                <TranscriptTab transcript={session.transcript} displayName={displayName} />
-              )}
-              {activeTab === 'usage' && (
-                <UsageTab messages={messages} loading={loadingMessages} />
-              )}
-              {activeTab === 'insights' && (
-                <InsightsTab sessionId={session.id} transcript={transcriptText} hasTranscript={hasTranscript} savedInsights={currentInsightsJson} onInsightsSaved={setCurrentInsightsJson} />
-              )}
-              {activeTab === 'ask' && (
-                <SessionAskTab sessionId={session.id} hasTranscript={hasTranscript} />
-              )}
-            </div>
-          </div>
-
-          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+              <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1030,6 +1035,41 @@ function ActionItemsCard({ actionItemsJson, sessionId }: { actionItemsJson: stri
 }
 
 function SessionAskTab({ sessionId, hasTranscript }: { sessionId: string; hasTranscript: boolean }) {
+  // undefined = still loading the persisted conversation; null = none saved.
+  const [initial, setInitial] = useState<AskConversationState | null | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    setInitial(undefined)
+    window.raven.sessions
+      .getAsk(sessionId)
+      .then((state) => { if (!cancelled) setInitial(state ?? null) })
+      .catch(() => { if (!cancelled) setInitial(null) })
+    return () => { cancelled = true }
+  }, [sessionId])
+
+  if (!hasTranscript) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <p className="text-gray-400 text-lg">No transcript to ask about</p>
+      </div>
+    )
+  }
+
+  if (initial === undefined) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // Key on sessionId so switching sessions remounts the chat with freshly
+  // hydrated state (the hook reads `initial` only once, at mount).
+  return <SessionAskChat key={sessionId} sessionId={sessionId} initial={initial} />
+}
+
+function SessionAskChat({ sessionId, initial }: { sessionId: string; initial: AskConversationState | null }) {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -1037,7 +1077,11 @@ function SessionAskTab({ sessionId, hasTranscript }: { sessionId: string; hasTra
     (question, ctx) => window.raven.sessions.askOne(sessionId, question, ctx),
     [sessionId],
   )
-  const { exchanges, busy, submit } = useAskConversation(ask)
+  const persist = useCallback(
+    (state: AskConversationState) => { void window.raven.sessions.saveAsk(sessionId, state) },
+    [sessionId],
+  )
+  const { exchanges, busy, submit } = useAskConversation(ask, { initial, onPersist: persist })
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1047,10 +1091,6 @@ function SessionAskTab({ sessionId, hasTranscript }: { sessionId: string; hasTra
     const q = input
     setInput('')
     void submit(q)
-  }
-
-  if (!hasTranscript) {
-    return <p className="text-gray-400 text-lg">No transcript to ask about</p>
   }
 
   const hasExchanges = exchanges.length > 0
@@ -1086,57 +1126,60 @@ function SessionAskTab({ sessionId, hasTranscript }: { sessionId: string; hasTra
     </div>
   )
 
-  if (!hasExchanges) {
-    return (
-      <div className="max-w-2xl mx-auto flex flex-col items-center text-center pt-10 pb-6">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
-          <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" /></svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900">Ask this meeting anything</h3>
-        <p className="text-sm text-gray-500 mt-1.5 mb-6 max-w-md">
-          Answered locally from this session&apos;s transcript. Only your own model call leaves your device.
-        </p>
-        <div className="flex flex-wrap justify-center gap-2 mb-6">
-          {examples.map((ex) => (
-            <button
-              key={ex}
-              onClick={() => setInput(ex)}
-              className="text-sm text-gray-600 bg-gray-100/80 hover:bg-gray-200/80 border border-gray-200/60 rounded-full px-3.5 py-1.5 transition-colors"
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
-        <div className="w-full">{inputBar}</div>
-      </div>
-    )
-  }
-
   return (
-    <div className="max-w-3xl mx-auto space-y-5">
-      {exchanges.map((exchange) => (
-        <div key={exchange.id} className="space-y-2.5">
-          <div className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-b from-blue-500 to-blue-600 text-white px-4 py-2 text-sm shadow-sm">
-              {exchange.question}
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {!hasExchanges ? (
+          <div className="max-w-2xl mx-auto w-full px-6 flex flex-col items-center text-center pt-10 pb-6">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
+              <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" /></svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900">Ask this meeting anything</h3>
+            <p className="text-sm text-gray-500 mt-1.5 mb-6 max-w-md">
+              Answered locally from this session&apos;s transcript. Only your own model call leaves your device.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {examples.map((ex) => (
+                <button
+                  key={ex}
+                  onClick={() => setInput(ex)}
+                  className="text-sm text-gray-600 bg-gray-100/80 hover:bg-gray-200/80 border border-gray-200/60 rounded-full px-3.5 py-1.5 transition-colors"
+                >
+                  {ex}
+                </button>
+              ))}
             </div>
           </div>
-          {exchange.loading ? (
-            <div className="flex items-center gap-2 text-gray-400 text-sm">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-              Reading this meeting...
-            </div>
-          ) : exchange.error ? (
-            <p className="text-sm text-red-500">{exchange.error}</p>
-          ) : (
-            <div className="rounded-2xl rounded-bl-md bg-gray-50 border border-gray-100 px-4 py-3 text-gray-700 leading-relaxed prose prose-sm prose-gray max-w-none [&_strong]:font-semibold [&_strong]:text-gray-900 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
-              <Markdown>{exchange.answer || ''}</Markdown>
-            </div>
-          )}
-        </div>
-      ))}
-      <div ref={bottomRef} />
-      <div className="pt-1">{inputBar}</div>
+        ) : (
+          <div className="max-w-3xl mx-auto w-full px-6 pt-4 space-y-5">
+            {exchanges.map((exchange) => (
+              <div key={exchange.id} className="space-y-2.5">
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-b from-blue-500 to-blue-600 text-white px-4 py-2 text-sm shadow-sm">
+                    {exchange.question}
+                  </div>
+                </div>
+                {exchange.loading ? (
+                  <div className="flex items-center gap-2 text-gray-400 text-sm">
+                    <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                    Reading this meeting...
+                  </div>
+                ) : exchange.error ? (
+                  <p className="text-sm text-red-500">{exchange.error}</p>
+                ) : (
+                  <div className="rounded-2xl rounded-bl-md bg-gray-50 border border-gray-100 px-4 py-3 text-gray-700 leading-relaxed prose prose-sm prose-gray max-w-none [&_strong]:font-semibold [&_strong]:text-gray-900 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
+                    <Markdown>{exchange.answer || ''}</Markdown>
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 bg-gradient-to-t from-white via-white to-transparent">
+        <div className="max-w-3xl mx-auto w-full px-6 py-4">{inputBar}</div>
+      </div>
     </div>
   )
 }

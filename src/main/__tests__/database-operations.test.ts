@@ -185,8 +185,8 @@ describe('DatabaseService', () => {
 
       // The migrate() method calls exec() for the migrations table creation
       expect(mockExec).toHaveBeenCalled()
-      // transaction() should be called once per unapplied migration (17 total)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(17)
+      // transaction() should be called once per unapplied migration (18 total)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(18)
     })
 
     it('skips migrations already applied', () => {
@@ -208,6 +208,7 @@ describe('DatabaseService', () => {
         { name: '015_add_session_action_items' },
         { name: '016_add_session_chunks' },
         { name: '017_add_session_followup_email' },
+        { name: '018_add_ask_conversations' },
       ])
 
       databaseService.initialize()
@@ -223,8 +224,8 @@ describe('DatabaseService', () => {
 
       databaseService.initialize()
 
-      // 15 unapplied migrations remain (003 through 017)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(15)
+      // 16 unapplied migrations remain (003 through 018)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(16)
     })
 
     it('is idempotent - second call is a no-op', () => {
@@ -526,6 +527,88 @@ describe('DatabaseService', () => {
         (q: string) => q.includes('DELETE FROM session_context_chunks') && q.includes('session_id'),
       )
       expect(sawChunkDelete).toBe(true)
+    })
+
+    it('deletes the persisted per-session Ask conversation', () => {
+      mockRun.mockReturnValue({ changes: 1 })
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.deleteSession('sess-1')
+
+      const sqlQueries = mockPrepare.mock.calls.map((call) => call[0])
+      const sawAskDelete = sqlQueries.some(
+        (q: string) => q.includes('DELETE FROM session_ask_conversation') && q.includes('session_id'),
+      )
+      expect(sawAskDelete).toBe(true)
+    })
+  })
+
+  describe('Ask conversation persistence', () => {
+    beforeEach(() => {
+      mockAll.mockReturnValue([{ name: '001_create_sessions' }])
+      databaseService.initialize()
+      resetMocks()
+    })
+
+    it('saveSessionAsk upserts the per-session conversation blob', () => {
+      databaseService.saveSessionAsk('sess-1', '{"exchanges":[]}')
+
+      const sql = mockPrepare.mock.calls.map((c) => c[0] as string).find((q) => q.includes('session_ask_conversation'))
+      expect(sql).toBeDefined()
+      expect(sql).toContain('ON CONFLICT')
+      expect(mockRun).toHaveBeenCalledWith('sess-1', '{"exchanges":[]}', expect.any(Number))
+    })
+
+    it('getSessionAsk returns the stored blob, or null when never asked', () => {
+      mockGet.mockReturnValueOnce({ state_json: '{"exchanges":[1]}' })
+      expect(databaseService.getSessionAsk('sess-1')).toBe('{"exchanges":[1]}')
+
+      mockGet.mockReturnValueOnce(undefined)
+      expect(databaseService.getSessionAsk('sess-2')).toBeNull()
+    })
+
+    it('createAskConversation inserts a thread and returns its id + title', () => {
+      const result = databaseService.createAskConversation('conv-1', 'Pricing talk')
+
+      const sql = mockPrepare.mock.calls.map((c) => c[0] as string).find((q) => q.includes('ask_conversations'))
+      expect(sql).toContain('INSERT OR IGNORE')
+      expect(result).toEqual({ id: 'conv-1', title: 'Pricing talk', updatedAt: expect.any(Number) })
+    })
+
+    it('listAskConversations returns threads newest-first (no state payload)', () => {
+      mockAll.mockReturnValueOnce([
+        { id: 'a', title: 'A', updated_at: 20 },
+        { id: 'b', title: 'B', updated_at: 10 },
+      ])
+      const result = databaseService.listAskConversations()
+
+      const sql = mockPrepare.mock.calls.map((c) => c[0] as string).find((q) => q.includes('FROM ask_conversations'))
+      expect(sql).toContain('ORDER BY updated_at DESC')
+      expect(result).toEqual([
+        { id: 'a', title: 'A', updatedAt: 20 },
+        { id: 'b', title: 'B', updatedAt: 10 },
+      ])
+    })
+
+    it('saveAskConversation updates only the provided fields and always bumps updated_at', () => {
+      databaseService.saveAskConversation('conv-1', { stateJson: '{"x":1}' })
+
+      const call = mockPrepare.mock.calls.map((c) => c[0] as string).find((q) => q.startsWith('UPDATE ask_conversations'))
+      expect(call).toContain('updated_at = ?')
+      expect(call).toContain('state_json = ?')
+      expect(call).not.toContain('title = ?')
+    })
+
+    it('renameAskConversation updates the title', () => {
+      databaseService.renameAskConversation('conv-1', 'New name')
+      expect(mockRun).toHaveBeenCalledWith('New name', expect.any(Number), 'conv-1')
+    })
+
+    it('deleteAskConversation reports whether a row was removed', () => {
+      mockRun.mockReturnValueOnce({ changes: 1 })
+      expect(databaseService.deleteAskConversation('conv-1')).toBe(true)
+      mockRun.mockReturnValueOnce({ changes: 0 })
+      expect(databaseService.deleteAskConversation('conv-x')).toBe(false)
     })
   })
 

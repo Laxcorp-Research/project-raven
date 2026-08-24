@@ -84,6 +84,8 @@ contextBridge.exposeInMainWorld('raven', {
       ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
     ) => ipcRenderer.invoke('sessions:ask-one', id, question, ctx),
     ensureIndex: () => ipcRenderer.invoke('sessions:ensure-index'),
+    getAsk: (id: string) => ipcRenderer.invoke('sessions:get-ask', id),
+    saveAsk: (id: string, state: unknown) => ipcRenderer.invoke('sessions:save-ask', id, state),
     updateTitle: (id: string, title: string) => ipcRenderer.invoke('sessions:update-title', id, title),
     getInProgress: () => ipcRenderer.invoke('sessions:getInProgress'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
@@ -109,6 +111,16 @@ contextBridge.exposeInMainWorld('raven', {
       ipcRenderer.on('session:updated', handler)
       return () => ipcRenderer.removeListener('session:updated', handler)
     },
+  },
+  // Standalone "Ask my meetings" chat threads (multi-chat, ChatGPT/Claude-style).
+  askConversations: {
+    list: () => ipcRenderer.invoke('ask:list'),
+    create: (id: string, title: string) => ipcRenderer.invoke('ask:create', id, title),
+    get: (id: string) => ipcRenderer.invoke('ask:get', id),
+    save: (id: string, updates: { title?: string; state?: unknown }) =>
+      ipcRenderer.invoke('ask:save', id, updates),
+    rename: (id: string, title: string) => ipcRenderer.invoke('ask:rename', id, title),
+    delete: (id: string) => ipcRenderer.invoke('ask:delete', id),
   },
   modes: {
     getAll: () => ipcRenderer.invoke('modes:get-all'),

@@ -16,6 +16,15 @@ export interface DetectedMeeting {
 // Google Meet room code, e.g. "abc-defg-hij".
 const MEET_CODE = /[a-z]{3}-[a-z]{4}-[a-z]{3}/i
 
+// Microsoft Teams section tabs. Their window title is "<Section> | Microsoft
+// Teams" and they are NOT a call/meeting, so they must never trigger a prompt.
+// Anything else in that "<context> | Microsoft Teams" slot (a meeting subject,
+// or the person on a 1:1 call) IS treated as a meeting.
+const TEAMS_NON_MEETING = new Set([
+  'chat', 'calls', 'calendar', 'activity', 'files', 'teams', 'store',
+  'help', 'apps', 'tasks', 'shifts', 'communities', 'settings', 'more',
+])
+
 function classify(title: string): MeetingPlatform | null {
   const t = title.trim()
   if (!t) return null
@@ -27,10 +36,26 @@ function classify(title: string): MeetingPlatform | null {
     return 'zoom'
   }
 
-  // Microsoft Teams: require the word "meeting" alongside the app name so the
-  // Chat/Calendar/Activity tabs ("... | Microsoft Teams") do not match.
-  if (lower.includes('microsoft teams') && lower.includes('meeting')) {
-    return 'teams'
+  // Microsoft Teams. The old rule required the literal word "meeting", which
+  // silently missed 1:1 calls (their window title is just the callee's name or
+  // subject). Instead: treat any Teams window as a meeting unless it is a known
+  // section tab (Chat/Calls/Calendar/...). For titles without the "| Microsoft
+  // Teams" separator we keep a keyword gate so notification/preview windows
+  // don't nag.
+  if (lower.includes('microsoft teams')) {
+    // Teams prepends an unread badge like "(3) " to the title.
+    const stripped = lower.replace(/^\(\d+\)\s*/, '').trim()
+    if (stripped === 'microsoft teams') return null
+    if (stripped.includes('|')) {
+      const parts = stripped.split('|').map((p) => p.trim())
+      const context = parts.find((p) => p && p !== 'microsoft teams') ?? ''
+      const section = context.replace(/\s*\(\d+\)\s*$/, '').trim()
+      if (!section) return null
+      if (TEAMS_NON_MEETING.has(section)) return null
+      return 'teams'
+    }
+    if (/\b(meeting|call|calling|huddle)\b/.test(stripped)) return 'teams'
+    return null
   }
 
   // Google Meet: require the room-code pattern so the meet.google.com landing

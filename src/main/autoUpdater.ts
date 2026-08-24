@@ -1,11 +1,7 @@
 import { autoUpdater } from 'electron-updater'
-import { ipcMain, app, BrowserWindow, shell } from 'electron'
+import { ipcMain, app, BrowserWindow } from 'electron'
 import { createRequire } from 'module'
 import { createLogger } from './logger'
-import {
-  evaluateMacManualUpdate,
-  fetchMacFeedVersion,
-} from './macManualUpdate'
 
 const log = createLogger('AutoUpdate')
 
@@ -22,7 +18,12 @@ interface UpdateState {
   version?: string
   error?: string
   progress?: number
-  /** Windows: electron-updater. Mac OSS: GitHub DMG (ShipIt cannot apply). */
+  /**
+   * How the renderer should install. Always 'auto' now — electron-updater on
+   * every packaged platform (macOS included, post-notarization). The legacy
+   * 'mac-dmg' + dmgUrl/forcePrompt fields are retained so older renderer code
+   * paths and tests keep type-checking; nothing sets them anymore.
+   */
   install?: 'auto' | 'mac-dmg'
   dmgUrl?: string
   forcePrompt?: boolean
@@ -40,24 +41,26 @@ let state: UpdateState = { status: 'idle' }
 let checkInterval: NodeJS.Timeout | null = null
 let upToDateTimer: NodeJS.Timeout | null = null
 let started = false
-let macFeedCheckInFlight = false
 
 /**
- * electron-updater on macOS uses Squirrel.Mac / ShipIt, which rejects
- * ad-hoc (OSS) signatures: "code failed to satisfy specified code
- * requirement(s)". In-app updates are Windows-only until we notarize.
+ * electron-updater drives in-app updates on every packaged platform. macOS
+ * uses Squirrel.Mac / ShipIt, which requires a Developer ID signature +
+ * notarization — both now produced by the release workflow (`-c.mac.notarize`,
+ * dmg+zip+latest-mac.yml) — so the Mac app self-updates exactly like Windows:
+ * "Update now" downloads, "Restart & update" installs. Only unpackaged (dev)
+ * builds skip it. `platform` is kept in the signature for tests / future
+ * per-OS gating.
  */
 export function shouldRunElectronUpdater(opts: {
   packaged: boolean
   platform: NodeJS.Platform
 }): boolean {
-  return opts.packaged && opts.platform !== 'darwin'
+  return opts.packaged
 }
 
 /** Test-only: allow initAutoUpdater() to run again in the same process. */
 export function _resetForTesting(): void {
   started = false
-  macFeedCheckInFlight = false
   state = { status: 'idle' }
   stopAutoUpdater()
 }
@@ -90,50 +93,6 @@ function setTransientUpToDate(): void {
   }, UP_TO_DATE_DECAY_MS)
 }
 
-async function checkMacManualUpdate(opts: { forcePrompt: boolean }): Promise<{
-  success: boolean
-  error?: string
-}> {
-  if (macFeedCheckInFlight) return { success: true }
-  macFeedCheckInFlight = true
-  if (opts.forcePrompt) {
-    clearUpToDateTimer()
-    state = { status: 'checking' }
-    broadcastState()
-  }
-  try {
-    const remoteVersion = await fetchMacFeedVersion()
-    const result = evaluateMacManualUpdate({
-      currentVersion: app.getVersion(),
-      remoteVersion,
-    })
-    if (!result.available) {
-      if (opts.forcePrompt || state.status === 'available') {
-        setTransientUpToDate()
-      }
-      return { success: true }
-    }
-    state = {
-      status: 'available',
-      version: result.version,
-      install: 'mac-dmg',
-      dmgUrl: result.dmgUrl,
-      forcePrompt: opts.forcePrompt,
-    }
-    broadcastState()
-    return { success: true }
-  } catch (err) {
-    log.debug('Mac release feed check failed (non-fatal):', err)
-    if (!opts.forcePrompt) return { success: true }
-    const message = 'Could not reach GitHub. Check your connection and try again.'
-    state = { status: 'error', error: message, install: 'mac-dmg' }
-    broadcastState()
-    return { success: false, error: message }
-  } finally {
-    macFeedCheckInFlight = false
-  }
-}
-
 export function initAutoUpdater(): void {
   // boot() also runs from macOS `activate` when all windows are gone.
   // ipcMain.handle('update:check') throws on the second call.
@@ -150,15 +109,12 @@ export function initAutoUpdater(): void {
   // state is not reset, the Settings > General "Check for updates"
   // button stays stuck showing "Checking..." for the rest of the dev
   // session. Short-circuit all update paths in unpackaged builds and
-  // keep the broadcast state pinned to idle.
-  //
-  // Packaged Mac is also skipped: unsigned/ad-hoc builds cannot pass
-  // ShipIt code-requirement checks.
+  // keep the broadcast state pinned to idle. Packaged builds (macOS
+  // included, now that we notarize) run the real ShipIt/NSIS updater.
   const shipIt = shouldRunElectronUpdater({
     packaged: app.isPackaged,
     platform: process.platform,
   })
-  const macManual = app.isPackaged && process.platform === 'darwin'
 
   autoUpdater.on('checking-for-update', () => {
     log.info('Checking for updates...')
@@ -195,9 +151,6 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:check', async () => {
-    if (macManual) {
-      return checkMacManualUpdate({ forcePrompt: true })
-    }
     if (!shipIt) {
       // Clear any lingering up-to-date decay before pinning to idle so
       // the timer can't later overwrite this idle state.
@@ -218,21 +171,6 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:download', async () => {
-    if (macManual) {
-      const url = state.dmgUrl
-      if (!url || state.install !== 'mac-dmg') {
-        return {
-          success: false,
-          error: 'No Mac installer is ready. Check for updates first.',
-        }
-      }
-      try {
-        await shell.openExternal(url)
-        return { success: true }
-      } catch (err) {
-        return { success: false, error: String(err) }
-      }
-    }
     if (!shipIt) {
       return {
         success: false,
@@ -273,21 +211,6 @@ export function initAutoUpdater(): void {
   })
 
   ipcMain.handle('update:get-state', () => state)
-
-  if (macManual) {
-    log.debug('Mac updates: GitHub DMG prompt (ShipIt disabled)')
-    setTimeout(() => {
-      checkMacManualUpdate({ forcePrompt: false }).catch((err) => {
-        log.debug('Initial Mac feed check failed (non-fatal):', err)
-      })
-    }, 10_000)
-    checkInterval = setInterval(() => {
-      checkMacManualUpdate({ forcePrompt: false }).catch((err) => {
-        log.debug('Periodic Mac feed check failed (non-fatal):', err)
-      })
-    }, CHECK_INTERVAL_MS)
-    return
-  }
 
   if (!shipIt) {
     log.debug('Updates disabled (unpackaged build) - skipping scheduled checks')

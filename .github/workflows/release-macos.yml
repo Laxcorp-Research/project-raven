@@ -19,7 +19,7 @@ on:
       tag:
         description: 'Existing GitHub Release tag to attach Mac artifacts to'
         required: true
-        default: 'v2.4.0'
+        default: 'v2.4.1'
       ref:
         description: 'Git ref to build (empty = main)'
         required: false
