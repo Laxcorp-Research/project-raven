@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea or improvement for Raven
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Prefer not to use GitHub? Send it via the [feedback form](https://laxcorphq.wixforms.com/f/7497329197333873820) — no account needed.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The habit or workflow you're trying to improve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Raven to do?
+    validations:
+      required: true
+  - type: input
+    id: alternatives
+    attributes:
+      label: Alternatives or current workaround
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Live assist / overlay
+        - Recording / transcription
+        - Notes / summary / action items
+        - Ask (Q&A over meetings)
+        - Meeting detection / auto-start
+        - Modes / RAG
+        - Other
+    validations:
+      required: false

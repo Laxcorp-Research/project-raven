@@ -6,6 +6,18 @@
   <strong>Open-source meeting copilot: dual-stream capture, local echo cancellation, BYOK transcription and AI.</strong>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Laxcorp-Research/project-raven/releases/latest"><img src="https://img.shields.io/github/v/release/Laxcorp-Research/project-raven?label=release&color=6366f1" alt="Latest release" /></a>
+  <a href="https://github.com/Laxcorp-Research/project-raven/releases"><img src="https://img.shields.io/github/downloads/Laxcorp-Research/project-raven/total?label=downloads&color=6366f1" alt="Total downloads" /></a>
+  <a href="https://github.com/Laxcorp-Research/project-raven/stargazers"><img src="https://img.shields.io/github/stars/Laxcorp-Research/project-raven?color=6366f1" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Laxcorp-Research/project-raven?color=6366f1" alt="License" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-6366f1" alt="Platforms: macOS and Windows" />
+</p>
+
+- **During the call** — dual-stream capture and an overlay that suggests what to say, invisible to screen share.
+- **After the call** — auto notes, structured action items, a follow-up email draft, talk ratio, export, and Ask across your meetings.
+- **Yours** — recordings and notes stay in local SQLite; transcription and AI use *your* API keys. Nothing goes to a Raven server.
+
 Raven is an Electron desktop app. It captures microphone and system audio, cancels echo on your machine, transcribes **You** and **Them** on two parallel streams, and answers from the live transcript. You bring your own API keys. This build has **no Raven account, no hosted backend, and no cloud session sync**.
 
 Capture, echo cancellation, SQLite history, and document RAG run locally. Microphone/system audio goes to **Deepgram** or **AssemblyAI**. Assist prompts (transcript excerpts, chat, optional screenshot, retrieved docs) go to **Anthropic** or **OpenAI**.
@@ -13,8 +25,11 @@ Capture, echo cancellation, SQLite history, and document RAG run locally. Microp
 <p align="center">
   <a href="#download"><strong>Download</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/Laxcorp-Research/project-raven/releases"><strong>Releases</strong></a> &nbsp;|&nbsp;
+  <a href="https://docs.useraven.ai"><strong>Docs</strong></a> &nbsp;|&nbsp;
   <a href="https://github.com/Laxcorp-Research/project-raven/issues"><strong>Issues</strong></a>
 </p>
+
+<p align="center"><em>If Raven helps you, star the repo — it's how open source travels.</em></p>
 
 ---
 

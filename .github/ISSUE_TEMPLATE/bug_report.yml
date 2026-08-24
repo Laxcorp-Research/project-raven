@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Raven isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Raven. Prefer not to use GitHub? Send it via the [feedback form](https://laxcorphq.wixforms.com/f/7497329197333873820) — no account needed.
+  - type: input
+    id: version
+    attributes:
+      label: Raven version
+      description: See Settings → About, or the window title.
+      placeholder: "2.4.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional, but they help. Do not paste API keys.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I'm on the latest version (checked Settings → About / updates)
+          required: false
+        - label: I searched existing issues for a duplicate
+          required: false
