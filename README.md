@@ -31,7 +31,7 @@ Prebuilt installers are on the [latest GitHub Release](https://github.com/Laxcor
 
 **macOS:** open the DMG, drag Raven to Applications, then open it. Intel Macs are not in this DMG — build from source below.
 
-Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). The in-app updater offers a build only when the published version is **newer** than the one you have. Maintainers: publishing a GitHub Release notarizes and attaches the Mac DMG — see [Releasing](CONTRIBUTING.md#releasing).
+Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `latest-mac.yml` on macOS). From **2.4.1**, macOS self-updates in-app like Windows — **Update now** downloads and **Restart & update** installs (Macs on 2.4.0 update via the DMG one last time). The updater only offers a build when the published version is **newer** than the one you have. Maintainers: publishing a GitHub Release notarizes and attaches the Mac DMG — see [Releasing](CONTRIBUTING.md#releasing).
 
 ---
 
@@ -108,6 +108,10 @@ Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `la
 - **RAG (per mode, local)** — Upload `.txt`, `.md`, `.pdf`, or `.docx`. Chunked and embedded on-device with `Xenova/all-MiniLM-L6-v2` (`@xenova/transformers`). Chunks live in SQLite; the top matches are injected into the Assist system prompt. First embed may download the ~30MB model.
 - **Session context (not long-term memory)** — During a recording, Assist keeps recent turns, pins the opening transcript and your typed questions, and may compress older context with a cheap model **in RAM**. There is **no** cross-meeting user-memory profile.
 - **Sessions** — Saved locally in SQLite (transcript, overlay chat, auto title/summary). Dashboard can generate insights with your LLM key. **Incognito** skips SQLite persistence for that session.
+- **Ask your meetings** — A per-session **Ask** tab answers from that call's transcript; **Ask across all meetings** searches your whole history with on-device retrieval (`Xenova/all-MiniLM-L6-v2`) and cites the source sessions. Answers stream token-by-token; conversations are saved (one per session, plus multi-chat for the global view).
+- **Post-call recap** — Structured **action items** (task, owner, deadline), a one-click **follow-up email** draft, **talk ratio** (You vs. Them, word-based), and **export** to Markdown or PDF. All generated with your own key; nothing goes to a Raven server.
+- **Meeting auto-start** — Optionally detect a Zoom, Google Meet, Microsoft Teams (including 1:1 calls), or Webex meeting and prompt — or auto-start — a recording. No bot joins; detection just reads open window titles locally. Off / prompt / auto in Settings.
+- **In-app updates** — Windows and (from 2.4.1) macOS update in place: **Update now** downloads, **Restart & update** installs. Your keys and history are untouched.
 - **Local settings** — API keys and preferences in encrypted `electron-store` (`raven-config.json`).
 - **Tray** — Packaged builds load icons from `resources/tray`. On Windows 11 a new icon may start in the `^` overflow.
 - **Profile picture editor** — Crop, zoom, and pan before saving your avatar.
@@ -123,7 +127,7 @@ flowchart TB
     Mac["macOS: ScreenCaptureKit + CoreAudio"]
   end
 
-  subgraph local [On this machine]
+  subgraph local [Real-time on this machine]
     SAN[systemAudioNative]
     AEC["GStreamer webrtcechoprobe / webrtcdsp"]
     REG[ResidualEchoGate]
@@ -135,6 +139,12 @@ flowchart TB
     CFG["electron-store — keys and settings"]
     OV[Overlay]
     Dash[Dashboard]
+  end
+
+  subgraph postcall [Post-call on this machine]
+    SIDX["sessionIndexService — MiniLM transcript index"]
+    SQA["sessionQaService — Ask, streamed"]
+    RECAP["Recap — action items, follow-up email, export, insights"]
   end
 
   subgraph byok [Your API keys — not a Raven server]
@@ -159,11 +169,16 @@ flowchart TB
   AM --> DB
   CFG --- CS
   Dash --- DB
+  MD["meetingDetector — window titles"] -.->|"offer to start"| AM
+  DB -->|"saved transcript"| SIDX
+  SIDX -->|"chunks + embeddings"| DB
+  SQA -->|"retrieve top chunks"| DB
+  SQA --> LLM
+  RECAP --> DB
+  RECAP --> LLM
+  Dash --- SQA
+  Dash --- RECAP
 ```
-
-![Architecture](docs/architecture.png)
-
-The PNG is generated from `docs/architecture.mmd` (same graph, more labels). Re-export if you change the mermaid.
 
 **What “memory” means here**
 
@@ -172,6 +187,8 @@ The PNG is generated from `docs/architecture.mmd` (same graph, more labels). Re-
 | Live Assist turns + `sessionMemory` | Current recording, in RAM | Long meetings: running summary, pinned opening, pinned questions, last few turns |
 | SQLite sessions / messages | Until you delete them | History, summaries, insights, overlay chat replay |
 | RAG chunks | Until you remove the file from the mode | Retrieve-then-prompt on Assist, scoped to that mode |
+| Session Ask index | Until you delete the session | Retrieve-then-prompt for **Ask across all meetings** (on-device MiniLM) |
+| Ask conversations | Until you delete the chat / session | Saved Ask history — one per session, plus standalone global threads |
 | electron-store | Until you reset settings | Keys, STT preference, window bounds — not semantic memory |
 
 There is no global “Raven remembers you across meetings” store.
@@ -198,14 +215,19 @@ src/
 │   ├── transcriptionService.ts   #   Deepgram dual WebSocket
 │   ├── claudeService.ts          #   Overlay Assist (Claude / OpenAI)
 │   ├── store.ts                  #   electron-store (encrypted keys + settings)
+│   ├── meetingDetector.ts        #   Meeting auto-start from window titles
 │   ├── index.ts                  #   App lifecycle, hotkeys, IPC
 │   └── services/
-│       ├── database.ts           #   SQLite (sessions, modes, RAG chunks)
+│       ├── database.ts           #   SQLite (sessions, modes, RAG chunks, Ask index + chats)
 │       ├── sessionManager.ts     #   Session lifecycle, incognito, autosave
 │       ├── ragService.ts         #   Parse, embed, retrieve
 │       ├── assemblyAITranscriptionService.ts
 │       ├── summaryService.ts     #   Post-session title + summary
 │       ├── insightsService.ts    #   Dashboard insights
+│       ├── sessionQaService.ts   #   Ask (per-session + across all), streamed
+│       ├── sessionIndexService.ts #  Transcript index for Ask (MiniLM)
+│       ├── sessionExportService.ts # Markdown / PDF export
+│       ├── followupEmailService.ts # Follow-up email draft
 │       └── ai/
 │           ├── providerFactory.ts
 │           └── sessionMemory.ts  #   In-recording compression / pins
