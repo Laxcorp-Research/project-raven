@@ -235,6 +235,60 @@ describe('askSessionScoped', () => {
     const result = await askSessionScoped({ question: 'q?', transcript: 'You: hi there' })
     expect(result).toEqual({ error: 'boom' })
   })
+
+  it('streams tokens through onToken and returns the assembled answer (no blocking call)', async () => {
+    const streamResponse = vi.fn(
+      async (
+        _params: unknown,
+        cb: { onText: (t: string) => void; onDone: (full: string) => void; onError: (e: string) => void },
+      ) => {
+        cb.onText('We ship ')
+        cb.onText('Friday.')
+        cb.onDone('We ship Friday.')
+      },
+    )
+    vi.mocked(getNotesProvider).mockResolvedValue({
+      name: 'anthropic',
+      generateShort,
+      streamResponse,
+    } as unknown as Awaited<ReturnType<typeof getNotesProvider>>)
+
+    const tokens: string[] = []
+    const result = await askSessionScoped({
+      question: 'when do we ship?',
+      transcript: 'You: we ship Friday',
+      onToken: (t) => tokens.push(t),
+    })
+
+    expect(tokens).toEqual(['We ship ', 'Friday.'])
+    expect(result).toMatchObject({ answer: 'We ship Friday.', foldedCount: 0 })
+    expect(streamResponse).toHaveBeenCalledTimes(1)
+    // Streaming path must NOT also make the blocking call.
+    expect(generateShort).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a streaming error as an error result (never throws)', async () => {
+    const streamResponse = vi.fn(
+      async (
+        _params: unknown,
+        cb: { onText: (t: string) => void; onDone: (full: string) => void; onError: (e: string) => void },
+      ) => {
+        cb.onError('rate limited')
+      },
+    )
+    vi.mocked(getNotesProvider).mockResolvedValue({
+      name: 'anthropic',
+      generateShort,
+      streamResponse,
+    } as unknown as Awaited<ReturnType<typeof getNotesProvider>>)
+
+    const result = await askSessionScoped({
+      question: 'q?',
+      transcript: 'You: hi there',
+      onToken: () => {},
+    })
+    expect(result).toEqual({ error: 'rate limited' })
+  })
 })
 
 describe('summarizeConversation', () => {

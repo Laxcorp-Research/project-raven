@@ -161,9 +161,12 @@ declare global {
           format: 'markdown' | 'pdf',
           includeTranscript?: boolean,
         ) => Promise<{ ok: boolean; filePath?: string; canceled?: boolean; error?: string }>;
-        ask: (
+        askStream: (
+          scope: 'one' | 'all',
+          sessionId: string | null,
           question: string,
-          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+          ctx: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+          onToken: (text: string) => void,
         ) => Promise<{
           answer?: string
           sources?: Array<{ sessionId: string; title: string; startedAt: number }>
@@ -171,11 +174,6 @@ declare global {
           foldedCount?: number
           error?: string
         }>;
-        askOne: (
-          id: string,
-          question: string,
-          ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-        ) => Promise<{ answer?: string; summary?: string; foldedCount?: number; error?: string }>;
         ensureIndex: () => Promise<boolean>;
         getAsk: (id: string) => Promise<AskConversationState | null>;
         saveAsk: (id: string, state: AskConversationState) => Promise<boolean>;

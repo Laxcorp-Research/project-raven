@@ -26,7 +26,11 @@ export interface AskResponse {
 export type AskFn = (
   question: string,
   ctx: { summary: string; recent: Array<{ question: string; answer: string }> },
+  onToken: (text: string) => void,
 ) => Promise<AskResponse>
+
+/** Min gap between partial saves while an answer streams in. */
+const PARTIAL_PERSIST_MS = 700
 
 /**
  * Serializable conversation state persisted between app launches. The DB
@@ -83,10 +87,13 @@ export function useAskConversation(ask: AskFn, opts: UseAskConversationOptions =
   }, [])
 
   const persist = useCallback(() => {
-    // Only completed turns are worth restoring; a loading turn can't exist
-    // after a settled ask, but filter defensively.
+    // Persist the whole conversation, including an in-flight turn (coerced to
+    // loading:false so a reload never shows a stuck spinner). Persisting the
+    // question up front + partials means navigating away mid-answer never
+    // loses the turn — the answer keeps generating in main and its completion
+    // is saved even after this component unmounts.
     const snapshot: AskConversationState = {
-      exchanges: exchangesRef.current.filter((e) => !e.loading),
+      exchanges: exchangesRef.current.map((e) => ({ ...e, loading: false })),
       summary: summaryRef.current,
       summarizedUpTo: summarizedUpToRef.current,
     }
@@ -106,23 +113,41 @@ export function useAskConversation(ask: AskFn, opts: UseAskConversationOptions =
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
       setBusy(true)
       commit([...exchangesRef.current, { id, question, loading: true }])
+      // Save the question immediately so a fast navigate-away can't lose it.
+      persist()
 
+      let lastPartialPersist = Date.now()
       try {
-        const res = await ask(question, { summary: summaryRef.current, recent })
+        const res = await ask(question, { summary: summaryRef.current, recent }, (text) => {
+          // Stream: append each delta and drop the spinner on the first token.
+          commit(
+            exchangesRef.current.map((e) =>
+              e.id === id ? { ...e, loading: false, answer: (e.answer || '') + text } : e,
+            ),
+          )
+          const now = Date.now()
+          if (now - lastPartialPersist > PARTIAL_PERSIST_MS) {
+            lastPartialPersist = now
+            persist()
+          }
+        })
         // Persist the compounded summary so the next turn keeps earlier context.
         if (res && typeof res.foldedCount === 'number' && res.foldedCount > 0 && typeof res.summary === 'string') {
           summaryRef.current = res.summary
           summarizedUpToRef.current += res.foldedCount
         }
+        // Prefer the authoritative full answer; fall back to the streamed text.
+        const streamed = exchangesRef.current.find((e) => e.id === id)?.answer
+        const finalAnswer = res?.answer ?? streamed
         commit(
           exchangesRef.current.map((e) =>
             e.id === id
               ? {
                   ...e,
                   loading: false,
-                  answer: res?.answer,
+                  answer: finalAnswer,
                   sources: res?.sources,
-                  error: res?.answer ? undefined : res?.error || 'Could not answer that question.',
+                  error: finalAnswer ? undefined : res?.error || 'Could not answer that question.',
                 }
               : e,
           ),
@@ -134,6 +159,7 @@ export function useAskConversation(ask: AskFn, opts: UseAskConversationOptions =
             e.id === id ? { ...e, loading: false, error: 'Could not answer that question.' } : e,
           ),
         )
+        persist()
       } finally {
         setBusy(false)
       }

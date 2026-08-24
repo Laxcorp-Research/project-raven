@@ -1074,7 +1074,7 @@ function SessionAskChat({ sessionId, initial }: { sessionId: string; initial: As
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const ask = useCallback<AskFn>(
-    (question, ctx) => window.raven.sessions.askOne(sessionId, question, ctx),
+    (question, ctx, onToken) => window.raven.sessions.askStream('one', sessionId, question, ctx, onToken),
     [sessionId],
   )
   const persist = useCallback(

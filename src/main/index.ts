@@ -574,42 +574,49 @@ app.whenReady().then(() => {
     },
   )
 
-  // Ask-my-meetings: local Q&A across the session transcript index.
-  inflightHandle(
-    'sessions:ask',
-    async (question: string, ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> }) => {
-      const { askQuestion } = await import('./services/sessionQaService')
-      return askQuestion(question, {
-        summary: ctx?.summary ?? '',
-        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
-      })
-    },
-  )
-
-  // Ask about a single session: feeds that session's transcript directly.
-  inflightHandle(
-    'sessions:ask-one',
+  // Ask (streaming): both "ask my meetings" (scope 'all') and per-session
+  // ("one") answer token-by-token. Uses ipcMain.on (not handle) so main can
+  // emit deltas as it generates. Generation runs to completion in main
+  // regardless of renderer navigation, so a turn is never lost mid-answer —
+  // the renderer persists progress + the final answer, even after unmount.
+  ipcMain.on(
+    'sessions:ask-stream:start',
     async (
-      sessionId: string,
-      question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+      event,
+      payload: {
+        requestId: string
+        scope: 'one' | 'all'
+        sessionId?: string | null
+        question: string
+        ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> }
+      },
     ) => {
-      const session = databaseService.getSession(sessionId)
-      if (!session) return { error: 'Session not found' }
-
-      const displayName = (getSetting('displayName') as string) || 'You'
-      const transcript = session.transcript
-        .filter((entry) => entry.isFinal)
-        .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
-        .join('\n')
-
-      const { askSessionScoped } = await import('./services/sessionQaService')
-      return askSessionScoped({
-        question,
-        transcript,
-        summary: ctx?.summary ?? '',
-        recent: Array.isArray(ctx?.recent) ? ctx!.recent : [],
-      })
+      const { requestId, scope, sessionId, question, ctx } = payload || ({} as typeof payload)
+      const send = (channel: string, data: unknown) => {
+        if (!event.sender.isDestroyed()) event.sender.send(channel, data)
+      }
+      const finish = (result: unknown): void => send('sessions:ask-stream:final', { requestId, result })
+      const onToken = (text: string): void => send('sessions:ask-stream:delta', { requestId, text })
+      const recent = Array.isArray(ctx?.recent) ? ctx!.recent : []
+      const summary = ctx?.summary ?? ''
+      try {
+        if (scope === 'one') {
+          const session = sessionId ? databaseService.getSession(sessionId) : null
+          if (!session) { finish({ error: 'Session not found' }); return }
+          const displayName = (getSetting('displayName') as string) || 'You'
+          const transcript = session.transcript
+            .filter((entry) => entry.isFinal)
+            .map((entry) => `${entry.source === 'mic' ? displayName : 'Them'}: ${entry.text}`)
+            .join('\n')
+          const { askSessionScoped } = await import('./services/sessionQaService')
+          finish(await askSessionScoped({ question, transcript, summary, recent, onToken }))
+        } else {
+          const { askQuestion } = await import('./services/sessionQaService')
+          finish(await askQuestion(question, { summary, recent, onToken }))
+        }
+      } catch (err) {
+        finish({ error: err instanceof Error ? err.message : 'Failed to answer the question' })
+      }
     },
   )
 

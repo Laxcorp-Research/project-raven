@@ -74,15 +74,33 @@ contextBridge.exposeInMainWorld('raven', {
     draftFollowup: (id: string) => ipcRenderer.invoke('sessions:draft-followup', id),
     export: (id: string, format: 'markdown' | 'pdf', includeTranscript?: boolean) =>
       ipcRenderer.invoke('sessions:export', id, format, includeTranscript),
-    ask: (
+    // Streaming Ask. Returns a promise that resolves with the final result
+    // ({answer, sources, summary, foldedCount, error}); onToken fires for each
+    // streamed delta. Event plumbing (requestId scoping, listener cleanup) is
+    // hidden here so callers just get a promise + a token callback.
+    askStream: (
+      scope: 'one' | 'all',
+      sessionId: string | null,
       question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-    ) => ipcRenderer.invoke('sessions:ask', question, ctx),
-    askOne: (
-      id: string,
-      question: string,
-      ctx?: { summary?: string; recent?: Array<{ question: string; answer: string }> },
-    ) => ipcRenderer.invoke('sessions:ask-one', id, question, ctx),
+      ctx: { summary?: string; recent?: Array<{ question: string; answer: string }> },
+      onToken: (text: string) => void,
+    ) => {
+      const requestId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      return new Promise((resolve) => {
+        const onDelta = (_e: unknown, msg: { requestId?: string; text?: string }) => {
+          if (msg && msg.requestId === requestId && typeof msg.text === 'string') onToken(msg.text)
+        }
+        const onFinal = (_e: unknown, msg: { requestId?: string; result?: unknown }) => {
+          if (!msg || msg.requestId !== requestId) return
+          ipcRenderer.removeListener('sessions:ask-stream:delta', onDelta)
+          ipcRenderer.removeListener('sessions:ask-stream:final', onFinal)
+          resolve(msg.result)
+        }
+        ipcRenderer.on('sessions:ask-stream:delta', onDelta)
+        ipcRenderer.on('sessions:ask-stream:final', onFinal)
+        ipcRenderer.send('sessions:ask-stream:start', { requestId, scope, sessionId, question, ctx })
+      })
+    },
     ensureIndex: () => ipcRenderer.invoke('sessions:ensure-index'),
     getAsk: (id: string) => ipcRenderer.invoke('sessions:get-ask', id),
     saveAsk: (id: string, state: unknown) => ipcRenderer.invoke('sessions:save-ask', id, state),

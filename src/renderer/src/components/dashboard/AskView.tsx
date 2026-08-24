@@ -252,7 +252,10 @@ function AskChat({
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const ask = useCallback<AskFn>((question, ctx) => window.raven.sessions.ask(question, ctx), [])
+  const ask = useCallback<AskFn>(
+    (question, ctx, onToken) => window.raven.sessions.askStream('all', null, question, ctx, onToken),
+    [],
+  )
   const { exchanges, busy, submit } = useAskConversation(ask, { initial, onPersist })
 
   useEffect(() => {
