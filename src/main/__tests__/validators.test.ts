@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
 }))
 
 import Anthropic from '@anthropic-ai/sdk'
-import { validateDeepgramKey, validateAnthropicKey, validateOpenAIKey, validateBothKeys, validateKeys, validateAssemblyAIKey, validateRecallKey } from '../validators'
+import { validateDeepgramKey, validateAnthropicKey, validateOpenAIKey, validateBothKeys, validateKeys, validateAssemblyAIKey, validateRecallKey, VALIDATION_TIMEOUT_MS } from '../validators'
 
 function setElectronVersion(value: string | undefined): void {
   Object.defineProperty(process.versions, 'electron', {
@@ -161,6 +161,22 @@ describe('validateAnthropicKey', () => {
     expect(result).toEqual({ valid: false, error: 'Invalid Anthropic API key.' })
   })
 
+  it('bounds the SDK fallback (no retries + finite timeout) so it cannot hang', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('fetch failed')))
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] })
+
+    const result = await validateAnthropicKey('test-ant-placeholder')
+
+    expect(result).toEqual({ valid: true })
+    expect(MockAnthropic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'test-ant-placeholder',
+        maxRetries: 0,
+        timeout: VALIDATION_TIMEOUT_MS,
+      }),
+    )
+  })
+
   it('includes the thrown reason instead of a generic offline message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('unable to verify the first certificate')))
     mockCreate.mockRejectedValueOnce(new Error('unable to verify the first certificate'))
@@ -239,6 +255,44 @@ describe('validateOpenAIKey', () => {
       valid: false,
       error: 'Could not reach OpenAI (network).',
     })
+  })
+
+  it('passes an abort signal so the probe can be cancelled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await validateOpenAIKey('sk-openai-test')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/models',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+  })
+
+  it('times out with a friendly error instead of hanging when the request stalls (regression)', async () => {
+    vi.useFakeTimers()
+    try {
+      // A fetch that never settles on its own and only rejects when aborted -
+      // i.e. a stalled network. Before the deadline this awaited forever and
+      // the Settings spinner "kept on loading".
+      const fetchMock = vi.fn(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(new Error('aborted')))
+          }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const pending = validateOpenAIKey('sk-openai-stall')
+      await vi.advanceTimersByTimeAsync(VALIDATION_TIMEOUT_MS + 50)
+      const result = await pending
+
+      expect(result.valid).toBe(false)
+      expect(result.error).toContain('Could not reach OpenAI')
+      expect(result.error).toContain('timed out')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

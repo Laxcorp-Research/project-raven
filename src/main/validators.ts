@@ -3,18 +3,39 @@ function isElectronRuntime(): boolean {
 }
 
 /**
+ * Hard deadline for a key-validation probe. Without it, a stalled network
+ * (blocked/slow proxy, a silently-dropped connection, a slow TLS handshake)
+ * leaves the fetch pending forever, which hangs the whole "Save & Validate" /
+ * "Test Connection" flow in Settings ("it keeps on loading"). Validation is a
+ * cheap auth ping, so a short deadline is safe.
+ */
+export const VALIDATION_TIMEOUT_MS = 10_000
+
+/**
  * Electron's Node/undici `fetch` often throws on vendor TLS (Anthropic in
  * particular). Chromium `net.fetch` uses the same cert store as the rest of
- * the app. Tests and non-Electron callers keep using global `fetch`.
+ * the app. Tests and non-Electron callers keep using global `fetch`. Every
+ * request carries an abort signal so it can never hang past the deadline.
  */
 async function vendorGet(url: string, headers: Record<string, string>): Promise<Response> {
-  if (isElectronRuntime()) {
-    const { net } = await import('electron')
-    if (typeof net?.fetch === 'function') {
-      return (await net.fetch(url, { headers })) as Response
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS)
+  try {
+    if (isElectronRuntime()) {
+      const { net } = await import('electron')
+      if (typeof net?.fetch === 'function') {
+        return (await net.fetch(url, { headers, signal: controller.signal })) as Response
+      }
     }
+    return await fetch(url, { headers, signal: controller.signal })
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`timed out after ${Math.round(VALIDATION_TIMEOUT_MS / 1000)}s`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
   }
-  return await fetch(url, { headers })
 }
 
 function vendorUnreachable(name: string, err: unknown): { valid: false; error: string } {
@@ -84,7 +105,9 @@ export async function validateAnthropicKey(apiKey: string): Promise<{ valid: boo
   } catch (httpErr) {
     try {
       const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey })
+      // Bound the fallback too: the SDK defaults to a 10-minute timeout with
+      // retries, which would re-introduce the "keeps loading" hang here.
+      const client = new Anthropic({ apiKey, timeout: VALIDATION_TIMEOUT_MS, maxRetries: 0 })
       await client.messages.create({
         model: 'claude-haiku-4-5',
         max_tokens: 8,
