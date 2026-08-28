@@ -246,7 +246,7 @@ describe('windowManager', () => {
     })
 
     it('installs CSP once per session when packaged', () => {
-      ;(app as { isPackaged: boolean }).isPackaged = true
+      (app as { isPackaged: boolean }).isPackaged = true
       createDashboardWindow('/preload.js', null)
       createOverlayWindow('/preload.js', null)
 
@@ -273,7 +273,7 @@ describe('windowManager', () => {
     })
 
     it('keeps renderer sandbox on packaged builds', () => {
-      ;(app as { isPackaged: boolean }).isPackaged = true
+      (app as { isPackaged: boolean }).isPackaged = true
       createDashboardWindow('/preload.js', null)
 
       const opts = vi.mocked(BrowserWindow).mock.calls.at(-1)?.[0] as {
@@ -365,6 +365,45 @@ describe('windowManager', () => {
       createDashboardWindow('/preload.js', null)
 
       expect(mockBrowserWindowInstance.webContents.setWindowOpenHandler).toHaveBeenCalled()
+    })
+  })
+
+  describe('dashboard dock icon respects stealth (regression: undetectable but visible in dock)', () => {
+    // The dashboard registers two 'ready-to-show' handlers; the FIRST one
+    // owns show() + the dock activation-policy workaround.
+    const firstReadyToShow = () =>
+      mockBrowserWindowInstance.on.mock.calls
+        .filter((c: unknown[]) => c[0] === 'ready-to-show')
+        .map((c: unknown[]) => c[1])[0] as (() => void) | undefined
+
+    it('keeps the dock hidden when the dashboard becomes ready while stealth is ON', () => {
+      // Before the fix, ready-to-show called app.dock.show() unconditionally,
+      // re-revealing the icon after setStealthMode had hidden it - the exact
+      // "Raven is undetectable but still visible in the dock" report.
+      mockGetSetting.mockImplementation(((key: unknown) =>
+        key === 'stealthEnabled' ? true : null) as () => null)
+      createDashboardWindow('/preload.js', null)
+
+      const handler = firstReadyToShow()
+      expect(handler).toBeDefined()
+      handler!()
+
+      expect(app.dock!.hide).toHaveBeenCalled()
+      expect(app.dock!.show).not.toHaveBeenCalled()
+    })
+
+    it('forces the dock back when the dashboard becomes ready while stealth is OFF', () => {
+      // Preserve the original workaround: a detectable user must keep the dock
+      // icon even though the panel overlay can flip Electron to Accessory policy.
+      mockGetSetting.mockReturnValue(null)
+      createDashboardWindow('/preload.js', null)
+
+      const handler = firstReadyToShow()
+      expect(handler).toBeDefined()
+      handler!()
+
+      expect(app.dock!.show).toHaveBeenCalled()
+      expect(app.dock!.hide).not.toHaveBeenCalled()
     })
   })
 
