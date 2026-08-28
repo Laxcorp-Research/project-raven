@@ -82,7 +82,11 @@ describe('autoUpdater', () => {
 
       expect(mockAutoUpdater.autoDownload).toBe(false)
       expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false)
-      expect(mockAutoUpdater.logger).toBeNull()
+      // Updater logs are routed through the app logger, not discarded, so a
+      // failed install surfaces instead of being swallowed (regression: this
+      // was `= null`, which hid why macOS self-update aborted).
+      expect(mockAutoUpdater.logger).not.toBeNull()
+      expect(typeof (mockAutoUpdater.logger as { error?: unknown }).error).toBe('function')
     })
 
     it('registers event listeners', () => {
