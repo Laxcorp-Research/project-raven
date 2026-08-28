@@ -264,9 +264,16 @@ export function createDashboardWindow(preloadPath: string, rendererURL: string |
     dashboardWindow?.show()
     // Electron may switch to Accessory activation policy during the gap between
     // window creation (show:false) and ready-to-show, especially when a panel-type
-    // overlay window exists. Force the dock icon back.
+    // overlay window exists. In stealth mode the dock icon must stay hidden, so
+    // keep it hidden; otherwise force it back for a normal (detectable) user.
+    // Without the stealth check this unconditionally re-revealed the dock icon
+    // whenever the dashboard became ready while undetectable was on.
     if (process.platform === 'darwin' && app.dock) {
-      app.dock.show()
+      if (getSetting('stealthEnabled')) {
+        app.dock.hide()
+      } else {
+        app.dock.show()
+      }
     }
   })
 
