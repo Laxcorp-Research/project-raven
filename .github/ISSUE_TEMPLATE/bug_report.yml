@@ -12,7 +12,7 @@ body:
     attributes:
       label: Raven version
       description: See Settings → About, or the window title.
-      placeholder: "2.4.1"
+      placeholder: "2.4.2"
     validations:
       required: true
   - type: dropdown
