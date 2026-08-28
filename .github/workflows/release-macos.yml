@@ -19,7 +19,7 @@ on:
       tag:
         description: 'Existing GitHub Release tag to attach Mac artifacts to'
         required: true
-        default: 'v2.4.2'
+        default: 'v2.4.3'
       ref:
         description: 'Git ref to build (empty = main)'
         required: false
@@ -258,6 +258,25 @@ jobs:
           fi
           # zip is required for electron-updater on macOS; dmg is the installer.
           npx electron-builder --mac dmg zip --publish never -c.mac.notarize=true
+
+      - name: Guard against read-only files (would break Squirrel self-update)
+        run: |
+          # Squirrel.Mac's ShipIt strips the download quarantine attribute from
+          # every file in the new .app before installing. A read-only file makes
+          # removexattr fail with EACCES, ShipIt aborts, and the in-app update
+          # silently relaunches the OLD version. Fail the build if any remain.
+          APP=$(find release -maxdepth 4 -name 'Raven.app' -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "Raven.app not found under release/ - cannot verify permissions"
+            exit 1
+          fi
+          RO=$(find "$APP" -type f ! -perm -u+w)
+          if [ -n "$RO" ]; then
+            echo "Read-only files in the app bundle will break macOS self-update:"
+            echo "$RO"
+            exit 1
+          fi
+          echo "OK: all files under $APP are user-writable"
 
       - name: Upload Mac artifacts to public GitHub Release
         id: pub_release

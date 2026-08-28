@@ -91,6 +91,14 @@ for lib in "${SHARED_LIBS[@]}"; do
     fi
 done
 
+# Homebrew ships these dylibs read-only (0444). On an in-app update,
+# Squirrel.Mac's ShipIt strips the download quarantine attribute from every
+# file in the new .app before swapping it in; removexattr on a read-only file
+# fails with EACCES, so ShipIt aborts and relaunches the OLD version (the
+# macOS self-update silently no-ops). Make the bundled libs user-writable so
+# the quarantine attribute can be removed.
+chmod -R u+w "$BUNDLE_DIR"
+
 echo ""
 echo "Bundle created at $BUNDLE_DIR"
 echo "  Plugins: $(ls "$PLUGINS_OUT" | wc -l | tr -d ' ') files"

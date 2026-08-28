@@ -99,7 +99,10 @@ export function initAutoUpdater(): void {
   if (started) return
   started = true
 
-  autoUpdater.logger = null
+  // Route updater logs through the app logger instead of discarding them.
+  // ShipIt (Squirrel.Mac) writes its own failure log, but silencing this hid
+  // the JS-side updater errors that would have surfaced install problems.
+  autoUpdater.logger = log
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
 
