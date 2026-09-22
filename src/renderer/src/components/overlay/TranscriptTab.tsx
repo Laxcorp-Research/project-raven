@@ -97,10 +97,17 @@ export function TranscriptTab() {
       setConnection(data)
     }) ?? (() => {})
 
+    // A resumed session preloads the provider with the earlier sitting;
+    // show it here too so this tab agrees with the model and the dashboard.
+    const unsubSeeded = window.raven.on('transcription:seeded', (data: unknown) => {
+      if (Array.isArray(data)) setEntries(data as TranscriptEntry[])
+    })
+
     return () => {
       unsubTranscript();
       unsubRecording();
       unsubConn()
+      unsubSeeded()
     };
   }, []);
 

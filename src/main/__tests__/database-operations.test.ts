@@ -185,8 +185,8 @@ describe('DatabaseService', () => {
 
       // The migrate() method calls exec() for the migrations table creation
       expect(mockExec).toHaveBeenCalled()
-      // transaction() should be called once per unapplied migration (18 total)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(18)
+      // transaction() should be called once per unapplied migration (19 total)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(19)
     })
 
     it('skips migrations already applied', () => {
@@ -209,6 +209,7 @@ describe('DatabaseService', () => {
         { name: '016_add_session_chunks' },
         { name: '017_add_session_followup_email' },
         { name: '018_add_ask_conversations' },
+        { name: '019_add_session_resume' },
       ])
 
       databaseService.initialize()
@@ -224,8 +225,8 @@ describe('DatabaseService', () => {
 
       databaseService.initialize()
 
-      // 16 unapplied migrations remain (003 through 018)
-      expect(mockTransactionFn).toHaveBeenCalledTimes(16)
+      // 17 unapplied migrations remain (003 through 019)
+      expect(mockTransactionFn).toHaveBeenCalledTimes(17)
     })
 
     it('is idempotent - second call is a no-op', () => {
@@ -354,6 +355,23 @@ describe('DatabaseService', () => {
 
       expect(result).toBeNull()
     })
+
+    it('maps segments_json and assist_memory_json onto the session (null when absent)', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      mockGet.mockReturnValue(makeSessionRow({
+        segments_json: '[{"startedAt":1,"endedAt":2}]',
+        assist_memory_json: '{"text":"## A\\n## B"}',
+      }))
+      const resumed = databaseService.getSession('sess-1')
+      expect(resumed!.segmentsJson).toBe('[{"startedAt":1,"endedAt":2}]')
+      expect(resumed!.assistMemoryJson).toBe('{"text":"## A\\n## B"}')
+
+      mockGet.mockReturnValue(makeSessionRow())
+      const plain = databaseService.getSession('sess-1')
+      expect(plain!.segmentsJson).toBeNull()
+      expect(plain!.assistMemoryJson).toBeNull()
+    })
   })
 
   describe('getAllSessions', () => {
@@ -457,6 +475,29 @@ describe('DatabaseService', () => {
       const sql = mockPrepare.mock.calls[0][0] as string
       expect(sql).toContain('action_items_json = ?')
       expect(mockRun).toHaveBeenCalledWith(expect.any(Number), json, 'sess-1')
+    })
+
+    it('persists segments_json and assist_memory_json for resumed sessions, including explicit null', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      const segments = JSON.stringify([{ startedAt: 1, endedAt: 2 }, { startedAt: 3, endedAt: null }])
+      databaseService.updateSession('sess-1', { segmentsJson: segments, assistMemoryJson: null, endedAt: null })
+
+      const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).toContain('segments_json = ?')
+      expect(sql).toContain('assist_memory_json = ?')
+      expect(sql).toContain('ended_at = ?')
+      expect(mockRun).toHaveBeenCalledWith(expect.any(Number), segments, null, null, 'sess-1')
+    })
+
+    it('leaves segments_json and assist_memory_json out of the SET clause when not provided', () => {
+      mockPrepare.mockReturnValue({ run: mockRun, get: mockGet, all: mockAll })
+
+      databaseService.updateSession('sess-1', { title: 'x' })
+
+      const sql = mockPrepare.mock.calls[0][0] as string
+      expect(sql).not.toContain('segments_json')
+      expect(sql).not.toContain('assist_memory_json')
     })
 
     it('always bumps updated_at even with empty updates', () => {

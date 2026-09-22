@@ -36,6 +36,7 @@ const mockTranscriptionService = vi.hoisted(() => ({
   start: vi.fn().mockResolvedValue({ success: true }),
   stop: vi.fn().mockResolvedValue(undefined),
   clearTranscript: vi.fn(),
+  seedTranscript: vi.fn(),
   getFullTranscript: vi.fn(() => ''),
   getFullTranscriptWithInterims: vi.fn(() => ''),
   getTranscriptEntries: vi.fn(() => []),
@@ -51,6 +52,14 @@ const mockSessionManager = vi.hoisted(() => ({
   startSession: vi.fn(() => ({ id: 'session-1', transcript: [] })),
   endSession: vi.fn(() => ({ id: 'session-1', transcript: [{ id: '1', text: 'test' }] })),
   getActiveSession: vi.fn(),
+  canResume: vi.fn((): string | null => null),
+  resumeSession: vi.fn((id: string) => ({
+    session: {
+      id,
+      title: 'Backend interview',
+      transcript: [{ id: 'y1', source: 'system', text: 'Yesterday', timestamp: 1, isFinal: true }],
+    },
+  })),
 }))
 
 vi.mock('../services/sessionManager', () => ({
@@ -151,6 +160,133 @@ describe('AudioManager', () => {
   describe('getIsRecording', () => {
     it('returns false initially', () => {
       expect(manager.getIsRecording()).toBe(false)
+    })
+  })
+
+  describe('audio:start-recording with resumeSessionId', () => {
+    const startWithResume = (id = 'interview-1') =>
+      mockIpcHandlers['audio:start-recording']({}, undefined, { resumeSessionId: id })
+
+    it('resumes the saved session and seeds the provider with its transcript instead of creating a new session', async () => {
+      const result = await startWithResume()
+
+      expect(result).toEqual({ success: true })
+      expect(mockSessionManager.resumeSession).toHaveBeenCalledWith('interview-1')
+      expect(mockSessionManager.startSession).not.toHaveBeenCalled()
+      // seeded after connect (connect clears the provider first)
+      expect(mockTranscriptionService.seedTranscript).toHaveBeenCalledWith([
+        { id: 'y1', source: 'system', text: 'Yesterday', timestamp: 1, isFinal: true },
+      ])
+      const clearOrder = mockTranscriptionService.clearTranscript.mock.invocationCallOrder[0]
+      const seedOrder = mockTranscriptionService.seedTranscript.mock.invocationCallOrder[0]
+      expect(seedOrder).toBeGreaterThan(clearOrder)
+    })
+
+    it('broadcasts the seeded entries once so the overlay transcript shows the earlier sitting', async () => {
+      const overlaySend = vi.fn()
+      const dashSend = vi.fn()
+      manager.setWindows(
+        { isDestroyed: () => false, webContents: { send: dashSend }, show: vi.fn(), focus: vi.fn() } as any,
+        { isDestroyed: () => false, webContents: { send: overlaySend } } as any,
+      )
+      const seeded = [{ id: 'y1', source: 'system', text: 'Yesterday', speaker: 'them', timestamp: 1, isFinal: true }]
+      mockTranscriptionService.getTranscriptEntries.mockReturnValue(seeded as never)
+
+      await startWithResume()
+
+      expect(overlaySend).toHaveBeenCalledWith('transcription:seeded', seeded)
+      expect(dashSend).toHaveBeenCalledWith('transcription:seeded', seeded)
+      expect(overlaySend.mock.calls.filter(([ch]) => ch === 'transcription:seeded')).toHaveLength(1)
+    })
+
+    it('a plain Start broadcasts no seeded transcript', async () => {
+      const overlaySend = vi.fn()
+      manager.setWindows(null, { isDestroyed: () => false, webContents: { send: overlaySend } } as any)
+
+      await mockIpcHandlers['audio:start-recording']({})
+
+      expect(overlaySend.mock.calls.some(([ch]) => ch === 'transcription:seeded')).toBe(false)
+    })
+
+    it('refuses before capture starts when incognito is on', async () => {
+      mockSessionManager.canResume.mockReturnValue('incognito')
+
+      const result = await startWithResume()
+
+      expect(result).toEqual({ success: false, error: 'Turn off Incognito mode to continue a saved session.' })
+      expect(mockStartCapture).not.toHaveBeenCalled()
+      expect(mockSessionManager.resumeSession).not.toHaveBeenCalled()
+      expect(manager.getIsRecording()).toBe(false)
+    })
+
+    it('refuses before capture starts when the session no longer exists', async () => {
+      mockSessionManager.canResume.mockReturnValue('not_found')
+
+      const result = await startWithResume('gone')
+
+      expect(result).toEqual({ success: false, error: 'That session no longer exists.' })
+      expect(mockStartCapture).not.toHaveBeenCalled()
+      expect(manager.getIsRecording()).toBe(false)
+    })
+
+    it('records into a fresh session when resume fails after connect (deleted mid-connect)', async () => {
+      mockSessionManager.resumeSession.mockReturnValueOnce({ error: 'not_found' } as never)
+
+      const result = await startWithResume()
+
+      expect(result).toEqual({ success: true })
+      expect(mockSessionManager.startSession).toHaveBeenCalledOnce()
+      expect(mockTranscriptionService.seedTranscript).not.toHaveBeenCalled()
+    })
+
+    it('a failed resume Start does not leak into the next plain Start', async () => {
+      mockTranscriptionService.start.mockResolvedValueOnce({ success: false, error: 'offline' })
+      await startWithResume()
+      expect(manager.getIsRecording()).toBe(false)
+
+      const result = await mockIpcHandlers['audio:start-recording']({})
+
+      expect(result).toEqual({ success: true })
+      expect(mockSessionManager.resumeSession).not.toHaveBeenCalled()
+      expect(mockSessionManager.startSession).toHaveBeenCalledOnce()
+    })
+
+    it('mid-session Deepgram fallback re-seeds the provider with the session transcript so far', async () => {
+      mockSessionManager.getActiveSession.mockReturnValue({
+        id: 'interview-1',
+        transcript: [
+          { id: 'y1', source: 'system', text: 'Yesterday', timestamp: 1, isFinal: true },
+          { id: 't1', source: 'mic', text: 'Today so far', timestamp: 2, isFinal: true },
+        ],
+      })
+
+      await (manager as any).startDeepgramFallback()
+
+      const clearOrder = mockTranscriptionService.clearTranscript.mock.invocationCallOrder.at(-1)!
+      const seedOrder = mockTranscriptionService.seedTranscript.mock.invocationCallOrder.at(-1)!
+      expect(seedOrder).toBeGreaterThan(clearOrder)
+      expect(mockTranscriptionService.seedTranscript).toHaveBeenCalledWith([
+        { id: 'y1', source: 'system', text: 'Yesterday', timestamp: 1, isFinal: true },
+        { id: 't1', source: 'mic', text: 'Today so far', timestamp: 2, isFinal: true },
+      ])
+      expect(mockTranscriptionService.start).toHaveBeenCalled()
+    })
+
+    it('mid-session Deepgram fallback with no active session does not seed', async () => {
+      mockSessionManager.getActiveSession.mockReturnValue(undefined)
+
+      await (manager as any).startDeepgramFallback()
+
+      expect(mockTranscriptionService.seedTranscript).not.toHaveBeenCalled()
+    })
+
+    it('a plain Start still creates a new session (unchanged path)', async () => {
+      const result = await mockIpcHandlers['audio:start-recording']({})
+
+      expect(result).toEqual({ success: true })
+      expect(mockSessionManager.startSession).toHaveBeenCalledOnce()
+      expect(mockSessionManager.resumeSession).not.toHaveBeenCalled()
+      expect(mockTranscriptionService.seedTranscript).not.toHaveBeenCalled()
     })
   })
 

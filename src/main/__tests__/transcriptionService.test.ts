@@ -223,6 +223,52 @@ describe('TranscriptionService', () => {
     })
   })
 
+  describe('seedTranscript (resumed session)', () => {
+    it('loads saved finals with speaker derived from source, sorted, dropping interims and blanks', () => {
+      (service as any).transcriptEntries = [
+        { id: 'stale', source: 'mic', text: 'from a previous run', speaker: 'you', timestamp: 5, isFinal: true },
+      ]
+      ;(service as any).micConnection.currentInterim = 'half a'
+
+      service.seedTranscript([
+        { id: 'b', source: 'mic', text: 'Sure, we shipped it in Q2.', timestamp: 2000, isFinal: true },
+        { id: 'a', source: 'system', text: 'Tell me about the launch.', timestamp: 1000, isFinal: true },
+        { id: 'c', source: 'mic', text: 'and the', timestamp: 3000, isFinal: false },
+        { id: 'd', source: 'system', text: '   ', timestamp: 4000, isFinal: true },
+      ])
+
+      expect(service.getTranscriptEntries()).toEqual([
+        { id: 'a', source: 'system', text: 'Tell me about the launch.', speaker: 'them', timestamp: 1000, isFinal: true },
+        { id: 'b', source: 'mic', text: 'Sure, we shipped it in Q2.', speaker: 'you', timestamp: 2000, isFinal: true },
+      ])
+      expect((service as any).micConnection.currentInterim).toBe('')
+    })
+
+    it('seeded text is what the model reads on the next Assist', () => {
+      service.seedTranscript([
+        { id: 'a', source: 'system', text: 'Tell me about the launch.', timestamp: 1000, isFinal: true },
+      ])
+
+      expect(service.getFullTranscriptWithInterims()).toBe('Them: Tell me about the launch.')
+    })
+
+    it('new live finals append after the seeded sitting instead of merging into it', () => {
+      service.seedTranscript([
+        { id: 'a', source: 'mic', text: 'Yesterday I said this.', timestamp: 1000, isFinal: true },
+      ])
+
+      ;(service as any).handleTranscriptResult(
+        { channel: { alternatives: [{ transcript: 'Today I say this.' }] }, is_final: true },
+        'mic',
+      )
+
+      const entries = service.getTranscriptEntries()
+      expect(entries).toHaveLength(2)
+      expect(entries[0].text).toBe('Yesterday I said this.')
+      expect(entries[1].text).toBe('Today I say this.')
+    })
+  })
+
   describe('getTranscriptBySource', () => {
     it('filters by mic source', () => {
       (service as any).transcriptEntries = [

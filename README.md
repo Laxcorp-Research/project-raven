@@ -121,8 +121,8 @@ Installed copies check GitHub Releases for updates (`latest.yml` on Windows, `la
 - **Stealth overlay** — Electron `setContentProtection` so the overlay and dashboard are omitted from typical screen-share APIs (Zoom, Meet, Teams, Discord). Not a guarantee against every capture tool.
 - **Modes** — Local behavior profiles (system prompt, notes templates). Attach documents for RAG on that mode.
 - **RAG (per mode, local)** — Upload `.txt`, `.md`, `.pdf`, or `.docx`. Chunked and embedded on-device with `Xenova/all-MiniLM-L6-v2` (`@xenova/transformers`). Chunks live in SQLite; the top matches are injected into the Assist system prompt. First embed may download the ~30MB model.
-- **Session context (not long-term memory)** — During a recording, Assist keeps recent turns, pins the opening transcript and your typed questions, and may compress older context with a cheap model **in RAM**. There is **no** cross-meeting user-memory profile.
-- **Sessions** — Saved locally in SQLite (transcript, overlay chat, auto title/summary). Dashboard can generate insights with your LLM key. **Incognito** skips SQLite persistence for that session.
+- **Session context (not long-term memory)** — During a recording, Assist keeps recent turns, pins the opening transcript and your typed questions, and may compress older context with a cheap model. That compacted memory is stored **on the session row** (local SQLite, deleted with the session) so a resumed session can pick it back up. There is **no** cross-meeting user-memory profile.
+- **Sessions** — Saved locally in SQLite (transcript, overlay chat, auto title/summary). Dashboard can generate insights with your LLM key. **Resume** a saved session to keep recording into it later (a multi-day interview stays one session, and Assist remembers the earlier sitting). **Incognito** skips SQLite persistence for that session.
 - **Ask your meetings** — A per-session **Ask** tab answers from that call's transcript; **Ask across all meetings** searches your whole history with on-device retrieval (`Xenova/all-MiniLM-L6-v2`) and cites the source sessions. Answers stream token-by-token; conversations are saved (one per session, plus multi-chat for the global view).
 - **Post-call recap** — Structured **action items** (task, owner, deadline), a one-click **follow-up email** draft, **talk ratio** (You vs. Them, word-based), and **export** to Markdown or PDF. All generated with your own key; nothing goes to a Raven server.
 - **Meeting auto-start** — Optionally detect a Zoom, Google Meet, Microsoft Teams (including 1:1 calls), or Webex meeting and prompt — or auto-start — a recording. No bot joins; detection just reads open window titles locally. Off / prompt / auto in Settings.
@@ -199,7 +199,8 @@ flowchart TB
 
 | Mechanism | Lifetime | Used for |
 |-----------|----------|----------|
-| Live Assist turns + `sessionMemory` | Current recording, in RAM | Long meetings: running summary, pinned opening, pinned questions, last few turns |
+| Live Assist turns | Current recording, in RAM | Last few turns replayed verbatim |
+| Assist `sessionMemory` | Until you delete the session (SQLite, `assist_memory_json`) | Running summary, pinned opening, pinned questions; restored when you **Resume** that session |
 | SQLite sessions / messages | Until you delete them | History, summaries, insights, overlay chat replay |
 | RAG chunks | Until you remove the file from the mode | Retrieve-then-prompt on Assist, scoped to that mode |
 | Session Ask index | Until you delete the session | Retrieve-then-prompt for **Ask across all meetings** (on-device MiniLM) |

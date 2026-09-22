@@ -30,6 +30,7 @@ interface SessionDetailData {
   insightsJson?: string | null
   actionItemsJson?: string | null
   followUpEmail?: string | null
+  segmentsJson?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null
@@ -42,7 +43,16 @@ interface DashboardProps {
 export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
   const [stealth, setStealth] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [activeSession, setActiveSession] = useState<{ id: string; title: string; startedAt: number } | null>(null)
+  // recordingStartedAt/priorDurationSeconds drive the live timer. For a
+  // resumed session they differ from startedAt (the first sitting), which
+  // would otherwise make the timer count the gap between sittings.
+  const [activeSession, setActiveSession] = useState<{
+    id: string
+    title: string
+    startedAt: number
+    recordingStartedAt: number
+    priorDurationSeconds: number
+  } | null>(null)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [selectedSession, setSelectedSession] = useState<SessionDetailData | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -61,14 +71,16 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
 
     async function syncActiveSession() {
       try {
-        const session =
-          (await window.raven.sessions.getActive()) ||
-          (await window.raven.sessions.getInProgress())
+        const active = await window.raven.sessions.getActive()
+        const session = active || (await window.raven.sessions.getInProgress())
         if (session) {
+          const startedAt = session.startedAt ?? session.createdAt ?? Date.now()
           setActiveSession({
             id: session.id,
             title: session.title || 'Untitled session',
-            startedAt: session.startedAt ?? session.createdAt ?? Date.now(),
+            startedAt,
+            recordingStartedAt: active?.recordingStartedAt ?? startedAt,
+            priorDurationSeconds: active?.priorDurationSeconds ?? 0,
           })
         }
       } catch (error) {
@@ -99,10 +111,13 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
       if (!session) return
       setActiveSession((prev) => {
         if (prev && prev.id !== session.id) return prev
+        const startedAt = session.startedAt || prev?.startedAt || Date.now()
         return {
           id: session.id,
           title: session.title || prev?.title || 'Untitled session',
-          startedAt: session.startedAt || prev?.startedAt || Date.now(),
+          startedAt,
+          recordingStartedAt: session.recordingStartedAt ?? prev?.recordingStartedAt ?? startedAt,
+          priorDurationSeconds: session.priorDurationSeconds ?? prev?.priorDurationSeconds ?? 0,
         }
       })
     })
@@ -149,8 +164,8 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
     }
 
     const tick = () => {
-      const elapsed = Math.floor((Date.now() - activeSession.startedAt) / 1000)
-      setRecordingDuration(elapsed)
+      const current = Math.max(0, Math.floor((Date.now() - activeSession.recordingStartedAt) / 1000))
+      setRecordingDuration(activeSession.priorDurationSeconds + current)
     }
 
     tick()
@@ -258,6 +273,8 @@ export function Dashboard({ initialUserProfile }: DashboardProps = {}) {
             session={selectedSession}
             onBack={handleBackToList}
             onUpdateTitle={handleUpdateTitle}
+            isRecording={isRecording}
+            activeSessionId={activeSession?.id ?? null}
           />
         ) : activeSearchQuery ? (
           <SearchResultsView

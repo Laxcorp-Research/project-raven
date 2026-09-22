@@ -180,7 +180,9 @@ contextBridge.exposeInMainWorld('raven', {
     },
   },
   // ---- Audio ----
-  audioStartRecording: (deviceId?: string) => ipcRenderer.invoke('audio:start-recording', deviceId),
+  // opts.resumeSessionId continues a saved session instead of creating one.
+  audioStartRecording: (deviceId?: string, opts?: { resumeSessionId?: string }) =>
+    ipcRenderer.invoke('audio:start-recording', deviceId, opts),
   audioStopRecording: () => ipcRenderer.invoke('audio:stop-recording'),
   audioGetState: () => ipcRenderer.invoke('audio:get-state'),
   onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => {
@@ -402,6 +404,9 @@ contextBridge.exposeInMainWorld('raven', {
       'overlay:notification',
       'tray:open-settings',
       'meeting:detected',
+      // Fired once after a resumed session preloads the STT provider with
+      // the earlier sitting, so the overlay transcript shows it too.
+      'transcription:seeded',
       'recall:meeting-detected',
       'recall:meeting-closed',
       'recall:participant-joined',

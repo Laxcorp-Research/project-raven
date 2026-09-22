@@ -312,6 +312,26 @@ export function OverlayWindow() {
         activeResponseIdRef.current = null
         setHoveredMessageId(null)
         setPreviewMessageId(null)
+      } else if (data.type === 'restored') {
+        // A saved session was resumed: replace whatever is on screen with
+        // the earlier sitting's answers so the user can scroll back to them.
+        clearWatchdog()
+        requestInFlightRef.current = false
+        setIsLoadingResponse(false)
+        setLimitInfo(null)
+        setActiveResponseId(null)
+        activeResponseIdRef.current = null
+        setHoveredMessageId(null)
+        setPreviewMessageId(null)
+        setResponses(
+          (data.restoredResponses ?? []).map((r) => ({
+            id: r.id,
+            content: r.response,
+            action: r.action === 'custom' && r.userMessage.trim() ? r.userMessage.trim() : getActionLabel(r.action),
+            badgeVariant: r.action === 'custom' && r.userMessage.trim() ? 'custom' : 'quick',
+            hasScreenshot: false,
+          })),
+        )
       }
     })
 

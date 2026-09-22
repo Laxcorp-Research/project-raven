@@ -6,6 +6,12 @@ import { createLogger } from '../../lib/logger'
 import { isPlaceholderSessionTitle } from '../../../../shared/sessionDisplay'
 import { parseActionItems, type ActionItem } from '../../../../shared/actionItems'
 import { computeTalkRatio } from '../../../../shared/talkRatio'
+import {
+  findSegmentBreaks,
+  parseSessionSegments,
+  wasResumed,
+  type SessionSegment,
+} from '../../../../shared/sessionSegments'
 
 const log = createLogger('SessionDetail')
 
@@ -26,6 +32,7 @@ interface SessionDetailData {
   insightsJson?: string | null
   actionItemsJson?: string | null
   followUpEmail?: string | null
+  segmentsJson?: string | null
   durationSeconds: number
   startedAt: number
   modeId: string | null
@@ -43,13 +50,17 @@ interface SessionDetailProps {
   session: SessionDetailData
   onBack: () => void
   onUpdateTitle?: (sessionId: string, newTitle: string) => void
+  /** Whether any recording is running; Resume is hidden while one is. */
+  isRecording?: boolean
+  /** Id of the session currently being recorded into, if any. */
+  activeSessionId?: string | null
 }
 
 type Tab = 'summary' | 'transcript' | 'usage' | 'insights' | 'ask'
 
 const MAX_TITLE_LENGTH = 200
 
-export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailProps) {
+export function SessionDetail({ session, onBack, onUpdateTitle, isRecording = false, activeSessionId = null }: SessionDetailProps) {
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [currentInsightsJson, setCurrentInsightsJson] = useState<string | null>(session.insightsJson ?? null)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -376,11 +387,29 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
               </svg>
               <span className="text-sm">Back</span>
             </button>
-            <ExportMenu sessionId={session.id} disabled={!hasTranscript && !session.summary} />
+            <div className="flex items-center gap-2">
+              {isRecording && activeSessionId === session.id ? (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 px-2.5 py-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  Recording into this session
+                </span>
+              ) : (
+                <ResumeSessionButton sessionId={session.id} disabled={isRecording} />
+              )}
+              <ExportMenu sessionId={session.id} disabled={!hasTranscript && !session.summary} />
+            </div>
           </div>
 
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <p className="text-sm text-gray-500">{formatDate(session.startedAt)}</p>
+            {wasResumed(session.segmentsJson) && (
+              <span
+                className="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2 py-0.5"
+                title="This session was recorded in more than one sitting"
+              >
+                {parseSessionSegments(session.segmentsJson).length} sittings
+              </span>
+            )}
             <TalkRatioChip transcript={session.transcript} />
           </div>
 
@@ -548,7 +577,11 @@ export function SessionDetail({ session, onBack, onUpdateTitle }: SessionDetailP
                     />
                   )}
                   {activeTab === 'transcript' && (
-                    <TranscriptTab transcript={session.transcript} displayName={displayName} />
+                    <TranscriptTab
+                      transcript={session.transcript}
+                      displayName={displayName}
+                      segments={parseSessionSegments(session.segmentsJson)}
+                    />
                   )}
                   {activeTab === 'usage' && (
                     <UsageTab messages={messages} loading={loadingMessages} />
@@ -863,6 +896,71 @@ function FollowupDraft({ sessionId, initialDraft }: { sessionId: string; initial
         </div>
       )}
       {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+    </div>
+  )
+}
+
+/**
+ * Continue recording into this saved session. Everything already in it
+ * (transcript, answers, notes) carries over and Assist is handed the
+ * earlier sitting's memory; see sessionManager.resumeSession.
+ */
+function ResumeSessionButton({ sessionId, disabled }: { sessionId: string; disabled: boolean }) {
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleResume = async () => {
+    if (starting || disabled) return
+    setStarting(true)
+    setError(null)
+    try {
+      // Same as the dashboard's Start: the overlay is where the "Session
+      // resumed" notice, the replayed answers and Assist live.
+      await window.raven.windowShowOverlay()
+      const micId = await window.raven.storeGet('selectedMicrophone')
+      const result = await window.raven.audioStartRecording(
+        typeof micId === 'string' && micId ? micId : undefined,
+        { resumeSessionId: sessionId },
+      )
+      if (!result?.success) {
+        setError(result?.error?.trim() || 'Could not resume this session.')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not resume this session.')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={handleResume}
+        disabled={disabled || starting}
+        title={disabled ? 'Stop the current recording first' : 'Continue recording into this session'}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {starting ? (
+          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+        ) : (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        )}
+        Resume
+      </button>
+      {error && (
+        <div
+          role="alert"
+          className="absolute right-0 top-full mt-1 z-10 w-64 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 shadow-sm"
+        >
+          {error}
+        </div>
+      )}
     </div>
   )
 }
@@ -1184,18 +1282,36 @@ function SessionAskChat({ sessionId, initial }: { sessionId: string; initial: As
   )
 }
 
-function TranscriptTab({ transcript, displayName }: { transcript: TranscriptEntry[]; displayName: string }) {
+function TranscriptTab({
+  transcript,
+  displayName,
+  segments = [],
+}: {
+  transcript: TranscriptEntry[]
+  displayName: string
+  segments?: SessionSegment[]
+}) {
   if (!transcript || transcript.length === 0) {
     return <p className="text-gray-400 text-lg">No transcript available</p>
   }
 
   const userName = displayName || 'You'
   const utterances = parseTranscript(transcript, userName)
+  const breaks = findSegmentBreaks(utterances.map((u) => u.at), segments)
 
   return (
     <div className="space-y-4">
       {utterances.map((utterance, index) => (
         <div key={index}>
+          {breaks.has(index) && (
+            <div className="flex items-center gap-3 py-3" role="separator">
+              <div className="flex-1 border-t border-dashed border-gray-300" />
+              <span className="text-xs font-medium text-gray-500">
+                Resumed {formatResumedAt(breaks.get(index)!.startedAt)}
+              </span>
+              <div className="flex-1 border-t border-dashed border-gray-300" />
+            </div>
+          )}
           <div className="flex items-center gap-2 mb-1">
             <span className={`text-sm font-medium ${
               utterance.isUser ? 'text-blue-600' : 'text-gray-500'
@@ -1271,6 +1387,8 @@ interface Utterance {
   speaker: string
   isUser: boolean
   timestamp?: string
+  /** Raw entry time (ms), used to place resume dividers. */
+  at: number
   text: string
 }
 
@@ -1281,8 +1399,20 @@ function parseTranscript(transcript: TranscriptEntry[], userName: string): Utter
       speaker: entry.source === 'mic' ? userName : (entry.speakerName || 'Them'),
       isUser: entry.source === 'mic',
       timestamp: formatTimestamp(entry.timestamp),
+      at: entry.timestamp,
       text: entry.text.trim(),
     }))
+}
+
+function formatResumedAt(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
 }
 
 function formatTimestamp(timestamp: number): string {

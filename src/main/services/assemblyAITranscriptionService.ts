@@ -413,6 +413,26 @@ export class AssemblyAITranscriptionService {
     this.systemState.currentInterim = ''
   }
 
+  /**
+   * Preload a resumed session's saved transcript (see
+   * TranscriptionService.seedTranscript; same contract).
+   */
+  seedTranscript(entries: ReadonlyArray<{ id: string; source: AudioSource; text: string; timestamp: number; isFinal: boolean }>): void {
+    this.transcriptEntries = entries
+      .filter((e) => e.isFinal && e.text.trim())
+      .map((e): TranscriptEntry => ({
+        id: e.id,
+        source: e.source,
+        text: e.text,
+        speaker: e.source === 'mic' ? 'you' : 'them',
+        timestamp: e.timestamp,
+        isFinal: true,
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp)
+    this.micState.currentInterim = ''
+    this.systemState.currentInterim = ''
+  }
+
   private getFullTranscriptText(): string {
     const displayName = (getSetting('displayName') as string) || 'You'
     return this.transcriptEntries
