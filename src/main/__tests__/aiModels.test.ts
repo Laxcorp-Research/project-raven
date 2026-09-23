@@ -72,11 +72,15 @@ describe('AI model catalog (2026-08)', () => {
     expect(effortLevelsForModel('anthropic', 'claude-opus-4-5')).toEqual([
       'low', 'medium', 'high',
     ])
+    // Live probe (Sep 2026): all three 5.6 models return 400 for 'max'.
     expect(effortLevelsForModel('openai', 'gpt-5.6-sol')).toEqual([
-      'none', 'low', 'medium', 'high', 'xhigh', 'max',
+      'none', 'low', 'medium', 'high', 'xhigh',
     ])
     expect(effortLevelsForModel('openai', 'gpt-5.6-luna')).toEqual([
-      'none', 'low', 'medium', 'high', 'xhigh', 'max',
+      'none', 'low', 'medium', 'high', 'xhigh',
+    ])
+    expect(effortLevelsForModel('openai', 'gpt-5.6-terra')).toEqual([
+      'none', 'low', 'medium', 'high', 'xhigh',
     ])
     expect(effortLevelsForModel('openai', 'gpt-5.5')).toEqual([
       'none', 'low', 'medium', 'high', 'xhigh',
@@ -98,6 +102,11 @@ describe('AI model catalog (2026-08)', () => {
     expect(resolveEffort('anthropic', 'claude-opus-4-5', 'max')).toBe('low')
     expect(resolveEffort('openai', 'gpt-5.5', 'max')).toBe('low')
     expect(resolveEffort('openai', 'gpt-5.2', 'max')).toBe('low')
+    // A user who picked Max on 5.6 before this fix must fall back to a
+    // level the API accepts instead of getting a 400 on every request.
+    expect(resolveEffort('openai', 'gpt-5.6-luna', 'max')).toBe('low')
+    expect(buildOpenAIEffortParams('gpt-5.6-luna', 'max')).toEqual({ reasoning_effort: 'low' })
+    expect(buildOpenAIEffortParams('gpt-5.6-terra', 'xhigh')).toEqual({ reasoning_effort: 'xhigh' })
     expect(resolveEffort('anthropic', 'claude-sonnet-5', 'max')).toBe('max')
     expect(resolveEffort('openai', 'gpt-5.4', 'xhigh')).toBe('xhigh')
     expect(resolveEffort('anthropic', 'claude-haiku-4-5', 'high')).toBeNull()

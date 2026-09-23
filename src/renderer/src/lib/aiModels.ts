@@ -12,8 +12,9 @@ export interface ModelOption {
 const ANTHROPIC_FULL: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const ANTHROPIC_NO_XHIGH: EffortLevel[] = ['low', 'medium', 'high', 'max']
 const ANTHROPIC_OPUS_45: EffortLevel[] = ['low', 'medium', 'high']
-const OPENAI_56: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max']
-const OPENAI_PRE56: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh']
+// Every GPT-5.x model accepts none/low/medium/high/xhigh; `max` is
+// Anthropic-only (the API returns 400 for it on all three 5.6 models).
+const OPENAI_GPT5: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh']
 
 export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
   anthropic: [
@@ -29,13 +30,13 @@ export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
     { id: 'claude-fable-5', label: 'Claude Fable 5', effort: ANTHROPIC_FULL },
   ],
   openai: [
-    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', effort: OPENAI_56 },
-    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', effort: OPENAI_56 },
-    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', effort: OPENAI_56 },
-    { id: 'gpt-5.5', label: 'GPT-5.5', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.4', label: 'GPT-5.4', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.2', label: 'GPT-5.2', effort: OPENAI_PRE56 },
+    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.5', label: 'GPT-5.5', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.4', label: 'GPT-5.4', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.2', label: 'GPT-5.2', effort: OPENAI_GPT5 },
   ],
 }
 
