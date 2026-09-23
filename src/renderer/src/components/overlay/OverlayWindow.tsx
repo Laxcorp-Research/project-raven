@@ -324,13 +324,19 @@ export function OverlayWindow() {
         setHoveredMessageId(null)
         setPreviewMessageId(null)
         setResponses(
-          (data.restoredResponses ?? []).map((r) => ({
-            id: r.id,
-            content: r.response,
-            action: r.action === 'custom' && r.userMessage.trim() ? r.userMessage.trim() : getActionLabel(r.action),
-            badgeVariant: r.action === 'custom' && r.userMessage.trim() ? 'custom' : 'quick',
-            hasScreenshot: false,
-          })),
+          (data.restoredResponses ?? []).map((r) => {
+            // Sessions saved before userMessage existed on AI responses
+            // resume with it undefined; fall back to the action label.
+            const asked = (r.userMessage ?? '').trim()
+            const isCustom = r.action === 'custom' && asked.length > 0
+            return {
+              id: r.id,
+              content: r.response ?? '',
+              action: isCustom ? asked : getActionLabel(r.action),
+              badgeVariant: isCustom ? 'custom' : 'quick',
+              hasScreenshot: false,
+            }
+          }),
         )
       }
     })
