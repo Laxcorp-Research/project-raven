@@ -197,32 +197,52 @@ export async function validateBothKeys(
   return { valid: true }
 }
 
+/**
+ * Validate every key the Settings screen holds in one call. `extras.openaiKey`
+ * validates a second LLM key alongside the Anthropic one, because the IPC
+ * channel has a cooldown and a separate call for it would be throttled.
+ */
 export async function validateKeys(
   deepgramKey: string,
   aiProvider: 'anthropic' | 'openai',
-  aiKey: string
-): Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string }> {
+  aiKey: string,
+  extras?: { openaiKey?: string },
+): Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; openaiError?: string }> {
   const aiValidation = aiProvider === 'openai'
     ? validateOpenAIKey(aiKey)
     : validateAnthropicKey(aiKey)
 
-  const [deepgramResult, aiResult] = await Promise.all([
-    deepgramKey ? validateDeepgramKey(deepgramKey) : Promise.resolve({ valid: true as const }),
-    aiValidation
+  // Only meaningful when the primary provider is Anthropic; an OpenAI
+  // primary already validates that key as aiKey.
+  const secondaryOpenaiKey = aiProvider === 'anthropic' ? extras?.openaiKey?.trim() : undefined
+
+  const ok = Promise.resolve({ valid: true as const })
+  const [deepgramResult, aiResult, openaiResult] = await Promise.all([
+    deepgramKey ? validateDeepgramKey(deepgramKey) : ok,
+    aiValidation,
+    secondaryOpenaiKey ? validateOpenAIKey(secondaryOpenaiKey) : ok,
   ])
 
+  const aiName = aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'
   const deepgramError = deepgramResult.valid ? undefined : (deepgramResult.error || 'Invalid Deepgram key.')
-  const aiError = aiResult.valid ? undefined : (aiResult.error || `Invalid ${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} key.`)
+  const aiError = aiResult.valid ? undefined : (aiResult.error || `Invalid ${aiName} key.`)
+  const openaiError = openaiResult.valid ? undefined : (openaiResult.error || 'Invalid OpenAI key.')
 
-  if (deepgramError || aiError) {
-    const invalidKeys = [
-      deepgramError ? 'Deepgram' : null,
-      aiError ? (aiProvider === 'openai' ? 'OpenAI' : 'Anthropic') : null,
-    ].filter(Boolean)
-    const error = deepgramError && aiError
-      ? `Invalid ${invalidKeys.join(', ')} keys.`
-      : (aiError || deepgramError) as string
-    return { valid: false, error, deepgramError, aiError }
+  if (deepgramError || aiError || openaiError) {
+    const failures: Array<{ name: string; error: string }> = []
+    if (deepgramError) failures.push({ name: 'Deepgram', error: deepgramError })
+    if (aiError) failures.push({ name: aiName, error: aiError })
+    if (openaiError) failures.push({ name: 'OpenAI', error: openaiError })
+    const error = failures.length > 1
+      ? `Invalid ${failures.map((f) => f.name).join(', ')} keys.`
+      : failures[0].error
+    return {
+      valid: false,
+      error,
+      deepgramError,
+      aiError,
+      ...(secondaryOpenaiKey ? { openaiError } : {}),
+    }
   }
 
   return { valid: true }

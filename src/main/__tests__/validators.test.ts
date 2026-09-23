@@ -352,6 +352,67 @@ describe('validateKeys', () => {
     expect(result.error).toBe('Invalid OpenAI API key.')
   })
 
+  // The Settings screen used to validate Anthropic, then fire a second
+  // validate-keys call for OpenAI; the channel's 2s cooldown threw that
+  // second call away and the OpenAI key could never be saved next to an
+  // Anthropic one. Both keys now travel in one call.
+  describe('secondary OpenAI key in the same call', () => {
+    const okFor = (failing: string[]) => vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(failing.some((f) => url.includes(f)) ? { ok: false, status: 401 } : { ok: true, status: 200 }),
+    )
+
+    it('validates Anthropic and OpenAI together and passes when both are good', async () => {
+      const mockFetch = okFor([])
+      vi.stubGlobal('fetch', mockFetch)
+
+      const result = await validateKeys('dg-key', 'anthropic', 'ant-key', { openaiKey: 'sk-openai' })
+
+      expect(result).toEqual({ valid: true })
+      const urls = mockFetch.mock.calls.map((c) => c[0] as string)
+      expect(urls.some((u) => u.includes('api.openai.com'))).toBe(true)
+      expect(urls.some((u) => u.includes('api.anthropic.com'))).toBe(true)
+    })
+
+    it('reports a bad OpenAI key as openaiError without blaming Anthropic', async () => {
+      vi.stubGlobal('fetch', okFor(['openai']))
+
+      const result = await validateKeys('dg-key', 'anthropic', 'ant-key', { openaiKey: 'sk-bad' })
+
+      expect(result.valid).toBe(false)
+      expect(result.aiError).toBeUndefined()
+      expect(result.openaiError).toBe('Invalid OpenAI API key.')
+      expect(result.error).toBe('Invalid OpenAI API key.')
+    })
+
+    it('names every failing provider when more than one fails', async () => {
+      vi.stubGlobal('fetch', okFor(['deepgram', 'openai']))
+
+      const result = await validateKeys('dg-bad', 'anthropic', 'ant-key', { openaiKey: 'sk-bad' })
+
+      expect(result.valid).toBe(false)
+      expect(result.error).toBe('Invalid Deepgram, OpenAI keys.')
+    })
+
+    it('ignores extras when the primary provider is already OpenAI (no duplicate request)', async () => {
+      const mockFetch = okFor([])
+      vi.stubGlobal('fetch', mockFetch)
+
+      const result = await validateKeys('', 'openai', 'sk-openai', { openaiKey: 'sk-openai' })
+
+      expect(result).toEqual({ valid: true })
+      expect(mockFetch.mock.calls.filter((c) => (c[0] as string).includes('api.openai.com'))).toHaveLength(1)
+    })
+
+    it('omits openaiError entirely when no secondary key was supplied', async () => {
+      vi.stubGlobal('fetch', okFor(['anthropic']))
+
+      const result = await validateKeys('', 'anthropic', 'ant-bad')
+
+      expect(result.valid).toBe(false)
+      expect(result).not.toHaveProperty('openaiError')
+    })
+  })
+
   it('skips Deepgram when the key is empty so Assembly-only setups can validate the LLM key', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 })
     vi.stubGlobal('fetch', mockFetch)

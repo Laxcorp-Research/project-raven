@@ -80,38 +80,33 @@ export function ApiKeysTab() {
     try {
       const firstProvider = anthropicKey.trim() ? 'anthropic' : 'openai'
       const firstKey = anthropicKey.trim() || openaiKey.trim()
-      const result = await window.raven.validateKeys(deepgramKey.trim(), firstProvider, firstKey)
+      // Both LLM keys go in a single call; the channel has a 2s cooldown.
+      const hasSecondaryOpenai = firstProvider === 'anthropic' && openaiKey.trim().length > 0
+      const result = await window.raven.validateKeys(
+        deepgramKey.trim(),
+        firstProvider,
+        firstKey,
+        hasSecondaryOpenai ? { openaiKey: openaiKey.trim() } : undefined,
+      )
       if ('throttled' in result && result.throttled) {
+        // Nothing was checked; don't leave spinners running.
+        if (deepgramKey.trim()) setDeepgramStatus('idle')
+        if (anthropicKey.trim()) setAnthropicStatus('idle')
+        if (openaiKey.trim()) setOpenaiStatus('idle')
         setSaveMessage({ type: 'error', text: 'Please wait a moment and try again.' })
         return false
       }
       if (!result.valid) {
-        if (result.deepgramError) setDeepgramStatus('invalid')
-        else if (deepgramKey.trim()) setDeepgramStatus('idle')
-        if (result.aiError) {
-          if (firstProvider === 'openai') setOpenaiStatus('invalid')
-          else setAnthropicStatus('invalid')
-        }
+        if (deepgramKey.trim()) setDeepgramStatus(result.deepgramError ? 'invalid' : 'valid')
+        if (firstProvider === 'anthropic') setAnthropicStatus(result.aiError ? 'invalid' : 'valid')
+        if (firstProvider === 'openai') setOpenaiStatus(result.aiError ? 'invalid' : 'valid')
+        if (hasSecondaryOpenai) setOpenaiStatus(result.openaiError ? 'invalid' : 'valid')
         setSaveMessage({ type: 'error', text: result.error || 'Invalid API keys' })
         return false
       }
       if (deepgramKey.trim()) setDeepgramStatus('valid')
       if (firstProvider === 'anthropic') setAnthropicStatus('valid')
-      if (firstProvider === 'openai') setOpenaiStatus('valid')
-
-      if (anthropicKey.trim() && openaiKey.trim()) {
-        const openaiResult = await window.raven.validateKeys('', 'openai', openaiKey.trim())
-        if ('throttled' in openaiResult && openaiResult.throttled) {
-          setSaveMessage({ type: 'error', text: 'Please wait a moment and try again.' })
-          return false
-        }
-        if (!openaiResult.valid) {
-          setOpenaiStatus('invalid')
-          setSaveMessage({ type: 'error', text: openaiResult.error || 'Invalid OpenAI key' })
-          return false
-        }
-        setOpenaiStatus('valid')
-      }
+      if (firstProvider === 'openai' || hasSecondaryOpenai) setOpenaiStatus('valid')
 
       if (assemblyKey.trim()) {
         setAssemblyStatus('validating')

@@ -780,6 +780,27 @@ describe('IPC Handlers (registerIpcHandlers)', () => {
       const result = await handlers['validate-keys'](fakeEvent(), 'dg-key', 'openai', 'sk-key')
 
       expect(result).toEqual({ valid: true })
+      expect(mockValidateKeys).toHaveBeenCalledWith('dg-key', 'openai', 'sk-key', undefined)
+    })
+
+    it('passes a secondary OpenAI key through so both LLM keys validate in one cooldown window', async () => {
+      mockValidateKeys.mockResolvedValue({ valid: true })
+
+      await handlers['validate-keys'](fakeEvent(), 'dg-key', 'anthropic', 'ant-key', { openaiKey: 'sk-openai' })
+
+      expect(mockValidateKeys).toHaveBeenCalledWith('dg-key', 'anthropic', 'ant-key', { openaiKey: 'sk-openai' })
+    })
+
+    it('rejects a non-string or oversized secondary key like the other key handlers (assertString)', async () => {
+      mockValidateKeys.mockResolvedValue({ valid: true })
+
+      await expect(
+        handlers['validate-keys'](fakeEvent(), 'dg-key', 'anthropic', 'ant-key', { openaiKey: 42 }),
+      ).rejects.toThrow('openaiKey must be a string')
+      await expect(
+        handlers['validate-keys'](fakeEvent(), 'dg-key', 'anthropic', 'ant-key', { openaiKey: 'x'.repeat(600) }),
+      ).rejects.toThrow('openaiKey exceeds max length')
+      expect(mockValidateKeys).not.toHaveBeenCalled()
     })
   })
 
