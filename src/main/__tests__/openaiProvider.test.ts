@@ -29,6 +29,39 @@ describe('OpenAIProvider', () => {
     expect(provider.name).toBe('openai')
   })
 
+  // Issue #30: GPT-5.x returns 400 "Unsupported parameter: 'max_tokens' is
+  // not supported with this model. Use 'max_completion_tokens' instead."
+  // Every model in the catalog is GPT-5.x, so any request carrying the
+  // legacy key fails for every OpenAI user.
+  describe('never sends the legacy max_tokens parameter (issue #30)', () => {
+    it('streamResponse sends max_completion_tokens and no max_tokens', async () => {
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {},
+      })
+
+      await provider.streamResponse(
+        { system: 'Test', messages: [{ role: 'user', content: 'Hi' }], maxTokens: 256 },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+
+      const payload = mockCreate.mock.calls[0][0] as Record<string, unknown>
+      expect(payload).not.toHaveProperty('max_tokens')
+      expect(payload.max_completion_tokens).toBe(256)
+    })
+
+    it('generateShort sends max_completion_tokens and no max_tokens', async () => {
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'ok' } }],
+      })
+
+      await provider.generateShort({ prompt: 'title please' })
+
+      const payload = mockCreate.mock.calls[0][0] as Record<string, unknown>
+      expect(payload).not.toHaveProperty('max_tokens')
+      expect(payload.max_completion_tokens).toBe(128000)
+    })
+  })
+
   describe('generateShort', () => {
     it('returns trimmed text from API response', async () => {
       mockCreate.mockResolvedValueOnce({
@@ -43,7 +76,7 @@ describe('OpenAIProvider', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'gpt-5.2',
-          max_tokens: 128000,
+          max_completion_tokens: 128000,
           messages: [{ role: 'user', content: 'Generate something' }],
         })
       )
@@ -62,7 +95,7 @@ describe('OpenAIProvider', () => {
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          max_tokens: 128000,
+          max_completion_tokens: 128000,
           messages: [
             { role: 'system', content: 'Be concise' },
             { role: 'user', content: 'Test' },
@@ -90,17 +123,28 @@ describe('OpenAIProvider', () => {
     })
 
     it('sends the selected reasoning_effort on generateShort with the model max output', async () => {
-      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'max')
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'xhigh')
       mockCreate.mockResolvedValueOnce({
         choices: [{ message: { content: 'ok' } }],
       })
       await provider.generateShort({ prompt: 'summarize', maxTokens: 2000 })
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          max_tokens: 128000,
-          reasoning_effort: 'max',
+          max_completion_tokens: 128000,
+          reasoning_effort: 'xhigh',
         }),
       )
+    })
+
+    it('never sends effort max to a GPT-5.6 model (the API returns 400 for it)', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'max')
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'ok' } }],
+      })
+      await provider.generateShort({ prompt: 'summarize' })
+      const payload = mockCreate.mock.calls[0][0] as Record<string, unknown>
+      expect(payload.reasoning_effort).not.toBe('max')
+      expect(['none', 'low', 'medium', 'high', 'xhigh']).toContain(payload.reasoning_effort)
     })
 
     it('propagates API errors', async () => {
@@ -166,12 +210,12 @@ describe('OpenAIProvider', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           stream: true,
-          max_tokens: 512,
+          max_completion_tokens: 512,
         })
       )
     })
 
-    it('defaults omitted max_tokens to the official 128k model max', async () => {
+    it('defaults omitted maxTokens to the official 128k model max', async () => {
       mockCreate.mockResolvedValueOnce({
         [Symbol.asyncIterator]: async function* () {},
       })
@@ -182,7 +226,7 @@ describe('OpenAIProvider', () => {
       )
 
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ max_tokens: 128000 })
+        expect.objectContaining({ max_completion_tokens: 128000 })
       )
     })
 

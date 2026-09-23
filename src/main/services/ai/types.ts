@@ -52,12 +52,14 @@ export interface ModelOption {
 //   max: Fable 5, Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5, Sonnet 4.6
 //   xhigh: Fable 5, Opus 5, Opus 4.8, Opus 4.7, Sonnet 5 (not 4.6 / Opus 4.6 / Opus 4.5)
 //   Opus 4.5: low/medium/high only. Haiku 4.5 and Sonnet 4.5: no effort API.
-// OpenAI model pages: GPT-5.6 adds `max`; 5.5 / 5.4 / 5.4-mini / 5.2 stop at `xhigh`.
+// OpenAI: every GPT-5.x model (5.6 Luna/Terra/Sol, 5.5, 5.4, 5.4-mini, 5.2)
+// accepts none/low/medium/high/xhigh. `max` is Anthropic-only; the API
+// answers 400 "'reasoning_effort' does not support 'max'" on all three 5.6
+// models (verified live, Sep 2026).
 const ANTHROPIC_FULL: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const ANTHROPIC_NO_XHIGH: EffortLevel[] = ['low', 'medium', 'high', 'max'];
 const ANTHROPIC_OPUS_45: EffortLevel[] = ['low', 'medium', 'high'];
-const OPENAI_56: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
-const OPENAI_PRE56: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+const OPENAI_GPT5: EffortLevel[] = ['none', 'low', 'medium', 'high', 'xhigh'];
 
 export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
   anthropic: [
@@ -73,13 +75,13 @@ export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
     { id: 'claude-fable-5', label: 'Claude Fable 5', effort: ANTHROPIC_FULL },
   ],
   openai: [
-    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', effort: OPENAI_56 },
-    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', effort: OPENAI_56 },
-    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', effort: OPENAI_56 },
-    { id: 'gpt-5.5', label: 'GPT-5.5', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.4', label: 'GPT-5.4', effort: OPENAI_PRE56 },
-    { id: 'gpt-5.2', label: 'GPT-5.2', effort: OPENAI_PRE56 },
+    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.5', label: 'GPT-5.5', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.4', label: 'GPT-5.4', effort: OPENAI_GPT5 },
+    { id: 'gpt-5.2', label: 'GPT-5.2', effort: OPENAI_GPT5 },
   ],
 };
 

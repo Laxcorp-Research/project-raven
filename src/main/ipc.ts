@@ -173,9 +173,10 @@ export function registerIpcHandlers(): void {
 
   cooldownHandle(
     'validate-keys', 2000,
-    async (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => {
+    async (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string, extras?: { openaiKey?: string }) => {
+      if (extras?.openaiKey !== undefined) assertString(extras.openaiKey, 'openaiKey', 500)
       const { validateKeys } = await import('./validators')
-      return validateKeys(deepgramKey, aiProvider, aiKey)
+      return validateKeys(deepgramKey, aiProvider, aiKey, extras?.openaiKey ? { openaiKey: extras.openaiKey } : undefined)
     }
   )
 

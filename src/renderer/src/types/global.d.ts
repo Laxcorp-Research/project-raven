@@ -86,7 +86,12 @@ declare global {
         error?: string;
       } | null>;
       validateApiKeys: (deepgramKey: string, anthropicKey: string) => Promise<{ valid: boolean; error?: string }>;
-      validateKeys: (deepgramKey: string, aiProvider: 'anthropic' | 'openai', aiKey: string) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; throttled?: boolean }>;
+      validateKeys: (
+        deepgramKey: string,
+        aiProvider: 'anthropic' | 'openai',
+        aiKey: string,
+        extras?: { openaiKey?: string },
+      ) => Promise<{ valid: boolean; error?: string; deepgramError?: string; aiError?: string; openaiError?: string; throttled?: boolean }>;
       validateAssemblyAIKey: (apiKey: string) => Promise<{ valid: boolean; error?: string }>;
       validateRecallKey: (apiKey: string, apiUrl?: string) => Promise<{ valid: boolean; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;
