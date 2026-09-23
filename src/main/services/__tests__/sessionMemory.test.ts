@@ -4,15 +4,19 @@ import {
   buildMemoryUpdatePrompt,
   buildPinnedSystemBlock,
   buildReplayMessages,
+  buildResumedMemory,
   buildTranscriptBlock,
   captureOpeningTranscript,
   createEmptyMemory,
   digestUserTurn,
   MEMORY_UPDATE_PROMPT,
   openingStillVisible,
+  parseStoredSessionMemory,
   pinOpeningIfNeeded,
   pinUserQuestion,
   selectRecentTurns,
+  serializeSessionMemory,
+  stripResumedNote,
   shouldRefreshMemory,
   shiftMemoryAfterTrim,
   transcriptDeltaForMemory,
@@ -240,5 +244,152 @@ describe('memory update prompt (Anthropic cookbook shape)', () => {
     expect(sliced).toContain('unique-opening-token')
     expect(sliced).toContain('unique-closing-token')
     expect(sliced.length).toBeLessThan(delta.length)
+  })
+})
+
+describe('resumed-session memory (yesterday must survive a restart)', () => {
+  const YESTERDAY = Date.UTC(2026, 8, 21, 10, 0, 0)
+  const TODAY = YESTERDAY + 23 * 3600 * 1000
+
+  it('serialize -> parse round-trips text, opening and pins, and resets conversation indices', () => {
+    const memory = {
+      text: '## User Intent\nLRU cache\n\n## Meeting Facts\nAcme',
+      openingTranscript: 'Them: Implement LRU cache',
+      userPins: ['what is the time complexity?'],
+      throughMessageIndex: 6,
+      lastTranscriptLength: 9_000,
+    }
+    const json = serializeSessionMemory(memory)
+    expect(json).not.toBeNull()
+    const parsed = parseStoredSessionMemory(json)
+    expect(parsed).toEqual({
+      text: memory.text,
+      openingTranscript: memory.openingTranscript,
+      userPins: memory.userPins,
+      throughMessageIndex: 0,
+      lastTranscriptLength: 0,
+    })
+  })
+
+  it('serializes to null when Assist was never used, so the column stays NULL', () => {
+    expect(serializeSessionMemory(createEmptyMemory())).toBeNull()
+  })
+
+  it('parse tolerates garbage and partial shapes', () => {
+    expect(parseStoredSessionMemory(null)).toBeNull()
+    expect(parseStoredSessionMemory('not json')).toBeNull()
+    expect(parseStoredSessionMemory('[1,2]')).toEqual({
+      text: '', openingTranscript: '', userPins: [], throughMessageIndex: 0, lastTranscriptLength: 0,
+    })
+    expect(parseStoredSessionMemory('{"text":"## A\\n## B","userPins":["q", 7, null]}')?.userPins).toEqual(['q'])
+  })
+
+  it('prefers the earlier sitting\'s Assist memory and leads with a resumed note', () => {
+    const memory = buildResumedMemory({
+      storedMemoryJson: JSON.stringify({
+        text: '## Problem / Interview Task\nDesign a rate limiter\n\n## Errors & Corrections\nInterviewer rejected token bucket',
+        openingTranscript: 'Them: Design a rate limiter',
+        userPins: ['sliding window vs fixed?'],
+      }),
+      summary: 'A summary that should NOT be used when memory exists',
+      actionItems: [],
+      title: 'Infra interview',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+    })
+    expect(memory.text.startsWith('## Resumed Session')).toBe(true)
+    expect(memory.text).toContain('"Infra interview"')
+    expect(memory.text).toContain('Interviewer rejected token bucket')
+    expect(memory.text).not.toContain('should NOT be used')
+    expect(memory.openingTranscript).toBe('Them: Design a rate limiter')
+    expect(memory.userPins).toEqual(['sliding window vs fixed?'])
+    expect(memory.throughMessageIndex).toBe(0)
+    expect(memory.lastTranscriptLength).toBe(0)
+  })
+
+  it('falls back to the stored summary and action items when Assist was never used', () => {
+    const memory = buildResumedMemory({
+      storedMemoryJson: null,
+      summary: 'Covered the candidate\'s background and one system design question.',
+      actionItems: [
+        { task: 'Send the take-home', assignee: 'Priya', deadline: 'Friday' },
+        { task: 'Share the JD', assignee: null, deadline: null },
+      ],
+      title: 'Infra interview',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+    })
+    expect(memory.text).toContain('## Resumed Session')
+    expect(memory.text).toContain('## Earlier Sitting Summary')
+    expect(memory.text).toContain('one system design question')
+    expect(memory.text).toContain('## Action Items From Earlier Sitting')
+    expect(memory.text).toContain('- Send the take-home (Priya) - due Friday')
+    expect(memory.text).toContain('- Share the JD')
+    expect(memory.openingTranscript).toBe('')
+    expect(memory.userPins).toEqual([])
+  })
+
+  it('a third sitting replaces the previous resumed note instead of stacking a second one', () => {
+    const second = buildResumedMemory({
+      storedMemoryJson: JSON.stringify({
+        text: '## Problem / Interview Task\nRate limiter\n\n## Meeting Facts\nAcme',
+        openingTranscript: '',
+        userPins: [],
+      }),
+      summary: null,
+      actionItems: [],
+      title: 'Infra interview',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+    })
+    // What the app would have persisted after sitting two, then resume again.
+    const third = buildResumedMemory({
+      storedMemoryJson: serializeSessionMemory(second),
+      summary: null,
+      actionItems: [],
+      title: 'Infra interview',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY + 24 * 3600 * 1000,
+    })
+    expect(third.text.match(/## Resumed Session/g)).toHaveLength(1)
+    expect(third.text).toContain('Rate limiter')
+    expect(third.text).toContain('Acme')
+  })
+
+  it('stripResumedNote removes only the resumed section, wherever it sits', () => {
+    expect(stripResumedNote('## Resumed Session\nnote\n\n## A\na\n\n## B\nb')).toBe('## A\na\n\n## B\nb')
+    expect(stripResumedNote('## A\na\n\n## Resumed Session\nnote')).toBe('## A\na')
+    expect(stripResumedNote('## A\na')).toBe('## A\na')
+    expect(stripResumedNote('')).toBe('')
+  })
+
+  it('still tells the model it is a continuation when there are no notes at all', () => {
+    const memory = buildResumedMemory({
+      storedMemoryJson: null,
+      summary: null,
+      actionItems: [],
+      title: '',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+    })
+    expect(memory.text).toContain('## Resumed Session')
+    expect(memory.text).toContain('"Untitled session"')
+    expect(memory.text).toContain('## Earlier Sitting')
+    expect(memory.text).toContain('No notes exist')
+  })
+
+  it('the resumed memory lands in the <session_memory> system block on the first Assist', () => {
+    const memory = buildResumedMemory({
+      storedMemoryJson: null,
+      summary: 'Yesterday we covered LRU cache design.',
+      actionItems: [],
+      title: 'Interview',
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+    })
+    const block = buildPinnedSystemBlock(memory, 'Them: welcome back')
+    expect(block).toContain('<session_memory>')
+    expect(block).toContain('LRU cache design')
+    expect(block).toContain('## Resumed Session')
   })
 })

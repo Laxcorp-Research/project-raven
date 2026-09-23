@@ -53,6 +53,116 @@ export function createEmptyMemory(): SessionMemory {
   };
 }
 
+/**
+ * Serialize memory for storage against the session. Returns null when there
+ * is nothing worth keeping so the column stays NULL for sessions where
+ * Assist was never used.
+ */
+export function serializeSessionMemory(memory: SessionMemory): string | null {
+  const hasContent = memory.text.trim() || memory.openingTranscript.trim() || memory.userPins.length > 0;
+  if (!hasContent) return null;
+  return JSON.stringify({
+    text: memory.text,
+    openingTranscript: memory.openingTranscript,
+    userPins: memory.userPins,
+  });
+}
+
+export function parseStoredSessionMemory(json: string | null | undefined): SessionMemory | null {
+  if (!json) return null;
+  try {
+    const raw = JSON.parse(json) as Partial<SessionMemory> | null;
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+      text: typeof raw.text === 'string' ? raw.text : '',
+      openingTranscript: typeof raw.openingTranscript === 'string' ? raw.openingTranscript : '',
+      userPins: Array.isArray(raw.userPins) ? raw.userPins.filter((p): p is string => typeof p === 'string') : [],
+      // Message indices belong to the conversation that produced them; a
+      // resumed session starts a new one.
+      throughMessageIndex: 0,
+      lastTranscriptLength: 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface ResumedMemorySource {
+  storedMemoryJson: string | null;
+  summary: string | null;
+  /** Already-parsed action items from the earlier sitting. */
+  actionItems: ReadonlyArray<{ task: string; assignee: string | null; deadline: string | null }>;
+  title: string;
+  firstStartedAt: number;
+  resumedAt: number;
+}
+
+function formatWhen(ts: number): string {
+  return new Date(ts).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+const RESUMED_HEADING = '## Resumed Session';
+
+/**
+ * Drop the "Resumed Session" section a previous resume wrote, so a third
+ * sitting gets one fresh note instead of a stack of stale ones.
+ */
+export function stripResumedNote(text: string): string {
+  const start = text.indexOf(RESUMED_HEADING);
+  if (start === -1) return text;
+  const rest = text.slice(start + RESUMED_HEADING.length);
+  const next = rest.search(/\n## /);
+  const end = next === -1 ? text.length : start + RESUMED_HEADING.length + next;
+  return `${text.slice(0, start)}${text.slice(end)}`.trim();
+}
+
+/**
+ * Memory for a session that is being continued after a break. Prefers the
+ * memory Assist built during the earlier sitting; falls back to the stored
+ * post-call summary and action items when Assist was never used; always
+ * leads with a note that says the session was resumed so the model reads
+ * "yesterday" correctly instead of assuming it all just happened.
+ */
+export function buildResumedMemory(src: ResumedMemorySource): SessionMemory {
+  const stored = parseStoredSessionMemory(src.storedMemoryJson) ?? createEmptyMemory();
+  const title = src.title.trim() || 'Untitled session';
+
+  const resumeNote =
+    `${RESUMED_HEADING}\n`
+    + `This session ("${title}") began on ${formatWhen(src.firstStartedAt)}, was stopped, `
+    + `and is being continued now (${formatWhen(src.resumedAt)}). Everything recorded before `
+    + `this point happened in the earlier sitting; the live transcript continues from here.`;
+
+  const sections: string[] = [resumeNote];
+  const priorText = stripResumedNote(stored.text);
+
+  if (priorText) {
+    sections.push(priorText);
+  } else if (src.summary?.trim()) {
+    sections.push(`## Earlier Sitting Summary\n${src.summary.trim()}`);
+    if (src.actionItems.length > 0) {
+      const lines = src.actionItems.map((item) => {
+        const who = item.assignee ? ` (${item.assignee})` : '';
+        const when = item.deadline ? ` - due ${item.deadline}` : '';
+        return `- ${item.task}${who}${when}`;
+      });
+      sections.push(`## Action Items From Earlier Sitting\n${lines.join('\n')}`);
+    }
+  } else {
+    sections.push(
+      '## Earlier Sitting\nNo notes exist for the earlier sitting. Rely on the pinned opening and the transcript, which includes it.',
+    );
+  }
+
+  return {
+    text: sections.join('\n\n').slice(0, SESSION_MEMORY_CHAR_CAP),
+    openingTranscript: stored.openingTranscript,
+    userPins: stored.userPins,
+    throughMessageIndex: 0,
+    lastTranscriptLength: 0,
+  };
+}
+
 export function windowLines(text: string, limit: number): string {
   const lines = text.split('\n');
   if (lines.length <= limit) return text;

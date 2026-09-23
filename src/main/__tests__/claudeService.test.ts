@@ -15,6 +15,9 @@ vi.mock('../services/sessionManager', () => ({
   sessionManager: {
     addAIResponse: vi.fn(),
     addSessionMessage: vi.fn(),
+    setAssistSessionHook: vi.fn(),
+    saveAssistMemory: vi.fn(),
+    getActiveSession: vi.fn(() => null),
   },
 }));
 
@@ -42,6 +45,7 @@ vi.mock('../logger', () => ({
 import { ClaudeService, generateSessionTitle } from '../claudeService';
 import { getProviderFromStore, getNotesProvider, getMemoryProvider } from '../services/ai/providerFactory';
 import { isProMode, getSetting } from '../store';
+import { sessionManager } from '../services/sessionManager';
 import { ipcMain, BrowserWindow } from 'electron';
 
 describe('ClaudeService', () => {
@@ -630,6 +634,170 @@ describe('Provider routing based on mode', () => {
       expect(mockProvider.generateShort).toHaveBeenCalled();
     });
     expect((service as any).conversation.memory.text).toContain('Keep this');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resumed sessions: the model must remember the earlier sitting
+// ---------------------------------------------------------------------------
+
+describe('Resumed session memory', () => {
+  const mockProvider = {
+    name: 'anthropic' as const,
+    streamResponse: vi.fn(),
+    generateShort: vi.fn(),
+  };
+  let service: ClaudeService;
+  const YESTERDAY = Date.UTC(2026, 8, 21, 10, 0, 0);
+  const TODAY = YESTERDAY + 23 * 3600 * 1000;
+
+  function getResponseHandler(): (...args: unknown[]) => Promise<void> {
+    const entry = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => channel === 'claude:get-response');
+    if (!entry) throw new Error('claude:get-response handler not registered');
+    return entry[1] as (...args: unknown[]) => Promise<void>;
+  }
+
+  function resumeCtx(overrides: Partial<Parameters<ClaudeService['restoreForResumedSession']>[0]> = {}) {
+    return {
+      sessionId: 'interview-1',
+      title: 'Backend interview - Acme',
+      assistMemoryJson: null,
+      summary: null,
+      actionItemsJson: null,
+      firstStartedAt: YESTERDAY,
+      resumedAt: TODAY,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getProviderFromStore).mockResolvedValue(mockProvider as any);
+    vi.mocked(getMemoryProvider).mockResolvedValue(mockProvider as any);
+    mockProvider.streamResponse.mockResolvedValue(undefined);
+    vi.mocked(isProMode).mockReturnValue(false);
+    vi.mocked(getSetting).mockImplementation((key: string) => {
+      if (key === 'displayName') return 'Alice';
+      if (key === 'aiModel') return 'claude-sonnet-5';
+      return '';
+    });
+    vi.mocked(sessionManager.getActiveSession).mockReturnValue(null);
+    ClaudeService._resetForTesting();
+    service = new ClaudeService(null);
+  });
+
+  it('registers itself as the assist session hook on construction', () => {
+    expect(sessionManager.setAssistSessionHook).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('a fresh session start (hook with null) drops the previous thread so it cannot be persisted onto the new session', () => {
+    const send = vi.fn();
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([{ isDestroyed: () => false, webContents: { send } }] as any);
+    (service as any).conversation.memory.text = '## User Intent\nPrevious meeting';
+    (service as any).conversation.messages.push({ id: 'old', role: 'user', content: 'Assist', timestamp: 1 });
+
+    const hook = vi.mocked(sessionManager.setAssistSessionHook).mock.calls.at(-1)![0] as (ctx: unknown) => void;
+    hook(null);
+
+    expect((service as any).conversation.messages).toEqual([]);
+    expect((service as any).conversation.memory.text).toBe('');
+    expect(send).toHaveBeenCalledWith('claude:response', { type: 'cleared' });
+  });
+
+  it('a fresh session start on an already-empty thread is silent', () => {
+    const send = vi.fn();
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([{ isDestroyed: () => false, webContents: { send } }] as any);
+
+    const hook = vi.mocked(sessionManager.setAssistSessionHook).mock.calls.at(-1)![0] as (ctx: unknown) => void;
+    hook(null);
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('first Assist after resume carries yesterday\'s memory in the system prompt', async () => {
+    // Simulate a thread from yesterday that the user already had going.
+    (service as any).conversation.messages.push({ id: 'stale', role: 'user', content: 'Assist', timestamp: 1 });
+
+    service.restoreForResumedSession(resumeCtx({
+      assistMemoryJson: JSON.stringify({
+        text: '## Problem / Interview Task\nDesign a rate limiter\n\n## Errors & Corrections\nToken bucket was rejected',
+        openingTranscript: 'Them: Design a rate limiter for our API',
+        userPins: ['sliding window vs fixed?'],
+      }),
+    }));
+
+    // Old thread is gone; memory is the restored one.
+    expect((service as any).conversation.messages).toEqual([]);
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'Them: welcome back, where were we?', action: 'assist' });
+
+    const sent = mockProvider.streamResponse.mock.calls[0][0];
+    expect(sent.system).toContain('<session_memory>');
+    expect(sent.system).toContain('## Resumed Session');
+    expect(sent.system).toContain('Token bucket was rejected');
+    expect(sent.system).toContain('<pinned_opening>');
+    expect(sent.system).toContain('Design a rate limiter for our API');
+    expect(sent.system).toContain('sliding window vs fixed?');
+    // first turn of the new sitting: full (windowed) transcript, not a delta
+    const user = sent.messages.at(-1).content as string;
+    expect(user).toContain('<transcript>');
+    expect(user).not.toContain('NEW SINCE LAST');
+  });
+
+  it('falls back to the stored summary when Assist was never used yesterday', async () => {
+    service.restoreForResumedSession(resumeCtx({
+      summary: 'Covered the candidate background and a rate limiter design.',
+      actionItemsJson: '[{"task":"Send the take-home","assignee":"Priya","deadline":"Friday"}]',
+    }));
+
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'Them: welcome back', action: 'assist' });
+
+    const sent = mockProvider.streamResponse.mock.calls[0][0];
+    expect(sent.system).toContain('## Earlier Sitting Summary');
+    expect(sent.system).toContain('rate limiter design');
+    expect(sent.system).toContain('Send the take-home (Priya) - due Friday');
+  });
+
+  it('replays the earlier sitting\'s answers to the overlay and persists the restored memory', () => {
+    const send = vi.fn();
+    const win = { isDestroyed: () => false, webContents: { send } };
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([win] as any);
+    vi.mocked(sessionManager.getActiveSession).mockReturnValue({
+      aiResponses: [
+        { id: 'a1', action: 'assist', userMessage: 'Assist', response: 'Mention the mutex.', timestamp: 5 },
+        { id: 'a2', action: 'custom', userMessage: 'Is Redis ok here?', response: 'Yes, with TTL.', timestamp: 9 },
+      ],
+    } as any);
+
+    service.restoreForResumedSession(resumeCtx({ summary: 'S' }));
+
+    expect(send).toHaveBeenCalledWith('claude:response', expect.objectContaining({
+      type: 'restored',
+      restoredResponses: [
+        { id: 'a1', action: 'assist', userMessage: 'Assist', response: 'Mention the mutex.', timestamp: 5 },
+        { id: 'a2', action: 'custom', userMessage: 'Is Redis ok here?', response: 'Yes, with TTL.', timestamp: 9 },
+      ],
+    }));
+    expect(sessionManager.saveAssistMemory).toHaveBeenCalledWith(expect.stringContaining('Resumed Session'));
+  });
+
+  it('persists memory after every Assist turn so a later resume can restore it', async () => {
+    const handler = getResponseHandler();
+    await handler({}, { transcript: 'Them: Implement an LRU cache with O(1) operations', action: 'assist' });
+
+    expect(sessionManager.saveAssistMemory).toHaveBeenCalled();
+    const stored = vi.mocked(sessionManager.saveAssistMemory).mock.calls.at(-1)![0] as string;
+    expect(JSON.parse(stored).openingTranscript).toContain('Implement an LRU cache');
+  });
+
+  it('clear-history also clears the persisted memory so it cannot come back on resume', async () => {
+    const entry = vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === 'claude:clear-history');
+    if (!entry) throw new Error('claude:clear-history not registered');
+    await (entry[1] as () => Promise<unknown>)();
+
+    expect(sessionManager.saveAssistMemory).toHaveBeenCalledWith(null);
   });
 });
 

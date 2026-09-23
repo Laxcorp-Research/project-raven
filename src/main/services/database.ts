@@ -54,6 +54,18 @@ export interface Session {
   insightsJson: string | null;
   actionItemsJson: string | null;
   followUpEmail: string | null;
+  /**
+   * Recording segments as JSON `[{ startedAt, endedAt }]`. Null for a
+   * session that was recorded in one sitting. A resumed session appends a
+   * segment per Start, so duration and the transcript divider can ignore
+   * the gap between sittings.
+   */
+  segmentsJson: string | null;
+  /**
+   * Assist conversation memory (SessionMemory JSON) captured at session end
+   * so a resumed session can restore what the model already knew.
+   */
+  assistMemoryJson: string | null;
   modeId: string | null;
   durationSeconds: number;
   startedAt: number;
@@ -72,6 +84,8 @@ export interface SessionRow {
   insights_json: string | null;
   action_items_json: string | null;
   follow_up_email: string | null;
+  segments_json: string | null;
+  assist_memory_json: string | null;
   mode_id: string | null;
   duration_seconds: number;
   started_at: number;
@@ -504,6 +518,19 @@ class DatabaseService {
           CREATE INDEX IF NOT EXISTS idx_ask_conversations_updated ON ask_conversations(updated_at DESC);
         `,
       },
+      {
+        // Resumable sessions. segments_json records each recording sitting
+        // so a session stopped today and continued tomorrow reports the
+        // time actually recorded (not the overnight gap) and the transcript
+        // can show where the break was. assist_memory_json keeps the Assist
+        // model's compacted session memory so it still "remembers" the
+        // earlier sitting when the session is resumed.
+        name: '019_add_session_resume',
+        sql: `
+          ALTER TABLE sessions ADD COLUMN segments_json TEXT DEFAULT NULL;
+          ALTER TABLE sessions ADD COLUMN assist_memory_json TEXT DEFAULT NULL;
+        `,
+      },
     ];
 
     // Capture `this.db` to a local after the !null guard above so the
@@ -540,12 +567,12 @@ class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     const now = Date.now();
-    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, actionItemsJson: session.actionItemsJson ?? null, followUpEmail: session.followUpEmail ?? null, createdAt: now, updatedAt: now, syncedAt: null };
+    const fullSession: Session = { ...session, summary: session.summary ?? null, insightsJson: session.insightsJson ?? null, actionItemsJson: session.actionItemsJson ?? null, followUpEmail: session.followUpEmail ?? null, segmentsJson: session.segmentsJson ?? null, assistMemoryJson: session.assistMemoryJson ?? null, createdAt: now, updatedAt: now, syncedAt: null };
 
     this.db
       .prepare(
-        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, insights_json, mode_id, duration_seconds, started_at, ended_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, title, transcript_json, ai_responses_json, summary, insights_json, segments_json, mode_id, duration_seconds, started_at, ended_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         fullSession.id,
@@ -554,6 +581,7 @@ class DatabaseService {
         JSON.stringify(fullSession.aiResponses),
         fullSession.summary,
         fullSession.insightsJson,
+        fullSession.segmentsJson,
         fullSession.modeId,
         fullSession.durationSeconds,
         fullSession.startedAt,
@@ -602,6 +630,14 @@ class DatabaseService {
     if (updates.followUpEmail !== undefined) {
       setClauses.push('follow_up_email = ?');
       values.push(updates.followUpEmail);
+    }
+    if (updates.segmentsJson !== undefined) {
+      setClauses.push('segments_json = ?');
+      values.push(updates.segmentsJson);
+    }
+    if (updates.assistMemoryJson !== undefined) {
+      setClauses.push('assist_memory_json = ?');
+      values.push(updates.assistMemoryJson);
     }
     if (updates.modeId !== undefined) {
       setClauses.push('mode_id = ?');
@@ -943,6 +979,8 @@ class DatabaseService {
       insightsJson: row.insights_json || null,
       actionItemsJson: row.action_items_json || null,
       followUpEmail: row.follow_up_email || null,
+      segmentsJson: row.segments_json || null,
+      assistMemoryJson: row.assist_memory_json || null,
       modeId: row.mode_id,
       durationSeconds: row.duration_seconds,
       startedAt: row.started_at,

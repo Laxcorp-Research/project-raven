@@ -312,6 +312,32 @@ export function OverlayWindow() {
         activeResponseIdRef.current = null
         setHoveredMessageId(null)
         setPreviewMessageId(null)
+      } else if (data.type === 'restored') {
+        // A saved session was resumed: replace whatever is on screen with
+        // the earlier sitting's answers so the user can scroll back to them.
+        clearWatchdog()
+        requestInFlightRef.current = false
+        setIsLoadingResponse(false)
+        setLimitInfo(null)
+        setActiveResponseId(null)
+        activeResponseIdRef.current = null
+        setHoveredMessageId(null)
+        setPreviewMessageId(null)
+        setResponses(
+          (data.restoredResponses ?? []).map((r) => {
+            // Sessions saved before userMessage existed on AI responses
+            // resume with it undefined; fall back to the action label.
+            const asked = (r.userMessage ?? '').trim()
+            const isCustom = r.action === 'custom' && asked.length > 0
+            return {
+              id: r.id,
+              content: r.response ?? '',
+              action: isCustom ? asked : getActionLabel(r.action),
+              badgeVariant: isCustom ? 'custom' : 'quick',
+              hasScreenshot: false,
+            }
+          }),
+        )
       }
     })
 

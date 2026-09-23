@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { databaseService, type Session, type TranscriptEntry, type AIResponse } from './database';
+import { parseSessionSegments, type SessionSegment } from '../../shared/sessionSegments';
 import { BrowserWindow } from 'electron';
 import { generateSessionTitle } from '../claudeService';
 import { generateSessionSummary } from './summaryService';
@@ -42,6 +43,34 @@ interface SyncableSession {
 
 type QueueFn = (session: SyncableSession) => void
 
+/**
+ * Everything the Assist model needs to pick a resumed session back up.
+ * Handed to the restorer registered by ClaudeService (which owns the
+ * conversation state) so this module never has to import it.
+ */
+export interface AssistResumeContext {
+  sessionId: string
+  title: string
+  /** Stored SessionMemory JSON from the earlier sitting, if Assist was used. */
+  assistMemoryJson: string | null
+  /** Post-call notes from the earlier sitting; the fallback memory source. */
+  summary: string | null
+  actionItemsJson: string | null
+  /** When the session was first recorded and when this sitting began. */
+  firstStartedAt: number
+  resumedAt: number
+}
+
+/**
+ * Fired on every session start. `null` means a fresh session: drop the
+ * current Assist thread so nothing from the previous meeting can be
+ * persisted onto (or answered from) this one. A context means resume.
+ */
+type AssistSessionHook = (ctx: AssistResumeContext | null) => void
+
+/** Reasons resumeSession can refuse; surfaced to the user by audioManager. */
+export type ResumeFailure = 'not_found' | 'incognito'
+
 class SessionManager {
   private activeSession: Session | null = null;
   private autoSaveInterval: NodeJS.Timeout | null = null;
@@ -50,6 +79,17 @@ class SessionManager {
   private isIncognito = false;
   private _queueForSync: QueueFn | null = null;
   private notesJobs = new Map<string, Promise<boolean>>();
+  private assistSessionHook: AssistSessionHook | null = null;
+
+  /**
+   * Resume bookkeeping. For a session recorded in one sitting these are
+   * `0`, `startedAt`, `[]`, `false`, which makes every duration formula
+   * below collapse to the original `now - startedAt`.
+   */
+  private priorDurationSeconds = 0;
+  private segmentStartedAt = 0;
+  private segments: SessionSegment[] = [];
+  private resumed = false;
 
   /**
    * Called by proLoader once syncService is loaded - eliminates
@@ -58,6 +98,35 @@ class SessionManager {
   setSyncFunction(fn: QueueFn): void {
     this._queueForSync = fn;
     log.info('Cloud sync function injected');
+  }
+
+  /**
+   * Registered by ClaudeService so every session start reaches the Assist
+   * thread: reset it for a fresh session, restore earlier memory for a
+   * resumed one. Kept as an injected callback (same pattern as
+   * setSyncFunction) because ClaudeService imports this module.
+   */
+  setAssistSessionHook(fn: AssistSessionHook | null): void {
+    this.assistSessionHook = fn;
+  }
+
+  private notifyAssist(ctx: AssistResumeContext | null): void {
+    try {
+      this.assistSessionHook?.(ctx);
+    } catch (err) {
+      log.error('Assist session hook failed (continuing without it):', err);
+    }
+  }
+
+  /**
+   * Persist the Assist model's session memory against the active session.
+   * ClaudeService calls this after every turn / memory refresh; no-op for
+   * incognito or when nothing is recording.
+   */
+  saveAssistMemory(memoryJson: string | null): void {
+    if (!this.activeSession || this.isIncognito) return;
+    this.activeSession.assistMemoryJson = memoryJson;
+    databaseService.updateSession(this.activeSession.id, { assistMemoryJson: memoryJson });
   }
 
   /**
@@ -81,6 +150,7 @@ class SessionManager {
 
     const resolvedModeId = modeId ?? databaseService.getActiveMode()?.id ?? null;
     const now = Date.now();
+    this.resetResumeState(now);
     const session: Session = {
       id: uuidv4(),
       title: this.isIncognito ? 'Incognito Session' : PLACEHOLDER_SESSION_TITLE,
@@ -90,6 +160,8 @@ class SessionManager {
       insightsJson: null,
       actionItemsJson: null,
       followUpEmail: null,
+      segmentsJson: null,
+      assistMemoryJson: null,
       modeId: resolvedModeId,
       durationSeconds: 0,
       startedAt: now,
@@ -107,6 +179,10 @@ class SessionManager {
       this.startAutoSave();
       log.info('Session started:', this.activeSession.id);
     }
+
+    // Fresh session: the Assist thread must not carry the previous
+    // meeting over, whichever Start path got us here.
+    this.notifyAssist(null);
 
     this.broadcastSessionUpdate();
 
@@ -127,6 +203,146 @@ class SessionManager {
     })();
 
     return this.activeSession;
+  }
+
+  /**
+   * Reopen a saved session so recording continues into it. The transcript,
+   * AI responses, notes and id all carry over; a new segment is appended so
+   * duration excludes the gap between sittings. Returns the reopened
+   * session (caller seeds the STT provider from `transcript`) or a failure
+   * reason.
+   */
+  resumeSession(sessionId: string): { session: Session } | { error: ResumeFailure } {
+    const blocker = this.canResume(sessionId);
+    if (blocker) {
+      log.warn('Cannot resume session', sessionId, blocker);
+      return { error: blocker };
+    }
+    const stored = databaseService.getSession(sessionId)!;
+
+    if (this.activeSession) {
+      log.warn('Resuming a session while one is active');
+      this.endSession();
+    }
+
+    this.isIncognito = false;
+    const now = Date.now();
+
+    // Reconstruct the first sitting for sessions recorded before segments
+    // existed, so the divider and duration math have a complete history.
+    const priorSegments = parseSessionSegments(stored.segmentsJson);
+    const history: SessionSegment[] = priorSegments.length > 0
+      ? priorSegments.map((s) => ({ ...s, endedAt: s.endedAt ?? stored.endedAt ?? s.startedAt }))
+      : [{
+          startedAt: stored.startedAt,
+          endedAt: stored.endedAt ?? stored.startedAt + stored.durationSeconds * 1000,
+        }];
+
+    this.priorDurationSeconds = Math.max(0, stored.durationSeconds || 0);
+    this.segmentStartedAt = now;
+    this.segments = [...history, { startedAt: now, endedAt: null }];
+    this.resumed = true;
+    const segmentsJson = JSON.stringify(this.segments);
+
+    // Insights and the follow-up email described only the earlier sitting;
+    // clear them so the dashboard offers to regenerate over the whole
+    // session. Summary/action items are regenerated automatically at end.
+    databaseService.updateSession(sessionId, {
+      endedAt: null,
+      segmentsJson,
+      insightsJson: null,
+      followUpEmail: null,
+    });
+
+    this.activeSession = {
+      ...stored,
+      transcript: stored.transcript.filter((e) => e.isFinal),
+      endedAt: null,
+      segmentsJson,
+      insightsJson: null,
+      followUpEmail: null,
+    };
+    this.startAutoSave();
+    log.info(
+      'Session resumed:',
+      sessionId,
+      `sitting #${this.segments.length}, prior ${this.priorDurationSeconds}s,`,
+      this.activeSession.transcript.length,
+      'entries carried over',
+    );
+
+    this.broadcastSessionUpdate();
+    this.sendDashboard('sessions:list-updated');
+
+    this.notifyAssist({
+      sessionId,
+      title: stored.title,
+      assistMemoryJson: stored.assistMemoryJson,
+      summary: stored.summary,
+      actionItemsJson: stored.actionItemsJson,
+      firstStartedAt: stored.startedAt,
+      resumedAt: now,
+    });
+
+    void (async () => {
+      try {
+        const { trackEvent } = await import('./clientEvents');
+        trackEvent('recording_started', {
+          sessionId,
+          metadata: { incognito: false, modeId: stored.modeId, resumed: true },
+        });
+      } catch { /* OSS or module unavailable */ }
+    })();
+
+    return { session: this.activeSession };
+  }
+
+  /**
+   * Why a session cannot be resumed right now, or null if it can. Checked
+   * by audioManager before capture starts and again inside resumeSession.
+   */
+  canResume(sessionId: string): ResumeFailure | null {
+    if (getSetting('incognitoMode') === true) return 'incognito';
+    if (!databaseService.getSession(sessionId)) return 'not_found';
+    return null;
+  }
+
+  /** Whether the active session was reopened from a saved one. */
+  isResumedSession(): boolean {
+    return this.activeSession !== null && this.resumed;
+  }
+
+  /**
+   * What a live timer needs: when the current sitting began and how much
+   * was recorded before it. `now - startedAt` is wrong for a resumed
+   * session (it spans the gap between sittings).
+   */
+  getActiveTiming(): { recordingStartedAt: number; priorDurationSeconds: number } | null {
+    if (!this.activeSession) return null;
+    return { recordingStartedAt: this.segmentStartedAt, priorDurationSeconds: this.priorDurationSeconds };
+  }
+
+  private resetResumeState(startedAt: number): void {
+    this.priorDurationSeconds = 0;
+    this.segmentStartedAt = startedAt;
+    this.segments = [];
+    this.resumed = false;
+  }
+
+  /**
+   * Seconds recorded so far: earlier sittings plus the current one. For a
+   * never-resumed session this is exactly `now - startedAt`.
+   */
+  private elapsedSeconds(now: number): number {
+    const current = Math.floor((now - this.segmentStartedAt) / 1000);
+    return this.priorDurationSeconds + Math.max(0, current);
+  }
+
+  /** Close the live segment at `endedAt`; null when the session has none. */
+  private closedSegmentsJson(endedAt: number): string | null {
+    if (this.segments.length === 0) return null;
+    const closed = this.segments.map((s) => (s.endedAt === null ? { ...s, endedAt } : s));
+    return JSON.stringify(closed);
   }
 
   /**
@@ -195,8 +411,11 @@ class SessionManager {
     this.stopAutoSave();
 
     const endedAt = Date.now();
-    const durationSeconds = Math.floor((endedAt - this.activeSession.startedAt) / 1000);
+    const durationSeconds = this.elapsedSeconds(endedAt);
     const finalTranscript = this.activeSession.transcript.filter((e) => e.isFinal);
+    const wasResumed = this.resumed;
+    const segmentsJson = this.closedSegmentsJson(endedAt);
+    this.resetResumeState(endedAt);
 
     if (this.isIncognito) {
       const endedSession = {
@@ -217,6 +436,7 @@ class SessionManager {
       aiResponses: this.activeSession.aiResponses,
       durationSeconds,
       endedAt,
+      ...(segmentsJson !== null ? { segmentsJson } : {}),
     });
 
     const endedSession = {
@@ -224,6 +444,7 @@ class SessionManager {
       transcript: finalTranscript,
       durationSeconds,
       endedAt,
+      segmentsJson: segmentsJson ?? this.activeSession.segmentsJson,
     };
 
     const sessionId = this.activeSession.id;
@@ -255,6 +476,12 @@ class SessionManager {
       transcriptText,
       modeId,
       fallbackTitle: endedSession.title,
+      // A resumed session already has a title the user has been living
+      // with (and may have edited); regenerate the notes, not the name.
+      preserveTitle: wasResumed && !isPlaceholderSessionTitle(endedSession.title),
+      // If the earlier sitting's notes are still being written, run after
+      // them so the two-sitting notes are what ends up stored.
+      afterInFlight: wasResumed,
     });
 
     return endedSession;
@@ -263,16 +490,26 @@ class SessionManager {
   /**
    * Generate title + summary for a session. Dedupes in-flight work so
    * session-end, boot retry, and the regenerate IPC share one job.
+   * `afterInFlight` instead queues a fresh run behind the current job,
+   * for callers whose input has changed since it started.
    */
   generateAndStoreNotes(
     sessionId: string,
-    preloaded?: { transcriptText: string; modeId: string | null; fallbackTitle: string },
+    preloaded?: {
+      transcriptText: string;
+      modeId: string | null;
+      fallbackTitle: string;
+      preserveTitle?: boolean;
+      afterInFlight?: boolean;
+    },
   ): Promise<boolean> {
     const existing = this.notesJobs.get(sessionId);
-    if (existing) return existing;
+    if (existing && !preloaded?.afterInFlight) return existing;
 
-    const job = this.runNotesGeneration(sessionId, preloaded).finally(() => {
-      this.notesJobs.delete(sessionId);
+    const run = (): Promise<boolean> => this.runNotesGeneration(sessionId, preloaded);
+    const job: Promise<boolean> = (existing ? existing.then(run, run) : run()).finally(() => {
+      // Only clear our own entry; a chained successor may have replaced it.
+      if (this.notesJobs.get(sessionId) === job) this.notesJobs.delete(sessionId);
     });
     this.notesJobs.set(sessionId, job);
     return job;
@@ -325,13 +562,14 @@ class SessionManager {
 
   private async runNotesGeneration(
     sessionId: string,
-    preloaded?: { transcriptText: string; modeId: string | null; fallbackTitle: string },
+    preloaded?: { transcriptText: string; modeId: string | null; fallbackTitle: string; preserveTitle?: boolean },
   ): Promise<boolean> {
     this.sendDashboard('sessions:summary-pending', sessionId);
     try {
       let transcriptText = preloaded?.transcriptText;
       let modeId = preloaded?.modeId ?? null;
       let fallbackTitle = preloaded?.fallbackTitle ?? PLACEHOLDER_SESSION_TITLE;
+      const preserveTitle = preloaded?.preserveTitle === true;
 
       if (!transcriptText) {
         const session = databaseService.getSession(sessionId);
@@ -348,11 +586,11 @@ class SessionManager {
       let notesOk = false;
       if (result.summary?.trim()) {
         databaseService.updateSession(sessionId, {
-          title: result.title || fallbackTitle,
+          ...(preserveTitle ? {} : { title: result.title || fallbackTitle }),
           summary: result.summary,
         });
         notesOk = true;
-      } else if (result.title && !isPlaceholderSessionTitle(result.title)) {
+      } else if (!preserveTitle && result.title && !isPlaceholderSessionTitle(result.title)) {
         databaseService.updateSession(sessionId, { title: result.title });
       }
 
@@ -485,7 +723,7 @@ class SessionManager {
   private saveSession(): void {
     if (!this.activeSession || this.isIncognito) return;
 
-    const durationSeconds = Math.floor((Date.now() - this.activeSession.startedAt) / 1000);
+    const durationSeconds = this.elapsedSeconds(Date.now());
 
     databaseService.updateSession(this.activeSession.id, {
       transcript: this.activeSession.transcript.filter((e) => e.isFinal),
@@ -521,7 +759,15 @@ class SessionManager {
    */
   private broadcastSessionUpdate(): void {
     const sessionInfo = this.activeSession
-      ? { id: this.activeSession.id, title: this.activeSession.title, startedAt: this.activeSession.startedAt }
+      ? {
+          id: this.activeSession.id,
+          title: this.activeSession.title,
+          startedAt: this.activeSession.startedAt,
+          resumed: this.resumed,
+          // For live timers; see getActiveTiming.
+          recordingStartedAt: this.segmentStartedAt,
+          priorDurationSeconds: this.priorDurationSeconds,
+        }
       : null;
 
     this.dashboardWindow?.webContents.send('session:updated', sessionInfo);
@@ -588,18 +834,36 @@ class SessionManager {
       count += 1;
       if (!firstRecovered) firstRecovered = inProgress;
 
-      const rawSeconds = Math.floor((Date.now() - inProgress.startedAt) / 1000);
-      const durationSeconds = Math.min(MAX_RECOVERED_DURATION_SECONDS, Math.max(0, rawSeconds));
-      if (durationSeconds !== rawSeconds) {
-        log.warn(
-          `Recovered session ${inProgress.id} raw duration ${rawSeconds}s clamped to ${durationSeconds}s`,
+      // A resumed session that died mid-sitting: `now - startedAt` spans
+      // the gap between sittings (days, not minutes), so the 8h clamp would
+      // store junk. Autosave kept duration_seconds current to within one
+      // interval, so trust it and close the open segment at the last save.
+      const segments = parseSessionSegments(inProgress.segmentsJson);
+      const openSegment = segments.find((s) => s.endedAt === null);
+      let durationSeconds: number;
+      let segmentsJson: string | undefined;
+      if (openSegment) {
+        durationSeconds = Math.max(0, inProgress.durationSeconds || 0);
+        const closedAt = Math.max(openSegment.startedAt, inProgress.updatedAt);
+        segmentsJson = JSON.stringify(
+          segments.map((s) => (s.endedAt === null ? { ...s, endedAt: closedAt } : s)),
         );
+        log.info(`Recovered resumed session ${inProgress.id}; kept autosaved duration ${durationSeconds}s`);
+      } else {
+        const rawSeconds = Math.floor((Date.now() - inProgress.startedAt) / 1000);
+        durationSeconds = Math.min(MAX_RECOVERED_DURATION_SECONDS, Math.max(0, rawSeconds));
+        if (durationSeconds !== rawSeconds) {
+          log.warn(
+            `Recovered session ${inProgress.id} raw duration ${rawSeconds}s clamped to ${durationSeconds}s`,
+          );
+        }
       }
 
       databaseService.updateSession(inProgress.id, {
         endedAt: Date.now(),
         durationSeconds,
         title: isPlaceholderSessionTitle(inProgress.title) ? 'Recovered Session' : inProgress.title,
+        ...(segmentsJson !== undefined ? { segmentsJson } : {}),
       });
       log.info(`Recovered and closed session ${inProgress.id}`);
       inProgress = databaseService.getInProgressSession();

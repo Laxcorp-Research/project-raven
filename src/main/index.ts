@@ -510,7 +510,11 @@ app.whenReady().then(() => {
   })
 
   safeHandle('session:getActive', () => {
-    return sessionManager.getActiveSession()
+    const session = sessionManager.getActiveSession()
+    if (!session) return null
+    // Timing fields let the dashboard's live timer count only recorded time
+    // on a resumed session instead of everything since the first sitting.
+    return { ...session, ...sessionManager.getActiveTiming() }
   })
 
   safeHandle('session:hasActive', () => {

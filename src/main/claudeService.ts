@@ -1,7 +1,8 @@
 import { BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
-import { sessionManager } from './services/sessionManager';
+import { sessionManager, type AssistResumeContext } from './services/sessionManager';
 import { getProviderFromStore } from './services/ai/providerFactory';
+import { parseActionItems } from '../shared/actionItems';
 import { getSetting } from './store';
 import type { AIMessage } from './services/ai/types';
 import { contextWindowFor, fitMessagesToContext, resolveCatalogModel, streamMaxTokensFor } from './services/ai/types';
@@ -10,11 +11,13 @@ import {
   buildMemoryUpdatePrompt,
   buildPinnedSystemBlock,
   buildReplayMessages,
+  buildResumedMemory,
   buildTranscriptBlock,
   createEmptyMemory,
   digestUserTurn,
   pinOpeningIfNeeded,
   pinUserQuestion,
+  serializeSessionMemory,
   SESSION_MEMORY_MAX_TOKENS,
   shouldRefreshMemory,
   shiftMemoryAfterTrim,
@@ -365,6 +368,14 @@ export class ClaudeService {
 
   constructor(overlayWindow: BrowserWindow | null) {
     this.overlayWindow = overlayWindow;
+    // Every session start reaches this thread: a fresh session drops it, a
+    // resumed one restores its earlier memory. Injected rather than
+    // imported from sessionManager, which would be a cycle
+    // (sessionManager -> claudeService -> sessionManager).
+    sessionManager.setAssistSessionHook((ctx) => {
+      if (ctx) this.restoreForResumedSession(ctx);
+      else this.resetForNewSession();
+    });
     if (!ClaudeService.ipcRegistered) {
       this.registerIpcHandlers();
       ClaudeService.ipcRegistered = true;
@@ -595,6 +606,9 @@ export class ClaudeService {
         });
 
         this.isProcessing = false;
+        // Pins/opening may have changed this turn; the compacted text
+        // is persisted again when the refresh below lands.
+        this.persistMemory();
         this.scheduleMemoryRefresh();
 
       } catch (error: unknown) {
@@ -639,9 +653,76 @@ export class ClaudeService {
     ipcMain.handle('claude:clear-history', async () => {
       this.memoryUpdateQueued = false;
       this.conversation = emptyConversation();
+      // The user threw the thread away; a later resume must not bring it back.
+      sessionManager.saveAssistMemory(null);
       this.broadcast({ type: 'cleared' });
       return { success: true };
     });
+  }
+
+  /**
+   * Called (via sessionManager) when a new session starts. The overlay
+   * usually clears the thread before Start, but any path that skips that
+   * would otherwise persist the previous meeting's memory onto this
+   * session's row and hand it back on a later resume.
+   */
+  resetForNewSession(): void {
+    if (this.conversation.messages.length === 0 && !serializeSessionMemory(this.conversation.memory)) {
+      return; // already empty; nothing to broadcast
+    }
+    this.memoryUpdateQueued = false;
+    this.conversation = emptyConversation();
+    this.broadcast({ type: 'cleared' });
+    log.info('Assist thread reset for new session');
+  }
+
+  /**
+   * Called (via sessionManager) when recording continues into a saved
+   * session. Replaces the current thread with a fresh one whose memory is
+   * the earlier sitting's memory, or its notes when Assist was never used,
+   * and replays that sitting's answers to the overlay so the user can
+   * scroll back to them.
+   */
+  restoreForResumedSession(ctx: AssistResumeContext): void {
+    this.memoryUpdateQueued = false;
+    this.conversation = {
+      ...emptyConversation(),
+      memory: buildResumedMemory({
+        storedMemoryJson: ctx.assistMemoryJson,
+        summary: ctx.summary,
+        actionItems: parseActionItems(ctx.actionItemsJson),
+        title: ctx.title,
+        firstStartedAt: ctx.firstStartedAt,
+        resumedAt: ctx.resumedAt,
+      }),
+    };
+    this.persistMemory();
+
+    const prior = sessionManager.getActiveSession()?.aiResponses ?? [];
+    this.broadcast({
+      type: 'restored',
+      restoredResponses: prior.map((r) => ({
+        id: r.id,
+        action: r.action,
+        userMessage: r.userMessage,
+        response: r.response,
+        timestamp: r.timestamp,
+      })),
+    });
+    log.info(
+      `Assist restored for resumed session ${ctx.sessionId}:`,
+      ctx.assistMemoryJson ? 'earlier memory' : ctx.summary ? 'notes summary' : 'no prior notes',
+      `+ ${prior.length} earlier response(s)`,
+    );
+  }
+
+  /** Mirror the current memory onto the active session so a resume can restore it. */
+  private persistMemory(): void {
+    try {
+      sessionManager.saveAssistMemory(serializeSessionMemory(this.conversation.memory));
+    } catch (err) {
+      log.warn('Persisting assist memory failed (non-fatal):', err);
+    }
   }
 
   private windowTranscript(transcript: string): string {
@@ -760,6 +841,7 @@ export class ClaudeService {
         throughMessageIndex: snapshotIndex,
         lastTranscriptLength: this.conversation.lastSeenTranscript.length,
       };
+      this.persistMemory();
     } catch (err) {
       log.warn('Session memory refresh failed (non-fatal):', err);
     } finally {
@@ -845,7 +927,7 @@ export class ClaudeService {
   }
 
   private broadcast(data: {
-    type: 'start' | 'delta' | 'done' | 'error' | 'cleared';
+    type: 'start' | 'delta' | 'done' | 'error' | 'cleared' | 'restored';
     userMessage?: ChatMessage;
     assistantMessage?: ChatMessage;
     messageId?: string;
@@ -854,6 +936,8 @@ export class ClaudeService {
     error?: string;
     limitInfo?: { used: number; limit: number; resetAt: string };
     requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
+    /** Earlier sitting's answers, replayed on resume (type 'restored'). */
+    restoredResponses?: Array<{ id: string; action: string; userMessage: string; response: string; timestamp: number }>;
   }): void {
     const sent = new Set<object>();
     const send = (win: BrowserWindow | null): void => {

@@ -22,6 +22,7 @@ interface TranscriptionProvider {
   start(meetingWindowId?: number): Promise<{ success: boolean; error?: string; fallback?: boolean }>
   stop(): Promise<void>
   clearTranscript(): void
+  seedTranscript(entries: ReadonlyArray<{ id: string; source: 'mic' | 'system'; text: string; timestamp: number; isFinal: boolean }>): void
   getFullTranscript(): string
   getFullTranscriptWithInterims(): string
   getTranscriptEntries(): Array<{ id: string; source: string; text: string; speaker: string; timestamp: number; isFinal: boolean }>
@@ -57,6 +58,12 @@ export class AudioManager {
   private transcriptionStartupAbort: AbortController | null = null
   private transcriptionRetryTimer: ReturnType<typeof setTimeout> | null = null
   private proSessionStarted = false
+  /**
+   * Set by audio:start-recording when the caller asked to continue a saved
+   * session; consumed by startSessionOnce so whichever STT provider wins
+   * the connect race resumes the same session instead of creating one.
+   */
+  private pendingResumeSessionId: string | null = null
   // Silence watchdog: bookkeeping for F3 on the native capture path.
   private lastAudioChunkAt: number | null = null
   private silenceCheckTimer: ReturnType<typeof setInterval> | null = null
@@ -144,7 +151,7 @@ export class AudioManager {
         .catch((err) => log.error('Failed to stop recording on AI limit:', err))
     })
 
-    ipcMain.handle('audio:start-recording', async (_event, deviceId?: string) => {
+    ipcMain.handle('audio:start-recording', async (_event, deviceId?: string, opts?: { resumeSessionId?: string }) => {
       if (this.isRecording || this.isStarting) {
         log.warn('Recording already in progress or starting')
         return { success: false, error: 'Recording already in progress' }
@@ -154,6 +161,21 @@ export class AudioManager {
 
       try {
       let shouldStartProRetryLoop = false
+
+      // Resume is validated before any capture starts so a bad id or
+      // incognito never leaves the user with a running recording that
+      // silently went into a fresh session instead of the one they picked.
+      const resumeSessionId = opts?.resumeSessionId?.trim() || null
+      if (resumeSessionId) {
+        const blocker = sessionManager.canResume(resumeSessionId)
+        if (blocker === 'incognito') {
+          return { success: false, error: 'Turn off Incognito mode to continue a saved session.' }
+        }
+        if (blocker === 'not_found') {
+          return { success: false, error: 'That session no longer exists.' }
+        }
+      }
+      this.pendingResumeSessionId = resumeSessionId
 
       if (process.platform === 'darwin') {
         const perms = checkPermissionsForRecording()
@@ -265,6 +287,9 @@ export class AudioManager {
 
       } finally {
         this.isStarting = false
+        // A start that failed before any provider connected must not leave
+        // the resume request armed for the next, unrelated Start.
+        if (!this.isRecording) this.pendingResumeSessionId = null
       }
     })
 
@@ -304,7 +329,48 @@ export class AudioManager {
   private startSessionOnce(): void {
     if (this.proSessionStarted) return
     this.proSessionStarted = true
+
+    const resumeId = this.pendingResumeSessionId
+    this.pendingResumeSessionId = null
+    if (resumeId) {
+      const result = sessionManager.resumeSession(resumeId)
+      if ('session' in result) {
+        // The provider was cleared on connect; hand it the earlier sitting
+        // so the live transcript (and the model reading it) starts with
+        // everything that was said before the break.
+        this.activeProvider?.seedTranscript(result.session.transcript)
+        this.broadcastSeededTranscript()
+        this.broadcastNotification({
+          title: 'Session resumed',
+          body: result.session.title,
+          type: 'info',
+          autoDismissMs: 6000,
+        })
+        return
+      }
+      // canResume() ran before capture started, so this is a race (session
+      // deleted mid-connect). Record into a fresh session rather than drop
+      // audio, and say so.
+      log.error('Resume failed after connect, starting a new session instead:', result.error)
+      this.broadcastError('Could not resume that session', 'Recording into a new session instead.')
+    }
+
     sessionManager.startSession(null)
+  }
+
+  /**
+   * The overlay transcript only learns entries from live broadcasts, so a
+   * seeded provider would look empty there. Send the preloaded entries once
+   * so the overlay agrees with the model and the dashboard about what the
+   * session already contains.
+   */
+  private broadcastSeededTranscript(): void {
+    const entries = this.activeProvider?.getTranscriptEntries() ?? []
+    for (const win of [this.overlayWindow, this.dashboardWindow]) {
+      try {
+        if (win && !win.isDestroyed()) win.webContents.send('transcription:seeded', entries)
+      } catch { /* window torn down - ignore */ }
+    }
   }
 
   private broadcastTranscriptionConnectionState(payload: {
@@ -366,6 +432,7 @@ export class AudioManager {
     this.activeProvider = null
     this.usingAssemblyAI = false
     this.proSessionStarted = false
+    this.pendingResumeSessionId = null
 
     this.isRecording = false
     const duration = this.recordingStartTime ? Date.now() - this.recordingStartTime : 0
@@ -627,6 +694,11 @@ export class AudioManager {
 
     this.transcriptionService.setApiKey(deepgramKey as string)
     this.transcriptionService.clearTranscript()
+    // Mid-session switch: keep what the model has already heard (including
+    // a resumed session's earlier sitting) rather than restarting it from
+    // silence. The session holds every final so far.
+    const active = sessionManager.getActiveSession()
+    if (active) this.transcriptionService.seedTranscript(active.transcript)
     this.activeProvider = this.transcriptionService
     const result = await this.transcriptionService.start()
     if (!result.success) {

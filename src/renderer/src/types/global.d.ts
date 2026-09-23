@@ -184,13 +184,21 @@ declare global {
         saveAsk: (id: string, state: AskConversationState) => Promise<boolean>;
         updateTitle: (id: string, title: string) => Promise<boolean>;
         getInProgress: () => Promise<Session | null>;
-        getActive: () => Promise<Session | null>;
+        /** Active session plus live-timer fields (current sitting start, seconds recorded before it). */
+        getActive: () => Promise<(Session & { recordingStartedAt?: number; priorDurationSeconds?: number }) | null>;
         hasActive: () => Promise<boolean>;
         regenerateTitle: (id: string) => Promise<string>;
         onListUpdated: (callback: () => void) => () => void;
         onSummaryPending: (callback: (sessionId: string) => void) => () => void;
         onSummaryDone: (callback: (sessionId: string) => void) => () => void;
-        onSessionUpdated: (callback: (session: { id: string; title: string; startedAt: number } | null) => void) => () => void;
+        onSessionUpdated: (callback: (session: {
+          id: string;
+          title: string;
+          startedAt: number;
+          resumed?: boolean;
+          recordingStartedAt?: number;
+          priorDurationSeconds?: number;
+        } | null) => void) => () => void;
       };
       askConversations: {
         list: () => Promise<Array<{ id: string; title: string; updatedAt: number }>>;
@@ -225,7 +233,10 @@ declare global {
         deleteFile: (modeId: string, fileId: string) => Promise<boolean>;
         onUploadProgress: (callback: (data: { stage: string; current: number; total: number }) => void) => () => void;
       };
-      audioStartRecording: (deviceId?: string) => Promise<{ success: boolean }>;
+      audioStartRecording: (
+        deviceId?: string,
+        opts?: { resumeSessionId?: string },
+      ) => Promise<{ success: boolean; code?: string; error?: string }>;
       audioStopRecording: () => Promise<{ success: boolean; duration: number }>;
       audioGetState: () => Promise<{ isRecording: boolean; duration: number }>;
       onRecordingStateChanged: (callback: (state: { isRecording: boolean; endedSessionId?: string | null }) => void) => () => void;
@@ -279,7 +290,7 @@ declare global {
       claudeGetHistory: () => Promise<{ id: string; role: 'user' | 'assistant'; content: string; action?: string; timestamp: number }[]>;
       claudeClearHistory: () => Promise<{ success: boolean }>;
       onClaudeResponse: (callback: (data: {
-        type: 'start' | 'delta' | 'done' | 'error' | 'cleared';
+        type: 'start' | 'delta' | 'done' | 'error' | 'cleared' | 'restored';
         userMessage?: { id: string; role: 'user'; content: string; action?: string; timestamp: number };
         assistantMessage?: { id: string; role: 'assistant'; content: string; timestamp: number };
         messageId?: string;
@@ -288,6 +299,8 @@ declare global {
         error?: string;
         limitInfo?: { used: number; limit: number; resetAt: string };
         requestMeta?: { includeScreenshot: boolean; screenshotPreviewData?: string };
+        /** Earlier sitting's answers, sent with type 'restored' when a session is resumed. */
+        restoredResponses?: Array<{ id: string; action: string; userMessage: string; response: string; timestamp: number }>;
       }) => void) => () => void;
       permissionsGetStatus: () => Promise<{ microphone: string; screen: string; accessibility: string }>;
       permissionsRequestMicrophone: () => Promise<boolean>;

@@ -480,6 +480,28 @@ export class TranscriptionService {
     this.systemConnection.currentInterim = '';
   }
 
+  /**
+   * Preload a resumed session's saved transcript so getFullTranscript* and
+   * the merge window see the earlier sitting. Replaces any current entries;
+   * only finals are kept and speaker is re-derived from capture source,
+   * which is how live entries are labelled too.
+   */
+  seedTranscript(entries: ReadonlyArray<{ id: string; source: AudioSource; text: string; timestamp: number; isFinal: boolean }>): void {
+    this.transcriptEntries = entries
+      .filter((e) => e.isFinal && e.text.trim())
+      .map((e): TranscriptEntry => ({
+        id: e.id,
+        source: e.source,
+        text: e.text,
+        speaker: e.source === 'mic' ? 'you' : 'them',
+        timestamp: e.timestamp,
+        isFinal: true,
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+    this.micConnection.currentInterim = '';
+    this.systemConnection.currentInterim = '';
+  }
+
   private broadcastTranscript(data: {
     entry: TranscriptEntry;
     isFinal: boolean;
