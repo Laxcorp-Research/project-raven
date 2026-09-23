@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_MODELS, EFFORT_LABELS, MODEL_CATALOG, effortLevelsForModel, settingsPickerEffortLevels, settingsPickerModels, type AIProviderName } from '../aiModels'
 import { MEMORY_MODELS, NOTES_FAST_MODELS } from '../../../../shared/aiSlots'
+import { MODEL_CATALOG as MAIN_MODEL_CATALOG } from '../../../../main/services/ai/types'
 
 describe('Settings model catalog', () => {
+  it('is byte-for-byte the main-process catalog (ids, labels, effort ladders), so the picker cannot drift from what main sends', () => {
+    expect(MODEL_CATALOG).toEqual(MAIN_MODEL_CATALOG)
+  })
+
   it('shows every Anthropic and OpenAI id the main process allows', () => {
     expect(MODEL_CATALOG.anthropic.map((m) => m.id)).toEqual([
       'claude-haiku-4-5',
@@ -54,6 +59,12 @@ describe('Settings model catalog', () => {
     ])
     expect(effortLevelsForModel('openai', 'gpt-5.2')).toContain('xhigh')
     expect(effortLevelsForModel('openai', 'gpt-5.2')).not.toContain('max')
+    // The API returns 400 for max on every GPT-5.6 model, so the Settings
+    // dropdown must not offer it (main would otherwise silently send low).
+    for (const id of ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol']) {
+      expect(effortLevelsForModel('openai', id), id).not.toContain('max')
+      expect(effortLevelsForModel('openai', id), id).toContain('xhigh')
+    }
   })
 
   it('Notes dropdowns only list Haiku and Luna', () => {

@@ -123,7 +123,7 @@ describe('OpenAIProvider', () => {
     })
 
     it('sends the selected reasoning_effort on generateShort with the model max output', async () => {
-      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'max')
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'xhigh')
       mockCreate.mockResolvedValueOnce({
         choices: [{ message: { content: 'ok' } }],
       })
@@ -131,9 +131,20 @@ describe('OpenAIProvider', () => {
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           max_completion_tokens: 128000,
-          reasoning_effort: 'max',
+          reasoning_effort: 'xhigh',
         }),
       )
+    })
+
+    it('never sends effort max to a GPT-5.6 model (the API returns 400 for it)', async () => {
+      const provider = new OpenAIProvider('sk-openai-test', 'gpt-5.6-sol', 'max')
+      mockCreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'ok' } }],
+      })
+      await provider.generateShort({ prompt: 'summarize' })
+      const payload = mockCreate.mock.calls[0][0] as Record<string, unknown>
+      expect(payload.reasoning_effort).not.toBe('max')
+      expect(['none', 'low', 'medium', 'high', 'xhigh']).toContain(payload.reasoning_effort)
     })
 
     it('propagates API errors', async () => {
