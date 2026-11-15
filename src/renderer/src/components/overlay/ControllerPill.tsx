@@ -42,9 +42,9 @@ export function ControllerPill({
   const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showPillHover = pillHovered && !buttonHovered
-  const pillBg = showPillHover
-    ? '#25242899'
-    : (stealthEnabled ? '#18171c80' : '#18171ccc')
+  // Same fill in both modes. A lighter one in undetectable mode made the
+  // pill unreadable over white pages.
+  const pillBg = showPillHover ? '#25242899' : '#18171ccc'
 
   const clearTooltipHideTimer = () => {
     if (tooltipHideTimerRef.current) {
