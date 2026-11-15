@@ -146,8 +146,12 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
   return (
     <>
       <header className="relative z-50 flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white backdrop-blur-md">
+        {/* The three sections share the row. The two sides take equal
+            space, which centers the search; when the right side needs more
+            (session chip, offline badge) the search moves over instead of
+            sitting underneath it. */}
         {/* Left section - Logo */}
-        <div className="flex items-center">
+        <div className="flex flex-1 items-center">
           <img
             src={ravenFullLogo}
             alt="Raven"
@@ -156,8 +160,8 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
           />
         </div>
 
-        {/* Center section - Search trigger (absolutely centered) */}
-        <div className="absolute left-1/2 -translate-x-1/2 w-full max-w-md px-4">
+        {/* Center section - Search trigger */}
+        <div className="w-full max-w-md min-w-0 px-4">
           <button
             onClick={() => {
               setSearchOpen(true)
@@ -171,7 +175,7 @@ export function Header({ stealth, onToggleStealth, onStartRaven, isRecording, on
         </div>
 
         {/* Right section */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 min-w-max items-center justify-end gap-2">
           {/* Ask my meetings */}
           {onOpenAsk && (
             <div className="relative group">
