@@ -19,6 +19,7 @@ describe('Settings model catalog', () => {
       'claude-opus-4-7',
       'claude-opus-4-6',
       'claude-opus-4-5',
+      'claude-fable-5-2',
       'claude-fable-5',
     ])
     expect(MODEL_CATALOG.openai.map((m) => m.id)).toEqual([

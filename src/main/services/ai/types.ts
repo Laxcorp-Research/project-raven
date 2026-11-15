@@ -49,8 +49,8 @@ export interface ModelOption {
 
 // Official per-model ladders. Do not reuse one list across families.
 // Anthropic: https://platform.claude.com/docs/en/build-with-claude/effort
-//   max: Fable 5, Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5, Sonnet 4.6
-//   xhigh: Fable 5, Opus 5, Opus 4.8, Opus 4.7, Sonnet 5 (not 4.6 / Opus 4.6 / Opus 4.5)
+//   max: Fable 5.2, Fable 5, Opus 5, Opus 4.8, Opus 4.7, Opus 4.6, Sonnet 5, Sonnet 4.6
+//   xhigh: Fable 5.2, Fable 5, Opus 5, Opus 4.8, Opus 4.7, Sonnet 5 (not 4.6 / Opus 4.6 / Opus 4.5)
 //   Opus 4.5: low/medium/high only. Haiku 4.5 and Sonnet 4.5: no effort API.
 // OpenAI: every GPT-5.x model (5.6 Luna/Terra/Sol, 5.5, 5.4, 5.4-mini, 5.2)
 // accepts none/low/medium/high/xhigh. `max` is Anthropic-only; the API
@@ -72,6 +72,7 @@ export const MODEL_CATALOG: Record<AIProviderName, ModelOption[]> = {
     { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', effort: ANTHROPIC_FULL },
     { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', effort: ANTHROPIC_NO_XHIGH },
     { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', effort: ANTHROPIC_OPUS_45 },
+    { id: 'claude-fable-5-2', label: 'Claude Fable 5.2', effort: ANTHROPIC_FULL },
     { id: 'claude-fable-5', label: 'Claude Fable 5', effort: ANTHROPIC_FULL },
   ],
   openai: [

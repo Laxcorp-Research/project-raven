@@ -7,6 +7,7 @@ import {
   buildAnthropicEffortParams,
   buildOpenAIEffortParams,
   effortLevelsForModel,
+  resolveCatalogModel,
   resolveEffort,
   streamMaxTokensFor,
   contextWindowFor,
@@ -27,9 +28,18 @@ describe('AI model catalog (2026-08)', () => {
       'claude-opus-4-7',
       'claude-opus-4-6',
       'claude-opus-4-5',
+      'claude-fable-5-2',
       'claude-fable-5',
     ])
     expect(DEFAULT_MODELS.anthropic).toBe('claude-haiku-4-5')
+  })
+
+  it('keeps a saved claude-fable-5-2 selection instead of falling back to the default model', () => {
+    expect(resolveCatalogModel('anthropic', 'claude-fable-5-2')).toBe('claude-fable-5-2')
+    // Anthropic lists Mythos 5.2 as limited availability, for verified
+    // organizations only, so it must not be selectable.
+    expect(PROVIDER_MODELS.anthropic).not.toContain('claude-mythos-5-2')
+    expect(resolveCatalogModel('anthropic', 'claude-mythos-5-2')).toBe('claude-haiku-4-5')
   })
 
   it('lists every current and still-available OpenAI model', () => {
@@ -49,6 +59,9 @@ describe('AI model catalog (2026-08)', () => {
     expect(effortLevelsForModel('anthropic', 'claude-haiku-4-5')).toBeNull()
     expect(effortLevelsForModel('anthropic', 'claude-sonnet-4-5')).toBeNull()
     expect(effortLevelsForModel('anthropic', 'claude-sonnet-5')).toEqual([
+      'low', 'medium', 'high', 'xhigh', 'max',
+    ])
+    expect(effortLevelsForModel('anthropic', 'claude-fable-5-2')).toEqual([
       'low', 'medium', 'high', 'xhigh', 'max',
     ])
     expect(effortLevelsForModel('anthropic', 'claude-fable-5')).toEqual([
@@ -137,6 +150,7 @@ describe('AI model catalog (2026-08)', () => {
     expect(streamMaxTokensFor('anthropic', 'claude-sonnet-4-5')).toBe(64000)
     expect(streamMaxTokensFor('anthropic', 'claude-opus-4-5')).toBe(64000)
     expect(streamMaxTokensFor('anthropic', 'claude-sonnet-5')).toBe(128000)
+    expect(streamMaxTokensFor('anthropic', 'claude-fable-5-2')).toBe(128000)
     expect(streamMaxTokensFor('anthropic', 'claude-fable-5')).toBe(128000)
     expect(streamMaxTokensFor('anthropic', 'claude-opus-5')).toBe(128000)
     expect(streamMaxTokensFor('openai', 'gpt-5.6-luna')).toBe(128000)
@@ -150,6 +164,7 @@ describe('AI model catalog (2026-08)', () => {
     expect(contextWindowFor('anthropic', 'claude-sonnet-5')).toBe(1000000)
     expect(contextWindowFor('anthropic', 'claude-opus-5')).toBe(1000000)
     expect(contextWindowFor('anthropic', 'claude-fable-5')).toBe(1000000)
+    expect(contextWindowFor('anthropic', 'claude-fable-5-2')).toBe(1000000)
     expect(contextWindowFor('openai', 'gpt-5.2')).toBe(400000)
     expect(contextWindowFor('openai', 'gpt-5.4-mini')).toBe(400000)
     expect(contextWindowFor('openai', 'gpt-5.4')).toBe(1050000)
@@ -250,6 +265,17 @@ describe('buildAnthropicEffortParams', () => {
   it('sends effort only on Fable 5 (thinking cannot be disabled)', () => {
     expect(buildAnthropicEffortParams('claude-fable-5', 'max')).toEqual({
       output_config: { effort: 'max' },
+    })
+  })
+
+  it('sends effort only on Fable 5.2, never a thinking param', () => {
+    expect(buildAnthropicEffortParams('claude-fable-5-2', 'xhigh')).toEqual({
+      output_config: { effort: 'xhigh' },
+    })
+    // No stored effort yet: send low explicitly, since omitting it would run
+    // at the API default (high) while the picker shows Low.
+    expect(buildAnthropicEffortParams('claude-fable-5-2')).toEqual({
+      output_config: { effort: 'low' },
     })
   })
 
