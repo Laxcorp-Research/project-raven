@@ -253,6 +253,19 @@ describe('AnthropicProvider', () => {
       expect(args.output_config).toEqual({ effort: 'low' })
     })
 
+    it('requests claude-fable-5-2 with the selected effort, 128k output and no thinking param', async () => {
+      const provider = makeProviderForModel('claude-fable-5-2', 'xhigh')
+      await provider.streamResponse(
+        { system: 'sys', messages: [{ role: 'user', content: 'hi' }] },
+        { onText: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+      )
+      const args = mockStream.mock.calls[mockStream.mock.calls.length - 1][0]
+      expect(args.model).toBe('claude-fable-5-2')
+      expect(args.thinking).toBeUndefined()
+      expect(args.output_config).toEqual({ effort: 'xhigh' })
+      expect(args.max_tokens).toBe(128000)
+    })
+
     it('sends the selected effort on claude-opus-4-7', async () => {
       const provider = makeProviderForModel('claude-opus-4-7', 'high')
       await provider.streamResponse(
