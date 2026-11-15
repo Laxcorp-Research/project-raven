@@ -1033,7 +1033,9 @@ export function OverlayWindow() {
         <div
           className={`relative z-[1] rounded-2xl overflow-hidden flex flex-col ${isPanelExpanded ? 'h-full' : ''}`}
           style={{
-            background: stealthEnabled ? '#18171c80' : '#18171ccc',
+            // Same fill in both modes. A lighter one in undetectable mode
+            // made the panel unreadable over white pages.
+            background: '#18171ccc',
             boxShadow: '0 0 0 1px rgba(207,226,255,0.24), 0 -0.5px 0 0 rgba(255,255,255,0.8)',
           }}
         >
